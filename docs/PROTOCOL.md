@@ -1,4 +1,4 @@
-# API and WebSocket protocol (v2)
+# API and WebSocket protocol (v1)
 
 This file is the contract between the frontend and the backend. Both sides build against it.
 **Change it only in a pull request that both developers agree on.**
@@ -13,7 +13,7 @@ frontend can show `detail` directly.
 
 | Method and path | Status | Purpose |
 | --- | --- | --- |
-| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.6.0"}` |
+| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.5.0"}` |
 | `POST /api/sessions` | live | Start a conversation; returns the session id |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
 
@@ -85,18 +85,22 @@ Close codes:
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
-| binary audio frame | live | raw audio (section 4) | Microphone audio, sent continuously while listening |
-| `audio.pause` | live | none | The browser stopped sending audio (for example while a translation is being spoken). Any sentence in progress ends now |
 | `ping` | live | none | Keep-alive; answered with `pong` |
-| `session.stop` | live | none | End the conversation. A sentence in progress is ended and translated; sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
+| `session.stop` | live | none | End the conversation. Sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
+| `utterance.start` | live | `utterance_id` (UUID), `speaker_id` (`A`/`B`), `spoken_language` (code or `null` for auto-detect) | A talk button was pressed; audio frames follow |
+| binary audio frame | live | raw audio (section 4) | Audio for the open utterance |
+| `utterance.end` | live | `utterance_id` | The person stopped talking |
 
-Listening is hands-free: there are no talk buttons. The browser streams the microphone and the
-server finds each sentence by itself. A sentence starts when speech is heard (about 0.3 s of the
-quiet before it is kept so the first word is not cut), ends after about 1.5 s of silence, and is
-split at 30 s if nobody pauses. Silence and short noises are not sent anywhere.
+Rules for utterances:
 
-While a translation is being spoken aloud, the browser sends `audio.pause` and stops sending audio,
-so the app never hears itself; it resumes sending frames when playback ends.
+- `utterance_id` must be a UUID in its standard 36-character form (as `crypto.randomUUID()` makes).
+- Only one utterance can be open per connection. If a new `utterance.start` arrives before the
+  previous one ended, the previous one is discarded and reported with an `invalid_message` error
+  carrying the previous `utterance_id`; the new one starts normally.
+- After an utterance is rejected while audio is still arriving (`audio_too_long` or a malformed
+  frame), its remaining frames and its `utterance.end` are ignored without further errors.
+- `spoken_language` is optional. Send a code to skip automatic detection, or `null`.
+- Unknown extra fields are rejected with `invalid_message`.
 
 ## 4. Audio format
 
@@ -105,7 +109,9 @@ so the app never hears itself; it resumes sending frames when playback ends.
 | Encoding | PCM, signed 16-bit, little-endian |
 | Channels | 1 (mono) |
 | Sample rate | 16,000 Hz |
-| Frame size | About 100 ms: 1,600 samples = 3,200 bytes per binary message. Must be a non-empty even number of bytes and at most 32,000 bytes (1 s), otherwise `invalid_message` and that frame is dropped |
+| Frame size | About 100 ms: 1,600 samples = 3,200 bytes per binary message. Must be an even number of bytes and at most 32,000 bytes (1 s), otherwise `invalid_message` and the utterance is dropped |
+| When | Only between `utterance.start` and `utterance.end` |
+| Limits | Under 0.3 s, or no 100 ms stretch louder than silence: `audio_too_short`. Over 30 s: `audio_too_long`, sent once; the rest of that utterance's frames and its `utterance.end` are ignored. The browser should stop at 30 s |
 
 ## 5. Server to browser messages
 
@@ -115,62 +121,51 @@ All include `type` and `seq`.
 | --- | --- | --- | --- |
 | `session.ready` | live | `session_id`, `participants`, `server_voice` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
 | `pong` | live | none | Answer to `ping` |
-| `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`); `voice_unavailable` also has `listener_id` | Show `message` to the user |
-| `utterance.received` | live | `utterance_id`, `duration_ms` | The server heard a sentence and is processing it. `utterance_id` is made by the server |
-| `utterance.ignored` | live | `utterance_id` | No words were recognised (noise, coughing). Remove the pending turn quietly and keep listening |
-| `transcript.final` | live | `utterance_id`, `speaker_id` (`A`, `B` or `null`), `text`, `language`, `language_name` | What was said, in the words and script spoken, its detected language code and English language name |
-| `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text` | The sentence translated into this listener's chosen language |
+| `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`) | Show `message` to the user |
+| `utterance.received` | live | `utterance_id`, `speaker_id`, `duration_ms` | Whole sentence received |
+| `transcript.final` | live | `utterance_id`, `speaker_id`, `text`, `language`, `language_name` | What was said, its detected language code and the English name of that language as reported live by the speech service |
+| `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text`, `translated` | Text for the listener; `translated: false` when it was already in their language, and `text` is then the original |
 | `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
 
-Who spoke is decided by the language heard. A person's language matches when its code is the same,
-or when a two-letter and a three-letter code have the same English name (`te` and `tel`). When no
-person matches that way, the model's own answer decides, which covers one language known by two
-names (`tl` Tagalog and `fil` Filipino):
+After `utterance.received`, each utterance gets either `transcript.final` followed by
+`translation.final`, or one `error` carrying its `utterance_id`. Results arrive in the order the
+utterances were spoken. The listener is always the other participant, and the translation is
+into their `preferred_language`. At most 5 sentences can wait for translation at once; more get
+a retryable `provider_unavailable` error.
 
-- The language matches exactly one person's chosen language: that person is the speaker
-  (`speaker_id`), and the other person gets one `translation.final`.
-- It matches neither person (a third language): `speaker_id` is `null` and both people get a
-  `translation.final` in their own language.
-- It matches both people (both chose that language): `speaker_id` is `null` and nobody needs a
-  translation, so only `transcript.final` is sent.
-
-After `utterance.received`, each utterance gets exactly one of: `transcript.final` followed by its
-`translation.final` messages (if any), `utterance.ignored`, or one `error` carrying its
-`utterance_id`. Results arrive in the order the sentences were spoken. A translation that only repeats the words
-spoken (apart from a single short word such as a name or "No.") is refused as a retryable
-`provider_unavailable` error. At most 5 sentences can
-wait for translation at once; more get a retryable `provider_unavailable` error straight away, so
-that error can arrive before the results of earlier sentences.
-
-Voice, when `server_voice` is `true`: each `translation.final` later gets either one `tts.audio`
-or one `voice_unavailable` error for the same `utterance_id` and `listener_id`. When both
-people need the same words, the voice is made once and sent to each of them. On
-`voice_unavailable`, speak that translation with the browser's own voice if it has one, otherwise
-show captions only. Voices arrive in the order the sentences were spoken (a `voice_unavailable` for a full voice queue is sent at once, so it can arrive before earlier voices), and making a voice never
-delays the next translation. At most 5 voices can wait at once; more get `voice_unavailable`. On
-`session.stop`, voices still being made are finished within the same grace period as translations;
-any not ready by then get `voice_unavailable` before the close.
+Voice, when `server_voice` is `true`: after `translation.final` with `translated: true`, the same
+`utterance_id` later gets either one `tts.audio` or one `voice_unavailable` error. On
+`voice_unavailable`, speak the translation with the browser's own voice if it has one, otherwise
+show captions only. Voices arrive in the order the utterances were spoken, and making a voice never
+delays the next translation. Nothing is spoken when `translated` is `false`. At most 5 voices can
+wait at once; more get `voice_unavailable`. On `session.stop`, voices still being made are
+finished within the same grace period as translations; any not ready by then get
+`voice_unavailable` before the close.
 
 Show `text` fields as plain text, never as HTML: they contain whatever the speaker said.
 
 ### Example exchange
 
 ```text
--> (binary audio frames, about 100 ms each, continuously)
-<- {"type":"utterance.received","seq":2,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","duration_ms":2100}
-<- {"type":"transcript.final","seq":3,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","text":"మీరు ఎలా ఉన్నారు?","language":"te","language_name":"Telugu"}
-<- {"type":"translation.final","seq":4,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","listener_id":"A","target_language":"en","text":"How are you?"}
-<- {"type":"tts.audio","seq":5,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","listener_id":"A","format":"wav","audio_base64":"UklGR..."}
--> {"type":"audio.pause"}
+-> {"type":"utterance.start","utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","spoken_language":null}
+-> (binary audio frames, about 100 ms each)
+-> {"type":"utterance.end","utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}
+<- {"type":"utterance.received","seq":4,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","duration_ms":2100}
+<- {"type":"transcript.final","seq":5,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","text":"మీరు ఎలా ఉన్నారు?","language":"te","language_name":"Telugu"}
+<- {"type":"translation.final","seq":6,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","listener_id":"A","target_language":"en","text":"How are you?","translated":true}
 ```
 
 ## 6. Error codes
 
 | Code | Status | Retryable | When |
 | --- | --- | --- | --- |
-| `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, too large, malformed audio frame |
+| `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, invalid fields, too large, second open utterance, malformed audio frame |
 | `unknown_session` | live | no | The session id does not exist, has expired or its channel is already open (then close 4404) |
+| `no_active_utterance` | live | no | Audio or `utterance.end` without an open utterance |
+| `audio_too_short` | live | no | Under 0.3 s, silence, or no words recognised |
+| `audio_too_long` | live | no | Over 30 s in one utterance |
+| `unsupported_language` | live | yes | The speech service could not identify the language spoken |
 | `provider_unavailable` | live | depends | Retryable: speech service unreachable, slow, erroring, returned an unreadable answer or did not translate the sentence, or 5 sentences are already waiting behind the one being translated. Not retryable: no key or model set up, key or model rejected, audio could not be processed, or the service refused the sentence |
 | `quota_exceeded` | live | yes, later | Free-tier limit reached; try again after a minute |
 | `voice_unavailable` | live | no | The server could not make the voice for this translation (free voice limit, service unreachable, too many waiting); use the browser voice or captions only |

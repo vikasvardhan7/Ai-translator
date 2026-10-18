@@ -1,67 +1,45 @@
 import base64
-import copy
 
 import pytest
-from starlette.websockets import WebSocketDisconnect
 
 from app.core.config import Settings
-from tests.conftest import FRONTEND, VALID_BODY, make_client
+from tests.conftest import FRONTEND, make_client
 from tests.fakes import VOICE_LIMIT, FakeSynthesizer, FakeTranslator
-from tests.test_pipeline import open_stream, speak
-
-
-def voiced(synthesizer: FakeSynthesizer, translator=None, settings=None):
-    return make_client(settings, translator=translator or FakeTranslator(), synthesizer=synthesizer)
+from tests.test_pipeline import OTHER, UID, open_stream, speak
 
 
 def test_ready_says_whether_the_server_makes_voices() -> None:
     with open_stream(make_client(translator=FakeTranslator())) as ws:
         assert ws.receive_json()["server_voice"] is False
-    with open_stream(voiced(FakeSynthesizer())) as ws:
+    client = make_client(translator=FakeTranslator(), synthesizer=FakeSynthesizer())
+    with open_stream(client) as ws:
         assert ws.receive_json()["server_voice"] is True
 
 
 def test_translation_is_spoken_for_the_listener() -> None:
     synthesizer = FakeSynthesizer()
 
-    with open_stream(voiced(synthesizer)) as ws:
+    with open_stream(make_client(translator=FakeTranslator(), synthesizer=synthesizer)) as ws:
         ws.receive_json()
         speak(ws)
-        received, _, _ = (ws.receive_json() for _ in range(3))
+        types = [ws.receive_json()["type"] for _ in range(3)]
         voice = ws.receive_json()
 
+    assert types == ["utterance.received", "transcript.final", "translation.final"]
     assert voice["type"] == "tts.audio"
-    assert (voice["utterance_id"], voice["listener_id"], voice["format"]) == (
-        received["utterance_id"],
-        "A",
-        "wav",
-    )
+    assert (voice["utterance_id"], voice["listener_id"], voice["format"]) == (UID, "A", "wav")
     assert base64.b64decode(voice["audio_base64"]) == b"RIFF-voice"
-    assert synthesizer.texts == ["How are you? [en]"]
+    assert synthesizer.texts == ["How are you?"]
 
 
-def test_a_third_language_is_spoken_for_both_people() -> None:
+def test_nothing_is_spoken_when_the_listener_already_understands() -> None:
     synthesizer = FakeSynthesizer()
-    translator = FakeTranslator(language="hi", text="नमस्ते", language_name="Hindi")
+    translator = FakeTranslator(language="en", text="Hello")
 
-    with open_stream(voiced(synthesizer, translator)) as ws:
+    with open_stream(make_client(translator=translator, synthesizer=synthesizer)) as ws:
         ws.receive_json()
         speak(ws)
-        messages = [ws.receive_json() for _ in range(6)]
-
-    voices = [m["listener_id"] for m in messages if m["type"] == "tts.audio"]
-    assert voices == ["A", "B"]
-
-
-def test_nothing_is_spoken_when_everyone_understands() -> None:
-    synthesizer = FakeSynthesizer()
-    body = copy.deepcopy(VALID_BODY)
-    body["participants"][0]["preferred_language"] = "te"
-
-    with open_stream(voiced(synthesizer), body) as ws:
-        ws.receive_json()
-        speak(ws)
-        [ws.receive_json() for _ in range(2)]
+        [ws.receive_json() for _ in range(3)]
         ws.send_json({"type": "ping"})
         assert ws.receive_json()["type"] == "pong"
 
@@ -69,15 +47,16 @@ def test_nothing_is_spoken_when_everyone_understands() -> None:
 
 
 def test_a_failed_voice_tells_the_browser_to_use_its_own() -> None:
-    with open_stream(voiced(FakeSynthesizer(failure=VOICE_LIMIT))) as ws:
+    synthesizer = FakeSynthesizer(failure=VOICE_LIMIT)
+
+    with open_stream(make_client(translator=FakeTranslator(), synthesizer=synthesizer)) as ws:
         ws.receive_json()
         speak(ws)
-        received = ws.receive_json()
-        [ws.receive_json() for _ in range(2)]
+        [ws.receive_json() for _ in range(3)]
         error = ws.receive_json()
 
-    assert (error["code"], error["utterance_id"]) == ("voice_unavailable", received["utterance_id"])
-    assert error["listener_id"] == "A"
+    assert error["code"] == "voice_unavailable"
+    assert error["utterance_id"] == UID
     assert error["retryable"] is False
     assert "limit" in error["message"]
 
@@ -90,46 +69,54 @@ def test_an_unexpected_voice_crash_keeps_later_voices_working() -> None:
                 raise RuntimeError("boom")
             return await super().synthesize(text)
 
-    with open_stream(voiced(BrokenOnce())) as ws:
+    with open_stream(make_client(translator=FakeTranslator(), synthesizer=BrokenOnce())) as ws:
         ws.receive_json()
         speak(ws)
         [ws.receive_json() for _ in range(3)]
         error = ws.receive_json()
-        speak(ws)
+        speak(ws, utterance_id=OTHER)
         later = [ws.receive_json()["type"] for _ in range(4)]
 
-    assert error["code"] == "voice_unavailable"
+    assert (error["code"], error["utterance_id"]) == ("voice_unavailable", UID)
     assert "boom" not in error["message"]
     assert later[-1] == "tts.audio"
 
 
 def test_a_slow_voice_does_not_hold_back_the_next_translation() -> None:
-    with open_stream(voiced(FakeSynthesizer(delays=[1.0, 0.0]))) as ws:
+    synthesizer = FakeSynthesizer(delays=[1.0, 0.0])
+
+    with open_stream(make_client(translator=FakeTranslator(), synthesizer=synthesizer)) as ws:
         ws.receive_json()
-        speak(ws)
-        speak(ws)
+        speak(ws, utterance_id=UID)
+        speak(ws, utterance_id=OTHER)
         messages = [ws.receive_json() for _ in range(8)]
 
-    ids = [m["utterance_id"] for m in messages if m["type"] == "utterance.received"]
     order = [(m["type"], m["utterance_id"]) for m in messages]
-    assert order.index(("translation.final", ids[1])) < order.index(("tts.audio", ids[0]))
-    assert [m["utterance_id"] for m in messages if m["type"] == "tts.audio"] == ids
+    assert order.index(("translation.final", OTHER)) < order.index(("tts.audio", UID))
+    voices = [m["utterance_id"] for m in messages if m["type"] == "tts.audio"]
+    assert voices == [UID, OTHER]
 
 
-def test_too_many_waiting_voices_fall_back_to_the_browser() -> None:
-    with open_stream(voiced(FakeSynthesizer(delays=[2.0]))) as ws:
+def test_too_many_waiting_voices_fall_back_to_text() -> None:
+    synthesizer = FakeSynthesizer(delays=[2.0])
+    ids = [f"0f8fad5b-d9cb-469f-a165-7086772895{n:02d}" for n in range(7)]
+
+    with open_stream(make_client(translator=FakeTranslator(), synthesizer=synthesizer)) as ws:
         ws.receive_json()
-        for _ in range(7):
-            speak(ws, seconds=0.5)
-        messages = [ws.receive_json() for _ in range(22)]
+        for utterance_id in ids:
+            speak(ws, utterance_id=utterance_id, seconds=0.5)
+        messages = [ws.receive_json() for _ in range(len(ids) * 3 + 1)]
 
-    ids = [m["utterance_id"] for m in messages if m["type"] == "utterance.received"]
-    busy = [(m["code"], m["utterance_id"]) for m in messages if m["type"] == "error"]
-    assert busy == [("voice_unavailable", ids[-1])]
+    busy = [m for m in messages if m["type"] == "error"]
+    assert [(m["code"], m["utterance_id"]) for m in busy] == [("voice_unavailable", ids[-1])]
 
 
 def test_end_waits_for_the_last_voice() -> None:
-    with open_stream(voiced(FakeSynthesizer(delays=[0.3]))) as ws:
+    from starlette.websockets import WebSocketDisconnect
+
+    synthesizer = FakeSynthesizer(delays=[0.3])
+
+    with open_stream(make_client(translator=FakeTranslator(), synthesizer=synthesizer)) as ws:
         ws.receive_json()
         speak(ws)
         ws.send_json({"type": "session.stop"})
@@ -142,27 +129,31 @@ def test_end_waits_for_the_last_voice() -> None:
 
 
 def test_end_reports_a_voice_it_could_not_finish(monkeypatch) -> None:
+    from starlette.websockets import WebSocketDisconnect
+
     from app.api import stream
 
     monkeypatch.setattr(stream, "STOP_GRACE_SECONDS", 0)
     settings = Settings(_env_file=None, frontend_origin=FRONTEND, speech_timeout_seconds=0.3)
+    synthesizer = FakeSynthesizer(delays=[5.0])
+    client = make_client(settings, translator=FakeTranslator(), synthesizer=synthesizer)
 
-    with open_stream(voiced(FakeSynthesizer(delays=[5.0]), settings=settings)) as ws:
+    with open_stream(client) as ws:
         ws.receive_json()
         speak(ws)
-        received = ws.receive_json()
-        [ws.receive_json() for _ in range(2)]
+        [ws.receive_json() for _ in range(3)]
         ws.send_json({"type": "session.stop"})
         error = ws.receive_json()
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
 
-    assert (error["code"], error["utterance_id"]) == ("voice_unavailable", received["utterance_id"])
+    assert (error["code"], error["utterance_id"]) == ("voice_unavailable", UID)
     assert closed.value.code == 1000
 
 
 def test_leaving_while_a_voice_is_being_made_is_handled() -> None:
-    client = voiced(FakeSynthesizer(delays=[1.0]))
+    synthesizer = FakeSynthesizer(delays=[1.0])
+    client = make_client(translator=FakeTranslator(), synthesizer=synthesizer)
 
     with open_stream(client) as ws:
         ws.receive_json()
@@ -171,35 +162,3 @@ def test_leaving_while_a_voice_is_being_made_is_handled() -> None:
 
     with open_stream(client) as ws:
         assert ws.receive_json()["type"] == "session.ready"
-
-
-def test_people_with_the_same_language_share_one_voice() -> None:
-    synthesizer = FakeSynthesizer()
-    translator = FakeTranslator(language="hi", text="नमस्ते", language_name="Hindi")
-    body = copy.deepcopy(VALID_BODY)
-    body["participants"][1]["preferred_language"] = "en"
-
-    with open_stream(voiced(synthesizer, translator), body) as ws:
-        ws.receive_json()
-        speak(ws)
-        messages = [ws.receive_json() for _ in range(6)]
-
-    translations = [m["listener_id"] for m in messages if m["type"] == "translation.final"]
-    voices = [m["listener_id"] for m in messages if m["type"] == "tts.audio"]
-    assert translations == ["A", "B"]
-    assert voices == ["A", "B"]
-    assert len(synthesizer.texts) == 1
-
-
-def test_a_failed_shared_voice_is_reported_for_each_listener() -> None:
-    translator = FakeTranslator(language="hi", text="नमस्ते", language_name="Hindi")
-    body = copy.deepcopy(VALID_BODY)
-    body["participants"][1]["preferred_language"] = "en"
-
-    with open_stream(voiced(FakeSynthesizer(failure=VOICE_LIMIT), translator), body) as ws:
-        ws.receive_json()
-        speak(ws)
-        messages = [ws.receive_json() for _ in range(6)]
-
-    errors = [(m["code"], m["listener_id"]) for m in messages if m["type"] == "error"]
-    assert errors == [("voice_unavailable", "A"), ("voice_unavailable", "B")]
