@@ -143,7 +143,7 @@ Voice, when `server_voice` is `true`: each `translation.final` later gets either
 or one `voice_unavailable` error for the same `utterance_id` and `listener_id`. When both
 people need the same words, the voice is made once and sent to each of them. On
 `voice_unavailable`, speak that translation with the browser's own voice if it has one, otherwise
-show captions only. Voices arrive in the order the sentences were spoken, and making a voice never
+show captions only. Voices arrive in the order the sentences were spoken (a `voice_unavailable` for a full voice queue is sent at once, so it can arrive before earlier voices), and making a voice never
 delays the next translation. At most 5 voices can wait at once; more get `voice_unavailable`. On
 `session.stop`, voices still being made are finished within the same grace period as translations;
 any not ready by then get `voice_unavailable` before the close.

@@ -88,7 +88,8 @@ async def translate_sample(translator: Any, model: str, sample: Sample, target: 
     row = Row(model, sample.name, sample.expected)
     started = time.perf_counter()
     try:
-        result = await translator.translate_speech(sample.audio, "audio/wav", [target])
+        conversation = list(dict.fromkeys([sample.expected, target]))
+        result = await translator.translate_speech(sample.audio, "audio/wav", conversation)
         row.detected = result.language
         row.transcript = result.text
         row.translation = result.for_language(target).text

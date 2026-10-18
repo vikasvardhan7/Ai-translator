@@ -49,6 +49,7 @@ def test_ping_pong_and_seq_increase(client: TestClient, session_id: str) -> None
         (json.dumps({"type": "dance"}), "Unknown message type 'dance'"),
         ("x" * 70_000, "too large"),
     ],
+    ids=["not-json", "not-object", "type-not-text", "unknown-type", "too-large"],
 )
 def test_bad_messages_get_invalid_message_errors(
     client: TestClient, session_id: str, raw: str, expected_message_part: str

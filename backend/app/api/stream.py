@@ -136,7 +136,7 @@ class StreamHandler:
         finally:
             for worker in workers:
                 await _cancel(worker)
-        if stop_requested:
+        if stop_requested and self.connected():
             await self._websocket.close(code=CLOSE_NORMAL)
 
     async def _finish_pending(
@@ -146,6 +146,8 @@ class StreamHandler:
         deadline = loop.time() + self._settings.speech_timeout_seconds + STOP_GRACE_SECONDS
         await _drain(self._pending, translating, deadline - loop.time())
         await _cancel(translating)
+        if not self.connected():
+            return
         for segment in self._unfinished():
             await self._sender.error(
                 ErrorCode.PROVIDER_UNAVAILABLE,
@@ -156,6 +158,8 @@ class StreamHandler:
             return
         await _drain(self._voices, speaking, deadline - loop.time())
         await _cancel(speaking)
+        if not self.connected():
+            return
         for request in self._unspoken():
             await self._voice_failed(request, "The conversation ended before this voice was made.")
 
@@ -263,7 +267,7 @@ class StreamHandler:
             except WebSocketDisconnect:
                 return
             except Exception:
-                if not self._connected():
+                if not self.connected():
                     return
                 logger.exception("Translation failed for %s", segment.utterance_id)
                 try:
@@ -280,7 +284,7 @@ class StreamHandler:
                 del segment
             self._in_flight = None
 
-    def _connected(self) -> bool:
+    def connected(self) -> bool:
         return (
             self._websocket.client_state == WebSocketState.CONNECTED
             and self._websocket.application_state == WebSocketState.CONNECTED
@@ -360,7 +364,7 @@ class StreamHandler:
             except WebSocketDisconnect:
                 return
             except Exception:
-                if not self._connected():
+                if not self.connected():
                     return
                 logger.exception("Voice failed for %s", request.utterance_id)
                 try:
@@ -431,5 +435,7 @@ async def handle_stream(
     except WebSocketDisconnect:
         return
     except Exception:
+        if not handler.connected():
+            return
         logger.exception("Live channel failed for session %s", session.id)
         await handler.fail()

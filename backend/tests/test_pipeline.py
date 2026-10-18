@@ -1,17 +1,22 @@
+import asyncio
 import copy
 import io
+import json
 import re
 import wave
 
 import pytest
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from app.api.stream import handle_stream
 from app.core.config import Settings
 from app.models.protocol import ErrorCode
+from app.models.session import Participant
+from app.services.session_store import Session
 from app.services.translation.base import NothingRecognised, TranslationFailed
 from tests.audio import frames, tone
 from tests.conftest import FRONTEND, VALID_BODY, make_client
-from tests.fakes import FakeTranslator
+from tests.fakes import FakeSynthesizer, FakeTranslator
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -235,3 +240,34 @@ def test_an_unexpected_crash_keeps_translating_later_sentences() -> None:
     assert (error["code"], error["utterance_id"]) == ("internal_error", received["utterance_id"])
     assert "boom" not in error["message"]
     assert later == ["utterance.received", "transcript.final", "translation.final"]
+
+
+@pytest.mark.anyio
+async def test_leaving_right_after_stop_is_not_a_server_failure(caplog) -> None:
+    inbox: asyncio.Queue = asyncio.Queue()
+    sent: list[str] = []
+    gone = False
+    await inbox.put({"type": "websocket.connect"})
+    for frame in frames(tone(1.0)):
+        await inbox.put({"type": "websocket.receive", "bytes": frame})
+    await inbox.put({"type": "websocket.receive", "text": json.dumps({"type": "session.stop"})})
+
+    async def send(message: dict) -> None:
+        nonlocal gone
+        if gone:
+            raise OSError("browser closed")
+        if text := message.get("text"):
+            sent.append(json.loads(text)["type"])
+        gone = sent[-1:] == ["utterance.received"]
+
+    scope = {"type": "websocket", "path": "/", "headers": [], "query_string": b""}
+    session = Session("s1", [Participant(**p) for p in VALID_BODY["participants"]])
+    settings = Settings(_env_file=None, speech_timeout_seconds=1)
+    translator = FakeTranslator(delays=[0.2])
+
+    await handle_stream(
+        WebSocket(scope, inbox.get, send), lambda: session, settings, translator, FakeSynthesizer()
+    )
+
+    assert "Live channel failed" not in caplog.text
+    assert sent == ["session.ready", "utterance.received"]

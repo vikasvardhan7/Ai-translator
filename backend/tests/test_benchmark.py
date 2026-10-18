@@ -157,3 +157,13 @@ async def test_unrecognised_speech_is_recorded() -> None:
     result = await translate_sample(FakeTranslator(failure=NothingRecognised()), "m", SAMPLE, "en")
 
     assert result.error == "nothing recognised"
+
+
+@pytest.mark.anyio
+async def test_each_clip_is_translated_as_in_a_conversation() -> None:
+    translator = FakeTranslator()
+
+    await translate_sample(translator, "m", SAMPLE, "en")
+    await translate_sample(translator, "m", Sample("en_01", b"x", "en"), "en")
+
+    assert [call.target_languages for call in translator.calls] == [["te", "en"], ["en"]]
