@@ -1,20 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.main import create_app
 from tests.audio import frames, silence, tone
-from tests.conftest import FRONTEND, VALID_BODY
+from tests.conftest import VALID_BODY
 
 UID = "0f8fad5b-d9cb-469f-a165-70867728950e"
-
-
-@pytest.fixture
-def debug_client(tmp_path) -> TestClient:
-    settings = Settings(
-        _env_file=None, frontend_origin=FRONTEND, data_dir=tmp_path, save_debug_audio=True
-    )
-    return TestClient(create_app(settings))
 
 
 def open_stream(client: TestClient):
@@ -51,37 +41,6 @@ def test_spoken_utterance_is_received(client: TestClient) -> None:
     }
 
 
-def test_debug_wav_is_saved_when_enabled(debug_client: TestClient, tmp_path) -> None:
-    with open_stream(debug_client) as ws:
-        ws.receive_json()
-        say(ws, tone(1.0))
-
-    assert (tmp_path / "debug" / f"{UID}.wav").stat().st_size > 32_000
-
-
-def test_no_wav_is_saved_by_default(tmp_path) -> None:
-    settings = Settings(_env_file=None, frontend_origin=FRONTEND, data_dir=tmp_path)
-    with open_stream(TestClient(create_app(settings))) as ws:
-        ws.receive_json()
-        say(ws, tone(1.0))
-
-    assert not (tmp_path / "debug").exists()
-
-
-def test_failed_wav_write_still_confirms_the_utterance(tmp_path) -> None:
-    (tmp_path / "debug").write_text("a file where the folder should be")
-    settings = Settings(
-        _env_file=None, frontend_origin=FRONTEND, data_dir=tmp_path, save_debug_audio=True
-    )
-    with open_stream(TestClient(create_app(settings))) as ws:
-        ws.receive_json()
-        received = say(ws, tone(1.0))
-        ws.send_json({"type": "ping"})
-        assert ws.receive_json()["type"] == "pong"
-
-    assert received["type"] == "utterance.received"
-
-
 def test_silence_returns_audio_too_short_with_the_utterance_id(client: TestClient) -> None:
     with open_stream(client) as ws:
         ws.receive_json()
@@ -108,7 +67,7 @@ def test_too_long_is_reported_once(client: TestClient) -> None:
     [
         ({"utterance_id": "../../etc/passwd"}, "utterance_id"),
         ({"speaker_id": "C"}, "speaker_id"),
-        ({"spoken_language": "xx"}, "not a supported language"),
+        ({"spoken_language": "Telugu"}, "not a language code"),
         ({"extra": 1}, "extra"),
     ],
 )
@@ -129,10 +88,12 @@ def test_two_speakers_take_turns(client: TestClient) -> None:
     with open_stream(client) as ws:
         ws.receive_json()
         first = say(ws, tone(1.0), UID, "A")
+        ws.receive_json()
+        ws.receive_json()
         second = say(ws, tone(1.5), other, "B")
 
     assert (first["speaker_id"], second["speaker_id"]) == ("A", "B")
-    assert (first["seq"], second["seq"]) == (2, 3)
+    assert (first["seq"], second["seq"]) == (2, 5)
 
 
 def start_message(utterance_id: str = UID) -> dict:

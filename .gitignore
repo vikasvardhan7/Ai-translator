@@ -20,7 +20,7 @@ dist/
 *.tsbuildinfo
 npm-debug.log*
 
-# Local data created by the app (databases, recordings, exported transcripts)
+# Local data created by the app (databases)
 *.db
 *.sqlite
 *.sqlite3
@@ -34,7 +34,7 @@ npm-debug.log*
 Thumbs.db
 desktop.ini
 
-# Coding-agent files: each developer keeps their own copy locally
+# Local tool settings, kept on each computer
 CLAUDE.md
 CLAUDE.local.md
 .claude/

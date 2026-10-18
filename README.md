@@ -2,9 +2,9 @@
 
 A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages, speaks the translation aloud, and saves a downloadable transcript.
 
-**Status:** Phase 1, Step 1C (backend): languages list, sessions API, the live WebSocket channel and microphone audio intake are working. No speech recognition or translation yet.
+**Status:** Phase 1, Step 1D (backend): sessions API, live WebSocket channel, microphone audio intake, and speech recognition with translation from any spoken language into the listener's language (Gemini API free tier) are working. There is no fixed language list: any ISO 639 code is accepted. Voice playback and saved transcripts come next.
 
-While testing, set `SAVE_DEBUG_AUDIO=true` in `backend/.env` and every received sentence is saved as `backend/data/debug/<id>.wav` so you can listen to it. Keep it `false` otherwise: it records everything people say.
+Nothing is recorded. Audio is held in memory only until its sentence is translated, a session leaves memory when its live channel opens, and a session that is never opened expires after 10 minutes.
 
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). The step-by-step plan for both developers is in [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx).
 
@@ -52,7 +52,25 @@ Start the server:
 uvicorn app.main:app --reload --port 8000 --ws-max-size 65536
 ```
 
-Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.3.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
+Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.4.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
+
+### Speech recognition and translation
+
+1. Create a free API key at <https://aistudio.google.com> (Get API key).
+2. Put it in `backend/.env` as `GEMINI_API_KEY=...`. Never commit it or paste it anywhere else.
+3. Set `GEMINI_MODEL` in `backend/.env` to a model from `python -m scripts.benchmark --list-models` (the benchmark below helps choose).
+4. Restart the backend. Without a key or model the app still runs, and each sentence gets a clear "not set up" message.
+
+On the free tier Google may use what you send to improve its products, so avoid private conversations.
+
+To compare Gemini models live, from `backend/`:
+
+```powershell
+python -m scripts.benchmark --list-models
+python -m scripts.benchmark --fleurs te,hi,en --count 10 --target en --models <model>,<model>
+```
+
+`--list-models` asks Google which models your key can use. The benchmark streams real speech clips from Google's FLEURS dataset (CC BY 4.0, about 100 languages) straight into each model, one language at a time, and prints what each model heard, its translation and the correct translation, then a summary. Clips stay in memory only while their language is tested; nothing is saved. Without `--models` it tests `GEMINI_MODEL`.
 
 ## Frontend setup
 
@@ -75,8 +93,8 @@ Ai-translator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          FastAPI app, CORS, /health
-│   │   ├── api/             languages, sessions, WebSocket stream
-│   │   ├── core/            settings, language list, error format
+│   │   ├── api/             sessions, WebSocket stream
+│   │   ├── core/            settings, language codes, error format
 │   │   ├── models/          request and response models
 │   │   └── services/        session store
 │   ├── tests/

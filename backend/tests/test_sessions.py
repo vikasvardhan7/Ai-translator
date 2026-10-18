@@ -1,8 +1,10 @@
 import copy
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.services import session_store
 from tests.conftest import VALID_BODY
 
 
@@ -39,14 +41,25 @@ def test_consent_is_required(client: TestClient) -> None:
     assert "agree" in response.text
 
 
-def test_unsupported_language_is_rejected(client: TestClient) -> None:
+def test_text_that_is_not_a_language_code_is_rejected(client: TestClient) -> None:
     bad = body()
-    bad["participants"][0]["preferred_language"] = "xx"
+    bad["participants"][0]["preferred_language"] = "Telugu"
 
     response = client.post("/api/sessions", json=bad)
 
     assert response.status_code == 422
-    assert "not a supported language" in response.text
+    assert "not a language code" in response.text
+
+
+@pytest.mark.parametrize(("given", "stored"), [("yue", "yue"), ("TE", "te"), ("pt-BR", "pt")])
+def test_any_language_code_is_accepted(client: TestClient, given: str, stored: str) -> None:
+    good = body()
+    good["participants"][0]["preferred_language"] = given
+
+    response = client.post("/api/sessions", json=good)
+
+    assert response.status_code == 201
+    assert response.json()["participants"][0]["preferred_language"] == stored
 
 
 def test_duplicate_participant_ids_are_rejected(client: TestClient) -> None:
@@ -83,12 +96,22 @@ def test_unknown_fields_are_rejected(client: TestClient) -> None:
 
 def test_validation_errors_are_one_readable_sentence(client: TestClient) -> None:
     bad = body(consent=False)
-    bad["participants"][0]["preferred_language"] = "xx"
+    bad["participants"][0]["preferred_language"] = "Telugu"
 
     response = client.post("/api/sessions", json=bad)
 
     assert response.status_code == 422
     detail = response.json()["detail"]
     assert isinstance(detail, str)
-    assert "not a supported language" in detail
+    assert "not a language code" in detail
     assert "Value error" not in detail
+
+
+def test_too_many_waiting_sessions_are_refused(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(session_store, "MAX_UNOPENED_SESSIONS", 1)
+    assert client.post("/api/sessions", json=body()).status_code == 201
+
+    response = client.post("/api/sessions", json=body())
+
+    assert response.status_code == 503
+    assert "Too many sessions" in response.json()["detail"]

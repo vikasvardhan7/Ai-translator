@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.core.languages import is_supported
+from app.core.languages import invalid_language_message, language_code
 
 ParticipantId = Literal["A", "B"]
 
@@ -17,9 +17,10 @@ class Participant(BaseModel):
 
     @field_validator("preferred_language")
     @classmethod
-    def language_must_be_supported(cls, code: str) -> str:
-        if not is_supported(code):
-            raise ValueError(f"'{code}' is not a supported language code. See GET /api/languages.")
+    def language_must_be_a_code(cls, value: str) -> str:
+        code = language_code(value)
+        if code is None:
+            raise ValueError(invalid_language_message(value))
         return code
 
 

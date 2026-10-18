@@ -1,7 +1,6 @@
-from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -14,15 +13,10 @@ class Settings(BaseSettings):
 
     app_name: str = "Voice Translator"
     frontend_origin: str = "http://localhost:5173"
-    data_dir: Path = Path("data")
-    save_debug_audio: bool = False
-
-    @field_validator("data_dir")
-    @classmethod
-    def resolve_against_backend_folder(cls, path: Path) -> Path:
-        return path if path.is_absolute() else BACKEND_DIR / path
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str | None = None
+    speech_timeout_seconds: float = Field(default=30.0, gt=0)
 
 
-@lru_cache
 def get_settings() -> Settings:
     return Settings()

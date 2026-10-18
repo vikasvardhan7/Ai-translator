@@ -2,7 +2,8 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
-from tests.conftest import FRONTEND
+from tests.conftest import FRONTEND, make_client
+from tests.fakes import FakeTranslator
 
 
 def test_health_returns_ok(client: TestClient) -> None:
@@ -35,3 +36,12 @@ def test_unexpected_errors_return_json_detail() -> None:
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Internal server error."}
+
+
+def test_shutdown_closes_the_speech_service() -> None:
+    translator = FakeTranslator()
+
+    with make_client(translator=translator):
+        assert translator.closed is False
+
+    assert translator.closed is True
