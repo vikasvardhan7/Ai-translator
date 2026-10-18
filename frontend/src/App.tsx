@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import type { CreateSessionResponse } from './services/protocol';
 import ConsentScreen from './features/consent/ConsentScreen';
-import { HistoryNotice, PrivacyPolicy, TermsAndConditions } from './features/legal/LegalPages';
+import { PrivacyPolicy, TermsAndConditions } from './features/legal/LegalPages';
+import { createSession } from './services/api';
+import type { CreateSessionResponse } from './services/protocol';
 import SessionScreen from './features/session/SessionScreen';
 
-type Screen = 'start' | 'session' | 'history' | 'privacy' | 'terms';
+type Screen = 'start' | 'session' | 'privacy' | 'terms';
 type PublicScreen = Exclude<Screen, 'session'>;
 
 function screenFromHash(): PublicScreen {
   switch (window.location.hash.slice(1)) {
-    case 'history':
-      return 'history';
     case 'privacy':
       return 'privacy';
     case 'terms':
@@ -55,21 +54,18 @@ interface AppNavigationProps {
 function AppNavigation({ screen, onNavigate }: AppNavigationProps) {
   const items: Array<{ screen: PublicScreen; label: string }> = [
     { screen: 'start', label: 'Start' },
-    { screen: 'history', label: 'History' },
     { screen: 'privacy', label: 'Privacy' },
     { screen: 'terms', label: 'Terms' },
   ];
 
   return (
-    <>
-      <nav className="desktop-navigation" aria-label="Main navigation">
-        {items.map((item) => (
-          <AppLink key={item.screen} screen={item.screen} currentScreen={screen} onNavigate={onNavigate}>
-            {item.label}
-          </AppLink>
-        ))}
-      </nav>
-    </>
+    <nav className="desktop-navigation" aria-label="Main navigation">
+      {items.map((item) => (
+        <AppLink key={item.screen} screen={item.screen} currentScreen={screen} onNavigate={onNavigate}>
+          {item.label}
+        </AppLink>
+      ))}
+    </nav>
   );
 }
 
@@ -80,10 +76,11 @@ export default function App() {
   const [hasChangedScreens, setHasChangedScreens] = useState(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const previousScreenRef = useRef<Screen | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     function syncScreenFromHash(): void {
-      setScreen(screenFromHash());
+      setScreen((current) => (current === 'session' ? current : screenFromHash()));
     }
 
     window.addEventListener('hashchange', syncScreenFromHash);
@@ -134,6 +131,7 @@ export default function App() {
   }, []);
 
   const returnToStart = useCallback(() => {
+    sessionIdRef.current = null;
     setSession(null);
     setScreen('start');
     if (window.location.hash !== '#start') {
@@ -142,8 +140,20 @@ export default function App() {
   }, []);
 
   function startSession(nextSession: CreateSessionResponse): void {
+    sessionIdRef.current = nextSession.session_id;
     setSession(nextSession);
     setScreen('session');
+  }
+
+  async function restartSession(): Promise<void> {
+    if (!session) {
+      return;
+    }
+    const startedFrom = session.session_id;
+    const next = await createSession(session.participants, true, session.mode);
+    if (sessionIdRef.current === startedFrom) {
+      startSession(next);
+    }
   }
 
   function navigateFromMobile(nextScreen: PublicScreen): void {
@@ -153,9 +163,14 @@ export default function App() {
 
   let page: ReactNode;
   if (screen === 'session' && session) {
-    page = <SessionScreen session={session} onReturnToStart={returnToStart} />;
-  } else if (screen === 'history') {
-    page = <HistoryNotice />;
+    page = (
+      <SessionScreen
+        key={session.session_id}
+        session={session}
+        onReturnToStart={returnToStart}
+        onRestart={restartSession}
+      />
+    );
   } else if (screen === 'privacy') {
     page = <PrivacyPolicy />;
   } else if (screen === 'terms') {
@@ -167,46 +182,39 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="site-header">
-        <AppLink screen="start" currentScreen={screen} onNavigate={navigate} className="wordmark">
-          Voice Translator
-        </AppLink>
-        <AppNavigation screen={screen} onNavigate={navigate} />
-        <div className="mobile-navigation">
-          <button
-            className="mobile-menu-trigger"
-            type="button"
-            aria-expanded={mobileMenuOpen}
-            aria-controls="mobile-menu-panel"
-            ref={mobileMenuButtonRef}
-            onClick={() => setMobileMenuOpen((open) => !open)}
-          >
-            Menu
-          </button>
-          <nav
-            className="mobile-menu-panel"
-            id="mobile-menu-panel"
-            aria-label="Main navigation"
-            data-open={mobileMenuOpen}
-            aria-hidden={!mobileMenuOpen}
-          >
-            <AppLink screen="start" currentScreen={screen} onNavigate={navigateFromMobile}>Start</AppLink>
-            <AppLink screen="history" currentScreen={screen} onNavigate={navigateFromMobile}>History</AppLink>
-            <AppLink screen="privacy" currentScreen={screen} onNavigate={navigateFromMobile}>Privacy</AppLink>
-            <AppLink screen="terms" currentScreen={screen} onNavigate={navigateFromMobile}>Terms</AppLink>
-          </nav>
-        </div>
-        <AppLink
-          screen="history"
-          currentScreen={screen}
-          onNavigate={navigate}
-          className="history-icon-button"
-          ariaLabel="Open History"
-        >
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <path d="M5 4.75h10.5L19 8.25v11H5z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-            <path d="M15.5 4.75v3.5H19M8 12h8M8 15.5h8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-        </AppLink>
+        {screen === 'session' ? (
+          <span className="wordmark">Voice Translator</span>
+        ) : (
+          <>
+            <AppLink screen="start" currentScreen={screen} onNavigate={navigate} className="wordmark">
+              Voice Translator
+            </AppLink>
+            <AppNavigation screen={screen} onNavigate={navigate} />
+            <div className="mobile-navigation">
+              <button
+                className="mobile-menu-trigger"
+                type="button"
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-menu-panel"
+                ref={mobileMenuButtonRef}
+                onClick={() => setMobileMenuOpen((open) => !open)}
+              >
+                Menu
+              </button>
+              <nav
+                className="mobile-menu-panel"
+                id="mobile-menu-panel"
+                aria-label="Main navigation"
+                data-open={mobileMenuOpen}
+                aria-hidden={!mobileMenuOpen}
+              >
+                <AppLink screen="start" currentScreen={screen} onNavigate={navigateFromMobile}>Start</AppLink>
+                <AppLink screen="privacy" currentScreen={screen} onNavigate={navigateFromMobile}>Privacy</AppLink>
+                <AppLink screen="terms" currentScreen={screen} onNavigate={navigateFromMobile}>Terms</AppLink>
+              </nav>
+            </div>
+          </>
+        )}
       </header>
 
       <div
@@ -218,10 +226,12 @@ export default function App() {
 
       <footer className="site-footer">
         <p>Voice Translator</p>
-        <nav aria-label="Footer links">
-          <AppLink screen="privacy" currentScreen={screen} onNavigate={navigate}>Privacy</AppLink>
-          <AppLink screen="terms" currentScreen={screen} onNavigate={navigate}>Terms</AppLink>
-        </nav>
+        {screen !== 'session' && (
+          <nav aria-label="Footer links">
+            <AppLink screen="privacy" currentScreen={screen} onNavigate={navigate}>Privacy</AppLink>
+            <AppLink screen="terms" currentScreen={screen} onNavigate={navigate}>Terms</AppLink>
+          </nav>
+        )}
       </footer>
     </div>
   );

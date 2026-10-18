@@ -1,5 +1,12 @@
 import { getBackendUrl } from '../config';
-import type { CreateSessionRequest, CreateSessionResponse, Participant } from './protocol';
+import {
+  isParticipant,
+  isSessionMode,
+  type CreateSessionRequest,
+  type CreateSessionResponse,
+  type Participant,
+  type SessionMode,
+} from './protocol';
 
 export interface HealthResponse {
   status: 'ok';
@@ -20,15 +27,6 @@ export class ApiError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isParticipant(value: unknown): value is Participant {
-  return (
-    isRecord(value) &&
-    (value.id === 'A' || value.id === 'B') &&
-    typeof value.name === 'string' &&
-    typeof value.preferred_language === 'string'
-  );
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -66,8 +64,9 @@ export async function getHealth(): Promise<HealthResponse> {
 export async function createSession(
   participants: Participant[],
   consent: boolean,
+  mode: SessionMode = 'together',
 ): Promise<CreateSessionResponse> {
-  const payload: CreateSessionRequest = { consent, participants };
+  const payload: CreateSessionRequest = { consent, mode, participants };
   const body = await requestJson<unknown>('/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,6 +77,7 @@ export async function createSession(
     !isRecord(body) ||
     typeof body.session_id !== 'string' ||
     typeof body.created_at !== 'string' ||
+    !isSessionMode(body.mode) ||
     !Array.isArray(body.participants) ||
     body.participants.length !== 2 ||
     !body.participants.every(isParticipant) ||
@@ -89,6 +89,7 @@ export async function createSession(
 
   return {
     session_id: body.session_id,
+    mode: body.mode,
     participants: body.participants,
     created_at: body.created_at,
   };

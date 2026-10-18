@@ -2,8 +2,6 @@ import { getBackendUrl } from '../config';
 import type { BrowserMessage, ServerMessage } from './protocol';
 import { parseServerMessage } from './protocol';
 
-export type SocketStatus = 'connecting' | 'open' | 'closed' | 'error';
-
 function socketUrl(sessionId: string): string {
   const baseUrl = getBackendUrl();
   const socketBase = baseUrl.startsWith('https://')
@@ -20,18 +18,12 @@ export class SessionSocket {
   private socket: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private lastSequence = 0;
-  private closeCode: number | null = null;
 
   constructor(
     private readonly onMessage: (message: ServerMessage) => void,
-    private readonly onStatus: (status: SocketStatus) => void,
     private readonly onCloseCode: (code: number) => void,
     private readonly createSocket: (url: string) => WebSocket = (url) => new WebSocket(url),
   ) {}
-
-  get lastCloseCode(): number | null {
-    return this.closeCode;
-  }
 
   get isOpen(): boolean {
     return this.socket?.readyState === WebSocket.OPEN;
@@ -39,9 +31,7 @@ export class SessionSocket {
 
   connect(sessionId: string): void {
     this.closeCurrentSocket();
-    this.closeCode = null;
     this.lastSequence = 0;
-    this.onStatus('connecting');
 
     const socket = this.createSocket(socketUrl(sessionId));
     this.socket = socket;
@@ -51,7 +41,6 @@ export class SessionSocket {
         return;
       }
 
-      this.onStatus('open');
       this.pingTimer = setInterval(() => this.send({ type: 'ping' }), 20_000);
     });
 
@@ -69,20 +58,12 @@ export class SessionSocket {
       this.onMessage(message);
     });
 
-    socket.addEventListener('error', () => {
-      if (socket === this.socket) {
-        this.onStatus('error');
-      }
-    });
-
     socket.addEventListener('close', (event: CloseEvent) => {
       if (socket !== this.socket) {
         return;
       }
 
       this.clearPingTimer();
-      this.closeCode = event.code;
-      this.onStatus('closed');
       this.onCloseCode(event.code);
     });
   }
@@ -113,7 +94,6 @@ export class SessionSocket {
 
   close(): void {
     this.closeCurrentSocket();
-    this.onStatus('closed');
   }
 
   private clearPingTimer(): void {

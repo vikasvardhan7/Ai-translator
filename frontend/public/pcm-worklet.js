@@ -1,4 +1,3 @@
-// AudioWorklet processors are loaded by URL and must be plain JavaScript.
 class PcmCaptureProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const channels = inputs[0];

@@ -1,69 +1,61 @@
-import type { SocketStatus } from '../../services/sessionSocket';
+export type SessionPhase = 'connecting' | 'live' | 'ending' | 'closed';
 
 interface StatusBarProps {
-  socketStatus: SocketStatus;
-  channelReady: boolean;
+  phase: SessionPhase;
   issue: string | null;
-  closeCode: number | null;
-  onReconnect: () => void;
+  restarting: boolean;
   onEnd: () => void;
-  onNewSession: () => void;
+  onRestart: () => void;
+  onLeave: () => void;
 }
 
-export default function StatusBar({
-  socketStatus,
-  channelReady,
-  issue,
-  closeCode,
-  onReconnect,
-  onEnd,
-  onNewSession,
-}: StatusBarProps) {
-  const isLost = socketStatus === 'closed' || socketStatus === 'error';
-  const liveText = isLost
-    ? 'Connection lost'
-    : channelReady
-      ? 'Live channel open'
-      : socketStatus === 'connecting'
-        ? 'Connecting to live channel'
-        : 'Opening live channel';
-  const liveTone = isLost ? 'status-danger' : channelReady ? 'status-success' : 'status-pending';
+const LABELS: Record<SessionPhase, string> = {
+  connecting: 'Connecting',
+  live: 'Live',
+  ending: 'Finishing the last sentences',
+  closed: 'Connection lost',
+};
 
+const TONES: Record<SessionPhase, string> = {
+  connecting: 'status-pending',
+  live: 'status-success',
+  ending: 'status-pending',
+  closed: 'status-danger',
+};
+
+export default function StatusBar({ phase, issue, restarting, onEnd, onRestart, onLeave }: StatusBarProps) {
   return (
-    <section className="status-bar" aria-label="Connection status" aria-live="polite" aria-atomic="true">
-      <div className="status-list">
-        <p className="status-item status-success">
-          <span className="status-dot" aria-hidden="true" />
-          <span>Backend connected</span>
-        </p>
-        <p
-          className={`status-item live-status-indicator ${liveTone}`}
-          data-state={isLost ? 'lost' : channelReady ? 'live' : 'pending'}
-        >
-          <span className="status-dot" aria-hidden="true" />
-          <span>{liveText}</span>
-        </p>
-      </div>
+    <section className="status-bar" aria-label="Conversation status">
+      <p className={`status-item live-status-indicator ${TONES[phase]}`} data-state={phase} aria-live="polite">
+        <span className="status-dot" aria-hidden="true" />
+        <span>{LABELS[phase]}</span>
+      </p>
       <div className="status-actions">
-        {isLost && closeCode !== 4404 && (
-          <button className="button button-secondary button-small button-reconnect" type="button" onClick={onReconnect}>
-            Reconnect
+        {phase === 'closed' && (
+          <button
+            className="button button-primary button-small"
+            type="button"
+            onClick={onRestart}
+            disabled={restarting}
+            aria-busy={restarting}
+          >
+            {restarting ? 'Starting again' : 'Start again'}
           </button>
         )}
-        {closeCode === 4404 && (
-          <button className="button button-secondary button-small" type="button" onClick={onNewSession}>
-            Start a new one
+        {phase === 'ending' || phase === 'closed' ? (
+          <button className="button button-secondary button-small" type="button" onClick={onLeave}>
+            Leave
+          </button>
+        ) : (
+          <button className="button button-danger button-small" type="button" onClick={onEnd}>
+            End
           </button>
         )}
-        <button className="button button-secondary button-small" type="button" onClick={onEnd}>
-          End
-        </button>
       </div>
       {issue && (
-        <div className="status-issue" role="alert">
-          <p>{issue}</p>
-          {closeCode === 4404 && <p>This session has ended. Start a new one.</p>}
-        </div>
+        <p className="status-issue" role="alert">
+          {issue}
+        </p>
       )}
     </section>
   );

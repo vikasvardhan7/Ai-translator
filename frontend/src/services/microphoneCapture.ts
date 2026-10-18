@@ -5,11 +5,27 @@ import {
 } from '../features/session/pcm';
 
 export interface MicrophoneCapture {
-  start(onAudioFrame: (frame: ArrayBuffer) => void, onLevel?: (level: number) => void): void;
-  stop(flushPending?: boolean): void;
+  start(onAudioFrame: (frame: ArrayBuffer) => void, onLevel: (level: number) => void, onLost: () => void): void;
+  pause(): void;
+  resume(): void;
+  stop(): void;
 }
 
-/** Opens a mono microphone stream and converts it to the backend's 16 kHz PCM format. */
+const LEVEL_INTERVAL_MS = 100;
+
+function microphoneError(error: unknown): Error {
+  if (error instanceof DOMException && error.name === 'NotAllowedError') {
+    return new Error('Microphone blocked. Click the lock icon in the address bar and allow the microphone.');
+  }
+  if (error instanceof DOMException && error.name === 'NotFoundError') {
+    return new Error('No microphone found.');
+  }
+  if (error instanceof DOMException && error.name === 'NotReadableError') {
+    return new Error('The microphone is being used by another app.');
+  }
+  return error instanceof Error ? error : new Error('The microphone could not be opened.');
+}
+
 export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
   if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') {
     throw new Error('Microphone capture requires Chrome or Edge on a secure page or localhost.');
@@ -23,19 +39,9 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
   }
 
   let stream: MediaStream | null = null;
-  let source: MediaStreamAudioSourceNode | null = null;
-  let processor: AudioWorkletNode | null = null;
-  let mutedOutput: GainNode | null = null;
-  let active = false;
-  let stopped = false;
-  let connected = false;
-  let onAudioFrame: ((frame: ArrayBuffer) => void) | null = null;
-  let onLevel: ((level: number) => void) | undefined;
-  let latestLevel = 0;
-  let lastLevelUpdate = 0;
-
-  const resampler = new StreamingPcmResampler(context.sampleRate);
-  const frameBuilder = new PcmFrameBuilder();
+  let source: MediaStreamAudioSourceNode;
+  let processor: AudioWorkletNode;
+  let mutedOutput: GainNode;
 
   try {
     const streamPromise = navigator.mediaDevices.getUserMedia({
@@ -47,9 +53,7 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
       },
       video: false,
     });
-    const resumePromise = context.resume();
-    const [streamResult, resumeResult] = await Promise.allSettled([streamPromise, resumePromise]);
-
+    const [streamResult, resumeResult] = await Promise.allSettled([streamPromise, context.resume()]);
     if (streamResult.status === 'rejected') {
       throw streamResult.reason;
     }
@@ -60,8 +64,7 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
     if (!context.audioWorklet) {
       throw new Error('This browser does not support the audio capture worklet. Use the latest Chrome or Edge.');
     }
-
-    await context.audioWorklet.addModule('/pcm-worklet.js');
+    await context.audioWorklet.addModule(`${import.meta.env.BASE_URL}pcm-worklet.js`);
     source = context.createMediaStreamSource(stream);
     processor = new AudioWorkletNode(context, 'pcm-capture', {
       numberOfInputs: 1,
@@ -73,96 +76,112 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
   } catch (error) {
     stream?.getTracks().forEach((track) => track.stop());
     await context.close().catch(() => undefined);
-    if (error instanceof DOMException && error.name === 'NotAllowedError') {
-      throw new Error('Microphone blocked. Click the lock icon in the address bar and allow the microphone.');
-    }
-    if (error instanceof DOMException && error.name === 'NotFoundError') {
-      throw new Error('No microphone found.');
-    }
-    if (error instanceof DOMException && error.name === 'NotReadableError') {
-      throw new Error('The microphone is being used by another app.');
-    }
-    throw error instanceof Error ? error : new Error('The microphone could not be opened.');
+    throw microphoneError(error);
   }
 
   const microphoneStream = stream;
-  const audioSource = source;
-  const audioProcessor = processor;
-  const output = mutedOutput;
+  let resampler = new StreamingPcmResampler(context.sampleRate);
+  let frameBuilder = new PcmFrameBuilder();
+  let listening = false;
+  let stopped = false;
+  let connected = false;
+  let sendFrame: ((frame: ArrayBuffer) => void) | null = null;
+  let reportLevel: ((level: number) => void) | null = null;
+  let lastLevelUpdate = 0;
 
-  audioProcessor.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
-    if (!active) {
-      return;
-    }
+  function resetBuffers(): void {
+    resampler = new StreamingPcmResampler(context.sampleRate);
+    frameBuilder = new PcmFrameBuilder();
+  }
 
+  processor.port.onmessage = (event: MessageEvent<Float32Array[]>) => {
     const channels = event.data;
     const frameLength = channels[0]?.length ?? 0;
-    if (frameLength === 0 || channels.length === 0) {
+    if (!listening || frameLength === 0) {
       return;
     }
-
     const mono = new Float32Array(frameLength);
     for (const channel of channels) {
       for (let index = 0; index < frameLength; index += 1) {
         mono[index] = (mono[index] ?? 0) + (channel[index] ?? 0) / channels.length;
       }
     }
-
     const samples = resampler.process(mono);
-    latestLevel = Math.min(1, rmsLevel(samples) * 5);
     const now = performance.now();
-    if (now - lastLevelUpdate >= 100) {
-      onLevel?.(latestLevel);
+    if (now - lastLevelUpdate >= LEVEL_INTERVAL_MS) {
+      reportLevel?.(Math.min(1, rmsLevel(samples) * 5));
       lastLevelUpdate = now;
     }
-
     for (const frame of frameBuilder.push(samples)) {
-      onAudioFrame?.(frame);
+      sendFrame?.(frame);
     }
   };
 
   return {
-    start(onFrame, onLevelChange) {
-      if (stopped || active) {
+    start(onAudioFrame, onLevel, onLost) {
+      if (stopped || connected) {
         return;
       }
-
-      active = true;
-      onAudioFrame = onFrame;
-      onLevel = onLevelChange;
-      audioSource.connect(audioProcessor);
-      audioProcessor.connect(output);
-      output.connect(context.destination);
+      sendFrame = onAudioFrame;
+      reportLevel = onLevel;
+      for (const track of microphoneStream.getAudioTracks()) {
+        track.onended = () => {
+          if (!stopped) {
+            onLost();
+          }
+        };
+      }
+      source.connect(processor);
+      processor.connect(mutedOutput);
+      mutedOutput.connect(context.destination);
       connected = true;
+      listening = true;
     },
 
-    stop(flushPending = true) {
+    pause() {
+      if (!listening) {
+        return;
+      }
+      listening = false;
+      resetBuffers();
+      reportLevel?.(0);
+    },
+
+    resume() {
+      if (stopped || !connected) {
+        return;
+      }
+      listening = true;
+    },
+
+    stop() {
       if (stopped) {
         return;
       }
-      stopped = true;
-      active = false;
-      audioProcessor.port.onmessage = null;
-
-      if (flushPending) {
+      if (listening) {
         for (const frame of frameBuilder.push(resampler.flush())) {
-          onAudioFrame?.(frame);
+          sendFrame?.(frame);
         }
         const finalFrame = frameBuilder.flush();
         if (finalFrame) {
-          onAudioFrame?.(finalFrame);
+          sendFrame?.(finalFrame);
         }
       }
-      onLevel?.(0);
-      onAudioFrame = null;
-      onLevel = undefined;
-
+      stopped = true;
+      listening = false;
+      processor.port.onmessage = null;
+      reportLevel?.(0);
+      sendFrame = null;
+      reportLevel = null;
       if (connected) {
-        audioSource.disconnect();
-        audioProcessor.disconnect();
-        output.disconnect();
+        source.disconnect();
+        processor.disconnect();
+        mutedOutput.disconnect();
       }
-      microphoneStream.getTracks().forEach((track) => track.stop());
+      microphoneStream.getTracks().forEach((track) => {
+        track.onended = null;
+        track.stop();
+      });
       void context.close().catch(() => undefined);
     },
   };

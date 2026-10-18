@@ -160,9 +160,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare Gemini models live on real speech streamed from FLEURS."
     )
-    parser.add_argument("--fleurs", default="te,hi,en", help="Languages to stream from FLEURS")
+    parser.add_argument("--fleurs", help="Language codes to stream from FLEURS, for example te,hi")
     parser.add_argument("--count", type=int, default=10, help="Clips per language")
-    parser.add_argument("--target", default="en", help="Language to translate into")
+    parser.add_argument("--target", help="Language code to translate into, for example en")
     parser.add_argument(
         "--models",
         default=settings.gemini_model,
@@ -192,9 +192,10 @@ def main() -> int:
         print("Set GEMINI_MODEL in backend/.env or pass --models (see --list-models).")
         return 1
 
-    target = language_code(args.target)
-    if target is None or args.count < 1:
-        print("Use a language code for --target (for example en) and a --count of at least 1.")
+    target = language_code(args.target or "")
+    if not args.fleurs or target is None or args.count < 1:
+        print("Give --fleurs and --target as language codes and a --count of at least 1,")
+        print("for example: --fleurs te,hi --target en")
         return 1
 
     try:

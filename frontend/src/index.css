@@ -1,6 +1,6 @@
 :root {
   color-scheme: light dark;
-  font-family: 'Nirmala UI', 'Noto Sans', 'Noto Sans Telugu', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: 'Segoe UI', 'Nirmala UI', 'Noto Sans', system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -205,34 +205,6 @@ button:disabled {
 .site-footer nav a:hover {
   color: var(--sky-strong);
   transform: translateY(-2px);
-}
-
-.history-icon-button {
-  width: 40px;
-  height: 40px;
-  justify-self: end;
-  display: grid;
-  place-items: center;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--background);
-  text-decoration: none;
-  transition: background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
-}
-
-.history-icon-button:hover {
-  color: var(--sky-strong);
-  border-color: var(--sky-strong);
-  transform: translateY(-2px) scale(1.06);
-}
-
-.history-icon-button svg {
-  width: 20px;
-  height: 20px;
 }
 
 .mobile-navigation {
@@ -483,17 +455,6 @@ html[data-page-visible='hidden'] .hero-arc {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes recording-ring {
-  0% {
-    opacity: 0.55;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.08);
   }
 }
 
@@ -977,12 +938,6 @@ html[data-page-visible='hidden'] .hero-arc {
   animation: page-enter 440ms var(--ease-out) 70ms both;
 }
 
-.status-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-}
-
 .status-item {
   margin: 0;
   display: inline-flex;
@@ -1109,66 +1064,6 @@ html[data-page-visible='hidden'] .hero-arc {
   color: var(--muted);
 }
 
-.conversation-controls {
-  padding-top: 16px;
-}
-
-.talk-button {
-  width: 100%;
-  min-height: 50px;
-}
-
-.button-recording {
-  position: relative;
-  isolation: isolate;
-  color: var(--button-text);
-  border-color: var(--danger);
-  background: var(--danger);
-}
-
-.button-recording::after {
-  position: absolute;
-  z-index: -1;
-  inset: -4px;
-  border: 1px solid var(--danger);
-  border-radius: 4px;
-  content: '';
-  pointer-events: none;
-  will-change: transform, opacity;
-  animation: recording-ring 1.4s ease-out infinite;
-}
-
-.talk-button:hover:not(:disabled) {
-  transform: translateY(-3px) scale(1.03);
-}
-
-.speaker-hint {
-  min-height: 44px;
-  margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-  line-height: 1.45;
-}
-
-.level-meter {
-  height: 8px;
-  margin-top: 9px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--surface-strong);
-}
-
-.level-meter-fill {
-  width: 100%;
-  height: 100%;
-  display: block;
-  background: var(--sky);
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 100ms linear;
-}
-
 .utterance-list {
   max-height: 60vh;
   padding: 2px 2px 4px 0;
@@ -1180,108 +1075,11 @@ html[data-page-visible='hidden'] .hero-arc {
   scroll-behavior: smooth;
 }
 
-.utterance-card {
-  min-height: 142px;
-  flex: 0 0 auto;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--background);
-  animation: turn-enter 420ms var(--ease-out) both;
-}
-
-.utterance-label {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 750;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.utterance-transcript,
-.utterance-translation {
-  min-height: 3.2em;
-  margin: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  animation-duration: 200ms;
-  animation-timing-function: var(--ease-out);
-}
-
-.utterance-translation {
-  padding-left: 10px;
-  border-left: 3px solid var(--sky-strong);
-}
-
-.utterance-original {
-  min-height: 1.8em;
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  animation-duration: 200ms;
-  animation-timing-function: var(--ease-out);
-}
-
-.utterance-status {
-  margin: 0 0 5px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.status-spinner {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-}
-
-.utterance-note,
-.utterance-duration {
-  margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.utterance-card.utterance-complete .utterance-transcript,
-.utterance-card.utterance-complete .utterance-translation,
-.utterance-card.utterance-complete .utterance-original,
-.utterance-card.utterance-failed .utterance-error {
-  animation-name: status-fade-in;
-}
-
-.utterance-card.utterance-translating .utterance-status {
-  animation: status-fade-in 200ms var(--ease-out);
-}
-
-.utterance-recording .utterance-transcript,
-.utterance-translating .utterance-translation,
-.utterance-transcribing .utterance-transcript {
-  color: var(--muted);
-  font-style: italic;
-}
-
-.utterance-error {
-  margin: 8px 0 0;
-  color: var(--danger);
-  font-size: 0.88rem;
-  animation-duration: 200ms;
-  animation-timing-function: var(--ease-out);
-}
-
 .live-status-indicator[data-state='live'] {
   animation: status-fade-in 400ms var(--ease-out) both;
 }
 
 .live-status-indicator[data-state='lost'] {
-  animation: status-fade-in 400ms var(--ease-out) both;
-}
-
-.button-reconnect {
   animation: status-fade-in 400ms var(--ease-out) both;
 }
 
@@ -1297,11 +1095,6 @@ html[data-page-visible='hidden'] .hero-arc {
   line-height: 1.08;
 }
 
-.last-updated {
-  margin: 12px 0 34px;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
 
 .legal-section {
   margin-top: 26px;
@@ -1314,11 +1107,6 @@ html[data-page-visible='hidden'] .hero-arc {
 
 .legal-section p {
   margin: 0 0 12px;
-  color: var(--muted);
-}
-
-.history-notice > p:last-child {
-  margin-top: 16px;
   color: var(--muted);
 }
 
@@ -1353,6 +1141,234 @@ html[data-page-visible='hidden'] .hero-arc {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.button-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--background);
+}
+
+.button-danger:hover:not(:disabled) {
+  color: var(--button-text);
+  background: var(--danger);
+}
+
+.status-bar {
+  flex-wrap: wrap;
+}
+
+.listening {
+  margin: 8px auto 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+}
+
+.listening-orb {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, var(--sky) 45%, var(--sky-strong) 100%);
+  box-shadow: 0 10px 30px rgb(14 165 233 / 28%);
+  transition: transform 120ms linear, filter var(--dur-med) var(--ease-out), opacity var(--dur-med) var(--ease-out);
+}
+
+.listening[data-state='listening'] .listening-orb {
+  animation: orb-breathe 3s ease-in-out infinite;
+}
+
+.listening-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--sky);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.listening[data-state='listening'] .listening-ring {
+  animation: orb-ripple 2.4s ease-out infinite;
+}
+
+.listening[data-state='listening'] .listening-ring-late {
+  animation-delay: 1.2s;
+}
+
+.listening[data-state='speaking'] .listening-orb {
+  filter: saturate(0.5);
+  opacity: 0.7;
+}
+
+.listening[data-state='connecting'] .listening-orb {
+  animation: orb-breathe 1.4s ease-in-out infinite;
+  opacity: 0.6;
+}
+
+.listening[data-state='stopped'] .listening-orb {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.listening-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.voice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.voice-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--sky-strong);
+}
+
+.conversation-panel-header h2 {
+  margin-bottom: 4px;
+}
+
+.conversation-panel-header > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.language-label {
+  max-width: 100%;
+  margin: 0;
+  display: inline-block;
+}
+
+.utterance-list {
+  margin-top: 14px;
+  border-radius: 12px;
+  transition: box-shadow var(--dur-med) var(--ease-out);
+}
+
+.utterance-list[data-speaking='true'] {
+  box-shadow: 0 0 0 3px rgb(124 196 240 / 45%);
+}
+
+.turn {
+  max-width: 92%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  animation: turn-enter 250ms var(--ease-out) both;
+}
+
+.turn-translated,
+.turn-pending,
+.turn-failed {
+  align-self: flex-start;
+  border: 1px solid var(--surface-strong);
+  background: var(--surface-strong);
+}
+
+.turn-own {
+  align-self: flex-end;
+  border: 1px solid var(--sky);
+  background: var(--background);
+}
+
+.turn-label {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.turn-text {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.turn-own .turn-text {
+  font-size: 1.05rem;
+}
+
+.turn-original,
+.turn-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.turn-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.92rem;
+}
+
+.turn-dots {
+  margin: 4px 0 0;
+  display: flex;
+  gap: 6px;
+}
+
+.turn-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sky-strong);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+.turn-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.turn-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes orb-breathe {
+  0%,
+  100% {
+    scale: 1;
+  }
+  50% {
+    scale: 1.05;
+  }
+}
+
+@keyframes orb-ripple {
+  from {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+
+@keyframes dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 @media (max-width: 900px) {
@@ -1429,11 +1445,6 @@ html[data-page-visible='hidden'] .hero-arc {
     font-size: 0.86rem;
   }
 
-  .history-icon-button {
-    width: 38px;
-    height: 38px;
-  }
-
   .hero {
     min-height: 490px;
     padding-right: 0;
@@ -1478,11 +1489,6 @@ html[data-page-visible='hidden'] .hero-arc {
 
   .page-content {
     padding-top: 46px;
-  }
-
-  .status-list {
-    gap: 9px;
-    flex-direction: column;
   }
 
   .status-actions {
@@ -1554,7 +1560,6 @@ html[data-page-visible='hidden'] .hero-arc {
   }
 
   .language-picker-skeleton::after,
-  .button-recording::after,
   .live-status-indicator[data-state='live'] .status-dot::after {
     animation: none;
   }
@@ -1562,13 +1567,7 @@ html[data-page-visible='hidden'] .hero-arc {
   .screen-transition-active,
   .language-options[data-state='open'],
   .language-options[data-state='closing'],
-  .live-status-indicator,
-  .button-reconnect,
-  .utterance-card.utterance-translating .utterance-status,
-  .utterance-card.utterance-complete .utterance-transcript,
-  .utterance-card.utterance-complete .utterance-translation,
-  .utterance-card.utterance-complete .utterance-original,
-  .utterance-card.utterance-failed .utterance-error {
+  .live-status-indicator {
     animation-duration: 1ms !important;
   }
 
@@ -1579,8 +1578,7 @@ html[data-page-visible='hidden'] .hero-arc {
   }
 
   .mobile-menu-panel,
-  .language-options,
-  .utterance-card {
+  .language-options {
     transform: none;
   }
 
@@ -1588,15 +1586,8 @@ html[data-page-visible='hidden'] .hero-arc {
     transition-delay: 0ms !important;
   }
 
-  .utterance-card {
-    animation: none;
-    opacity: 1;
-  }
-
   .button:hover:not(:disabled),
   .button:active:not(:disabled),
-  .talk-button:hover:not(:disabled),
-  .history-icon-button:hover,
   .desktop-navigation a:hover,
   .site-footer nav a:hover,
   .mobile-menu-trigger:hover:not(:disabled),
@@ -1610,8 +1601,23 @@ html[data-page-visible='hidden'] .hero-arc {
   .language-option[aria-selected='true'] {
     transform: none;
   }
+}
 
-  .level-meter-fill {
-    transition-duration: 100ms !important;
+@media (prefers-reduced-motion: reduce) {
+  .listening-orb,
+  .listening-ring,
+  .turn,
+  .turn-dots span,
+  .spinner {
+    animation: none !important;
+  }
+
+  .listening-orb {
+    transform: none !important;
+    transition: none;
+  }
+
+  .turn-dots span {
+    opacity: 0.6;
   }
 }

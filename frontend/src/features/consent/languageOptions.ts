@@ -25,7 +25,6 @@ function* isoCodeCandidates(): Generator<string> {
   }
 }
 
-/** Builds language options from the browser's ICU data without shipping a code list. */
 export function loadLanguageOptions(): Promise<LanguageOption[]> {
   if (optionsPromise) {
     return optionsPromise;

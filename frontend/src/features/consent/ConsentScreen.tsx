@@ -10,10 +10,17 @@ interface ConsentScreenProps {
   onSessionCreated: (session: CreateSessionResponse) => void;
 }
 
-const DEFAULT_PARTICIPANTS: [Participant, Participant] = [
-  { id: 'A', name: 'Person A', preferred_language: 'en' },
-  { id: 'B', name: 'Person B', preferred_language: 'te' },
-];
+function browserLanguage(): string {
+  const tag = navigator.languages?.[0] ?? navigator.language ?? '';
+  return tag.toLowerCase().split(/[-_]/)[0] ?? '';
+}
+
+function initialParticipants(): [Participant, Participant] {
+  return [
+    { id: 'A', name: 'Person A', preferred_language: browserLanguage() },
+    { id: 'B', name: 'Person B', preferred_language: '' },
+  ];
+}
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiError) {
@@ -30,14 +37,7 @@ function messageFor(error: unknown): string {
 
 export default function ConsentScreen({ onSessionCreated }: ConsentScreenProps) {
   const consentHeadingRef = useRef<HTMLHeadingElement>(null);
-  const [playHeroEntrance] = useState(() => {
-    try {
-      return window.sessionStorage.getItem('voice-translator-hero-entrance') !== 'played';
-    } catch {
-      return true;
-    }
-  });
-  const [participants, setParticipants] = useState<[Participant, Participant]>(DEFAULT_PARTICIPANTS);
+  const [participants, setParticipants] = useState<[Participant, Participant]>(initialParticipants);
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
   const [languagesLoading, setLanguagesLoading] = useState(true);
   const [languagesFailed, setLanguagesFailed] = useState(false);
@@ -80,16 +80,6 @@ export default function ConsentScreen({ onSessionCreated }: ConsentScreenProps) 
     void checkBackend();
     void checkLanguages();
   }, []);
-
-  useEffect(() => {
-    if (playHeroEntrance) {
-      try {
-        window.sessionStorage.setItem('voice-translator-hero-entrance', 'played');
-      } catch {
-        // The entrance can still run when session storage is unavailable.
-      }
-    }
-  }, [playHeroEntrance]);
 
   function focusConsentForm(): void {
     const heading = consentHeadingRef.current;
@@ -139,13 +129,13 @@ export default function ConsentScreen({ onSessionCreated }: ConsentScreenProps) 
   return (
     <>
       <main>
-        <section className={`hero ${playHeroEntrance ? 'hero-entrance' : ''}`} aria-labelledby="page-title">
+        <section className="hero hero-entrance" aria-labelledby="page-title">
           <div className="hero-arc" aria-hidden="true" />
           <p className="hero-kicker">A shared conversation</p>
           <h1 id="page-title" tabIndex={-1}>Voice Translator</h1>
           <p className="hero-subtitle">Two people, any two languages, one conversation.</p>
           <p className="hero-description">
-            Each person speaks in their own language. Press a talk button, speak, and the other person reads your translated sentence. Voice playback and conversation history are planned.
+            Each person speaks in their own language. Just talk: the app hears each sentence, shows it to the other person in their language and says it aloud.
           </p>
           <div className="hero-actions">
             <button className="button button-primary" type="button" onClick={focusConsentForm}>
@@ -153,7 +143,7 @@ export default function ConsentScreen({ onSessionCreated }: ConsentScreenProps) 
             </button>
           </div>
           <p className="hero-note">
-            Works in Chrome and Edge on Windows. The microphone is active only while a recording is in progress.
+            Works in Chrome and Edge. The microphone listens only while a conversation is open.
           </p>
         </section>
 
@@ -209,7 +199,7 @@ export default function ConsentScreen({ onSessionCreated }: ConsentScreenProps) 
 
             <div className="consent-disclosure">
               <p>
-                Your microphone is active only between Start speaking and Stop &amp; translate. Speech audio is sent to Google's Gemini service for recognition and translation. Session data stays in backend memory and disappears when the backend restarts. Google's free tier may use submitted data to improve its products.
+                The microphone listens while the conversation is open. Each sentence is sent to Google's Gemini service to be transcribed, translated and spoken. Nothing is saved: captions disappear when the conversation ends. Google's free tier may use submitted data to improve its products.
               </p>
               <label className="checkbox-row">
                 <input
@@ -237,7 +227,7 @@ export default function ConsentScreen({ onSessionCreated }: ConsentScreenProps) 
                 {starting && <span className="spinner" aria-hidden="true" />}
                 {starting ? 'Starting' : 'Start'}
               </button>
-              <p className="form-help">Both people must agree before a conversation can start.</p>
+              <p className="form-help">Choose a language for each person, then both must agree before the conversation can start.</p>
             </div>
           </form>
         </section>

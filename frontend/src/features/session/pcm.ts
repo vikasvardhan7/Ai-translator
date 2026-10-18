@@ -1,7 +1,7 @@
-export const TARGET_SAMPLE_RATE = 16_000;
-export const PCM_FRAME_SAMPLES = 1_600;
+const TARGET_SAMPLE_RATE = 16_000;
+const PCM_FRAME_SAMPLES = 1_600;
+const LEFTOVER_EPSILON = 1e-6;
 
-/** Converts an input stream to 16 kHz by averaging each output sample's input interval. */
 export class StreamingPcmResampler {
   private readonly inputStep: number;
   private inputPosition = 0;
@@ -48,7 +48,9 @@ export class StreamingPcmResampler {
   }
 
   flush(): Float32Array {
-    if (this.coveredInput === 0) {
+    if (this.coveredInput < LEFTOVER_EPSILON) {
+      this.weightedSample = 0;
+      this.coveredInput = 0;
       return new Float32Array(0);
     }
     const lastSample = this.weightedSample / this.coveredInput;
@@ -57,19 +59,6 @@ export class StreamingPcmResampler {
     this.coveredInput = 0;
     return Float32Array.of(lastSample);
   }
-}
-
-export function downsampleTo16k(input: Float32Array, inputRate: number): Float32Array {
-  const resampler = new StreamingPcmResampler(inputRate);
-  const converted = resampler.process(input);
-  const lastSample = resampler.flush();
-  if (lastSample.length === 0) {
-    return converted;
-  }
-  const result = new Float32Array(converted.length + lastSample.length);
-  result.set(converted);
-  result.set(lastSample, converted.length);
-  return result;
 }
 
 export function floatTo16BitPCM(samples: Float32Array): Int16Array {
@@ -81,7 +70,7 @@ export function floatTo16BitPCM(samples: Float32Array): Int16Array {
   return pcm;
 }
 
-export function encodePcmFrame(samples: Float32Array): ArrayBuffer {
+function encodePcmFrame(samples: Float32Array): ArrayBuffer {
   const pcm = floatTo16BitPCM(samples);
   const frame = new ArrayBuffer(pcm.length * 2);
   const view = new DataView(frame);
@@ -117,7 +106,6 @@ export class PcmFrameBuilder {
   }
 }
 
-/** Returns the root-mean-square amplitude of a block, from silence (0) to full scale (1). */
 export function rmsLevel(samples: Float32Array): number {
   if (samples.length === 0) {
     return 0;
