@@ -24,9 +24,15 @@ Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer
 
 
 @router.post("", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
-async def create_session(body: SessionCreate, store: Store) -> SessionOut:
+async def create_session(body: SessionCreate, store: Store, synthesizer: Synthesizer) -> SessionOut:
+    if body.mode == "call" and synthesizer is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Call mode needs the server voice, because the other person hears only the"
+            " translation. Set GEMINI_TTS_MODEL in backend/.env.",
+        )
     try:
-        session = store.create(body.participants)
+        session = store.create(body.participants, body.mode)
     except SessionLimitReached as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -34,6 +40,7 @@ async def create_session(body: SessionCreate, store: Store) -> SessionOut:
         ) from exc
     return SessionOut(
         session_id=session.id,
+        mode=session.mode,
         participants=session.participants,
         created_at=session.created_at,
     )

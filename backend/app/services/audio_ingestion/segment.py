@@ -10,6 +10,7 @@ BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH * CHANNELS
 class AudioSegment:
     utterance_id: str
     pcm: bytes
+    speaker_id: str | None
 
     @property
     def duration_ms(self) -> int:

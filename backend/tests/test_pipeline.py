@@ -50,6 +50,7 @@ def test_telugu_speech_is_translated_for_the_english_listener() -> None:
         "type": "utterance.received",
         "seq": 2,
         "utterance_id": utterance_id,
+        "speaker_id": None,
         "duration_ms": 1000,
     }
     assert transcript == {
@@ -261,7 +262,7 @@ async def test_leaving_right_after_stop_is_not_a_server_failure(caplog) -> None:
         gone = sent[-1:] == ["utterance.received"]
 
     scope = {"type": "websocket", "path": "/", "headers": [], "query_string": b""}
-    session = Session("s1", [Participant(**p) for p in VALID_BODY["participants"]])
+    session = Session("s1", [Participant(**p) for p in VALID_BODY["participants"]], "together")
     settings = Settings(_env_file=None, speech_timeout_seconds=1)
     translator = FakeTranslator(delays=[0.2])
 
