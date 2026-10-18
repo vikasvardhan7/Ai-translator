@@ -7,6 +7,7 @@ def test_defaults_without_env_file() -> None:
     assert settings.frontend_origin == "http://localhost:5173"
     assert settings.gemini_api_key is None
     assert settings.gemini_model is None
+    assert settings.gemini_tts_model is None
 
 
 def test_environment_variables_override_defaults(monkeypatch) -> None:

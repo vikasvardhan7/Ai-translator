@@ -1,27 +1,29 @@
 import asyncio
+import base64
 import contextlib
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ValidationError
 from starlette.websockets import WebSocketState
 
 from app.core.config import Settings
-from app.core.errors import describe_errors
-from app.models.protocol import ErrorCode, UtteranceEnd, UtteranceStart
-from app.services.audio_ingestion.microphone import AudioRejected, MicrophoneInput
+from app.models.protocol import ErrorCode
 from app.services.audio_ingestion.segment import AudioSegment
+from app.services.audio_ingestion.speech_detector import FrameRejected, SpeechDetector
 from app.services.audio_ingestion.wav import encode_wav
 from app.services.session_store import Session
-from app.services.translation.base import SpeechTranslator, TranslationFailed
+from app.services.translation.base import NothingRecognised, SpeechTranslator, TranslationFailed
+from app.services.voice.base import SpeechSynthesizer, VoiceFailed
 
 logger = logging.getLogger(__name__)
 
 MAX_TEXT_MESSAGE_BYTES = 64 * 1024
 MAX_PENDING_UTTERANCES = 5
+MAX_PENDING_VOICES = 5
 STOP_GRACE_SECONDS = 5
 
 CLOSE_NORMAL = 1000
@@ -32,6 +34,13 @@ CLOSE_UNKNOWN_SESSION = 4404
 
 class _StopRequested(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class _VoiceRequest:
+    utterance_id: str
+    listener_ids: tuple[str, ...]
+    text: str
 
 
 class StreamSender:
@@ -62,6 +71,28 @@ class StreamSender:
         )
 
 
+async def _drain(queue: asyncio.Queue, worker: asyncio.Task[None], timeout: float) -> None:
+    drained = asyncio.create_task(queue.join())
+    try:
+        await asyncio.wait(
+            {drained, worker}, timeout=max(0.0, timeout), return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        drained.cancel()
+
+
+async def _cancel(worker: asyncio.Task[None]) -> None:
+    worker.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await worker
+
+
+def _detectors_for(session: Session) -> dict[str | None, SpeechDetector]:
+    if session.mode == "call":
+        return {p.id: SpeechDetector(p.id) for p in session.participants}
+    return {None: SpeechDetector()}
+
+
 def _origin_allowed(websocket: WebSocket, allowed_origin: str) -> bool:
     origin = websocket.headers.get("origin")
     return origin is None or origin == allowed_origin
@@ -86,43 +117,67 @@ class StreamHandler:
         session: Session,
         settings: Settings,
         translator: SpeechTranslator | None,
+        synthesizer: SpeechSynthesizer | None,
     ) -> None:
         self._websocket = websocket
         self._session = session
         self._settings = settings
         self._translator = translator
+        self._synthesizer = synthesizer
         self._sender = StreamSender(websocket)
-        self._microphone = MicrophoneInput()
+        self._detectors = _detectors_for(session)
         self._pending: asyncio.Queue[AudioSegment] = asyncio.Queue(MAX_PENDING_UTTERANCES)
         self._in_flight: AudioSegment | None = None
+        self._voices: asyncio.Queue[_VoiceRequest] = asyncio.Queue(MAX_PENDING_VOICES)
+        self._speaking: _VoiceRequest | None = None
 
     async def run(self) -> None:
-        worker = asyncio.create_task(self._translate_in_order())
+        translating = asyncio.create_task(self._translate_in_order())
+        speaking = None
+        if self._synthesizer is not None:
+            speaking = asyncio.create_task(self._speak_in_order(self._synthesizer))
+        workers = [task for task in (translating, speaking) if task is not None]
         try:
             stop_requested = await self._receive()
             if stop_requested:
-                await self._finish_pending(worker)
+                await self._finish_pending(translating, speaking)
         finally:
-            worker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await worker
-        if stop_requested:
+            for worker in workers:
+                await _cancel(worker)
+        if stop_requested and self.connected():
             await self._websocket.close(code=CLOSE_NORMAL)
 
-    async def _finish_pending(self, worker: asyncio.Task[None]) -> None:
-        grace = self._settings.speech_timeout_seconds + STOP_GRACE_SECONDS
-        drained = asyncio.create_task(self._pending.join())
-        await asyncio.wait({drained, worker}, timeout=grace, return_when=asyncio.FIRST_COMPLETED)
-        drained.cancel()
-        worker.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await worker
+    async def _finish_pending(
+        self, translating: asyncio.Task[None], speaking: asyncio.Task[None] | None
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._settings.speech_timeout_seconds + STOP_GRACE_SECONDS
+        await _drain(self._pending, translating, deadline - loop.time())
+        await _cancel(translating)
+        if not self.connected():
+            return
         for segment in self._unfinished():
             await self._sender.error(
                 ErrorCode.PROVIDER_UNAVAILABLE,
                 "The conversation ended before this sentence was translated.",
                 utterance_id=segment.utterance_id,
             )
+        if speaking is None:
+            return
+        await _drain(self._voices, speaking, deadline - loop.time())
+        await _cancel(speaking)
+        if not self.connected():
+            return
+        for request in self._unspoken():
+            await self._voice_failed(request, "The conversation ended before this voice was made.")
+
+    def _unspoken(self) -> list[_VoiceRequest]:
+        unspoken = [self._speaking] if self._speaking is not None else []
+        self._speaking = None
+        while not self._voices.empty():
+            unspoken.append(self._voices.get_nowait())
+            self._voices.task_done()
+        return unspoken
 
     def _unfinished(self) -> list[AudioSegment]:
         unfinished = [self._in_flight] if self._in_flight is not None else []
@@ -137,6 +192,8 @@ class StreamHandler:
             "session.ready",
             session_id=self._session.id,
             participants=[p.model_dump() for p in self._session.participants],
+            server_voice=self._synthesizer is not None,
+            mode=self._session.mode,
         )
         while True:
             message = await self._websocket.receive()
@@ -144,15 +201,48 @@ class StreamHandler:
                 return False
             try:
                 if message.get("bytes") is not None:
-                    self._microphone.add(message["bytes"])
+                    await self._hear(message["bytes"])
                 else:
                     await self._handle_text(message.get("text") or "")
-            except AudioRejected as rejected:
-                await self._sender.error(
-                    rejected.code, rejected.message, utterance_id=rejected.utterance_id
-                )
             except _StopRequested:
                 return True
+
+    async def _hear(self, frame: bytes) -> None:
+        source: str | None = None
+        if self._session.mode == "call":
+            source = chr(frame[0]) if len(frame) > 1 else None
+            if source not in self._detectors:
+                await self._sender.error(
+                    ErrorCode.INVALID_MESSAGE,
+                    "In a call, each audio frame is the byte 'A' (this device's microphone)"
+                    " or 'B' (the call) followed by audio.",
+                )
+                return
+            frame = frame[1:]
+        try:
+            segments = self._detectors[source].add(frame)
+        except FrameRejected:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "Audio frames must be 16-bit PCM and at most one second long.",
+            )
+            return
+        for segment in segments:
+            await self._utterance_received(segment)
+
+    async def _end_sentence(self, source: object = None) -> None:
+        if self._session.mode == "call" and source is not None:
+            if not isinstance(source, str) or source not in self._detectors:
+                await self._sender.error(
+                    ErrorCode.INVALID_MESSAGE, "participant_id must be 'A' or 'B'."
+                )
+                return
+            detectors = [self._detectors[source]]
+        else:
+            detectors = list(self._detectors.values())
+        for detector in detectors:
+            if segment := detector.flush():
+                await self._utterance_received(segment)
 
     async def fail(self) -> None:
         try:
@@ -172,37 +262,15 @@ class StreamHandler:
         match parsed["type"]:
             case "ping":
                 await self._sender.send("pong")
+            case "audio.pause":
+                await self._end_sentence(parsed.get("participant_id"))
             case "session.stop":
+                await self._end_sentence()
                 raise _StopRequested
-            case "utterance.start":
-                if start := await self._validate(UtteranceStart, parsed):
-                    await self._start_utterance(start)
-            case "utterance.end":
-                if end := await self._validate(UtteranceEnd, parsed):
-                    if segment := self._microphone.finish(end.utterance_id):
-                        await self._utterance_received(segment)
             case unknown:
                 await self._sender.error(
                     ErrorCode.INVALID_MESSAGE, f"Unknown message type '{unknown}'."
                 )
-
-    async def _validate[M: BaseModel](self, model: type[M], data: dict[str, Any]) -> M | None:
-        try:
-            return model.model_validate(data)
-        except ValidationError as exc:
-            await self._sender.error(ErrorCode.INVALID_MESSAGE, describe_errors(exc.errors()))
-            return None
-
-    async def _start_utterance(self, start: UtteranceStart) -> None:
-        replaced_id = self._microphone.start(
-            start.utterance_id, start.speaker_id, start.spoken_language
-        )
-        if replaced_id:
-            await self._sender.error(
-                ErrorCode.INVALID_MESSAGE,
-                "A new utterance started before this one ended, so it was discarded.",
-                utterance_id=replaced_id,
-            )
 
     async def _utterance_received(self, segment: AudioSegment) -> None:
         await self._sender.send(
@@ -230,7 +298,7 @@ class StreamHandler:
             except WebSocketDisconnect:
                 return
             except Exception:
-                if not self._connected():
+                if not self.connected():
                     return
                 logger.exception("Translation failed for %s", segment.utterance_id)
                 try:
@@ -247,7 +315,7 @@ class StreamHandler:
                 del segment
             self._in_flight = None
 
-    def _connected(self) -> bool:
+    def connected(self) -> bool:
         return (
             self._websocket.client_state == WebSocketState.CONNECTED
             and self._websocket.application_state == WebSocketState.CONNECTED
@@ -263,14 +331,15 @@ class StreamHandler:
             )
             return
 
-        listener = self._session.listener_for(segment.speaker_id)
+        participants = self._session.participants
+        targets = list(dict.fromkeys(p.preferred_language for p in participants))
         try:
             result = await self._translator.translate_speech(
-                encode_wav(segment.pcm),
-                "audio/wav",
-                listener.preferred_language,
-                segment.spoken_language,
+                encode_wav(segment.pcm), "audio/wav", targets
             )
+        except NothingRecognised:
+            await self._sender.send("utterance.ignored", utterance_id=segment.utterance_id)
+            return
         except TranslationFailed as failure:
             await self._sender.error(
                 failure.code,
@@ -280,23 +349,96 @@ class StreamHandler:
             )
             return
 
+        speaker_id = segment.speaker_id
+        if speaker_id is None:
+            understood = [
+                p for p in participants if result.for_language(p.preferred_language).same_language
+            ]
+            speaker_id = understood[0].id if len(understood) == 1 else None
+            listeners = [p for p in participants if p not in understood]
+        else:
+            listeners = [p for p in participants if p.id != speaker_id]
         await self._sender.send(
             "transcript.final",
             utterance_id=segment.utterance_id,
-            speaker_id=segment.speaker_id,
+            speaker_id=speaker_id,
             text=result.text,
             language=result.language,
             language_name=result.language_name,
         )
-        await self._sender.send(
-            "translation.final",
-            utterance_id=segment.utterance_id,
-            speaker_id=segment.speaker_id,
-            listener_id=listener.id,
-            target_language=listener.preferred_language,
-            text=result.translation,
-            translated=result.translated,
-        )
+        voices: dict[str, list[str]] = {}
+        for listener in listeners:
+            text = result.for_language(listener.preferred_language).text
+            await self._sender.send(
+                "translation.final",
+                utterance_id=segment.utterance_id,
+                speaker_id=speaker_id,
+                listener_id=listener.id,
+                target_language=listener.preferred_language,
+                text=text,
+            )
+            voices.setdefault(text, []).append(listener.id)
+        if self._synthesizer is None:
+            return
+        for text, listener_ids in voices.items():
+            await self._queue_voice(_VoiceRequest(segment.utterance_id, tuple(listener_ids), text))
+
+    async def _queue_voice(self, request: _VoiceRequest) -> None:
+        try:
+            self._voices.put_nowait(request)
+        except asyncio.QueueFull:
+            await self._voice_failed(request, "Too many voices are waiting for this sentence.")
+
+    async def _speak_in_order(self, synthesizer: SpeechSynthesizer) -> None:
+        while True:
+            request = await self._voices.get()
+            self._speaking = request
+            try:
+                await self._speak(synthesizer, request)
+            except WebSocketDisconnect:
+                return
+            except Exception:
+                if not self.connected():
+                    return
+                logger.exception("Voice failed for %s", request.utterance_id)
+                try:
+                    await self._voice_failed(
+                        request, "The voice could not be made for this sentence."
+                    )
+                except (WebSocketDisconnect, RuntimeError):
+                    return
+            finally:
+                self._voices.task_done()
+                del request
+            self._speaking = None
+
+    async def _voice_failed(self, request: _VoiceRequest, message: str) -> None:
+        for listener_id in request.listener_ids:
+            await self._sender.send(
+                "error",
+                code=ErrorCode.VOICE_UNAVAILABLE.value,
+                message=message,
+                retryable=False,
+                utterance_id=request.utterance_id,
+                listener_id=listener_id,
+            )
+
+    async def _speak(self, synthesizer: SpeechSynthesizer, request: _VoiceRequest) -> None:
+        try:
+            audio = await synthesizer.synthesize(request.text)
+        except VoiceFailed as failure:
+            await self._voice_failed(request, failure.message)
+            return
+        encoded = base64.b64encode(audio).decode("ascii")
+        del audio
+        for listener_id in request.listener_ids:
+            await self._sender.send(
+                "tts.audio",
+                utterance_id=request.utterance_id,
+                listener_id=listener_id,
+                format="wav",
+                audio_base64=encoded,
+            )
 
 
 async def handle_stream(
@@ -304,6 +446,7 @@ async def handle_stream(
     take_session: Callable[[], Session | None],
     settings: Settings,
     translator: SpeechTranslator | None,
+    synthesizer: SpeechSynthesizer | None,
 ) -> None:
     await websocket.accept()
 
@@ -320,11 +463,13 @@ async def handle_stream(
         await websocket.close(code=CLOSE_UNKNOWN_SESSION)
         return
 
-    handler = StreamHandler(websocket, session, settings, translator)
+    handler = StreamHandler(websocket, session, settings, translator, synthesizer)
     try:
         await handler.run()
     except WebSocketDisconnect:
         return
     except Exception:
+        if not handler.connected():
+            return
         logger.exception("Live channel failed for session %s", session.id)
         await handler.fail()

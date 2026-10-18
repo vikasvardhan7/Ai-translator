@@ -1,4 +1,4 @@
-# API and WebSocket protocol (v1)
+# API and WebSocket protocol (v3)
 
 This file is the contract between the frontend and the backend. Both sides build against it.
 **Change it only in a pull request that both developers agree on.**
@@ -13,7 +13,7 @@ frontend can show `detail` directly.
 
 | Method and path | Status | Purpose |
 | --- | --- | --- |
-| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.4.0"}` |
+| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.7.0"}` |
 | `POST /api/sessions` | live | Start a conversation; returns the session id |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
 
@@ -34,6 +34,7 @@ Request:
 ```json
 {
   "consent": true,
+  "mode": "together",
   "participants": [
     { "id": "A", "name": "Person A", "preferred_language": "en" },
     { "id": "B", "name": "Person B", "preferred_language": "te" }
@@ -46,6 +47,7 @@ Response `201 Created`:
 ```json
 {
   "session_id": "6f1c2a9e-0d4b-4b8e-9a51-2f0e7c3d1a77",
+  "mode": "together",
   "participants": [ "...same as sent, ordered A then B..." ],
   "created_at": "2026-10-18T09:30:00Z"
 }
@@ -54,6 +56,8 @@ Response `201 Created`:
 Rules (otherwise `422` with a readable `detail`):
 
 - `consent` must be `true`.
+- `mode`: `together` (default; two people share one microphone) or `call` (section 7). `call` needs
+  the server voice; without it the response is `503` with a readable `detail`.
 - Exactly two participants, ids `A` and `B`, one each.
 - `name`: 1 to 40 characters after trimming spaces.
 - `preferred_language`: a language code (see Language codes). Both people may choose the same language.
@@ -67,7 +71,7 @@ Sessions are held in memory only until used. A session's live channel opens once
 - Text frames are JSON objects with a string `type`. Maximum 64 KB per text message.
 - The server is started with `--ws-max-size 65536`, so any single message over 64 KB closes the
   connection.
-- Binary frames are microphone audio (section 4).
+- Binary frames are microphone audio (section 4); in call mode each starts with a one-byte source tag (section 7).
 - Every server message has `type` and `seq`. `seq` starts at 1 for each connection and goes
   up by one per message. Use it to keep order and ignore duplicates.
 - The first server message is always `session.ready`.
@@ -85,22 +89,18 @@ Close codes:
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
+| binary audio frame | live | raw audio (section 4) | Microphone audio, sent continuously while listening |
+| `audio.pause` | live | `participant_id` (optional, call mode only) | The browser stopped sending audio (for example while a translation is being spoken). Any sentence in progress ends now; in call mode, only that side's sentence when `participant_id` is given (`A` or `B`; anything else gets `invalid_message`; absent or `null` ends both) |
 | `ping` | live | none | Keep-alive; answered with `pong` |
-| `session.stop` | live | none | End the conversation. Sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
-| `utterance.start` | live | `utterance_id` (UUID), `speaker_id` (`A`/`B`), `spoken_language` (code or `null` for auto-detect) | A talk button was pressed; audio frames follow |
-| binary audio frame | live | raw audio (section 4) | Audio for the open utterance |
-| `utterance.end` | live | `utterance_id` | The person stopped talking |
+| `session.stop` | live | none | End the conversation. A sentence in progress is ended and translated; sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
 
-Rules for utterances:
+Listening is hands-free: there are no talk buttons. The browser streams the microphone and the
+server finds each sentence by itself. A sentence starts when speech is heard (about 0.3 s of the
+quiet before it is kept so the first word is not cut), ends after about 1.5 s of silence, and is
+split at 30 s if nobody pauses. Silence and short noises are not sent anywhere.
 
-- `utterance_id` must be a UUID in its standard 36-character form (as `crypto.randomUUID()` makes).
-- Only one utterance can be open per connection. If a new `utterance.start` arrives before the
-  previous one ended, the previous one is discarded and reported with an `invalid_message` error
-  carrying the previous `utterance_id`; the new one starts normally.
-- After an utterance is rejected while audio is still arriving (`audio_too_long` or a malformed
-  frame), its remaining frames and its `utterance.end` are ignored without further errors.
-- `spoken_language` is optional. Send a code to skip automatic detection, or `null`.
-- Unknown extra fields are rejected with `invalid_message`.
+While a translation is being spoken aloud, the browser sends `audio.pause` and stops sending audio,
+so the app never hears itself; it resumes sending frames when playback ends.
 
 ## 4. Audio format
 
@@ -109,9 +109,7 @@ Rules for utterances:
 | Encoding | PCM, signed 16-bit, little-endian |
 | Channels | 1 (mono) |
 | Sample rate | 16,000 Hz |
-| Frame size | About 100 ms: 1,600 samples = 3,200 bytes per binary message. Must be an even number of bytes and at most 32,000 bytes (1 s), otherwise `invalid_message` and the utterance is dropped |
-| When | Only between `utterance.start` and `utterance.end` |
-| Limits | Under 0.3 s, or no 100 ms stretch louder than silence: `audio_too_short`. Over 30 s: `audio_too_long`, sent once; the rest of that utterance's frames and its `utterance.end` are ignored. The browser should stop at 30 s |
+| Frame size | About 100 ms: 1,600 samples = 3,200 bytes per binary message. Must be a non-empty even number of bytes and at most 32,000 bytes (1 s), otherwise `invalid_message` and that frame is dropped. In call mode the one-byte source tag comes first and is not counted |
 
 ## 5. Server to browser messages
 
@@ -119,44 +117,99 @@ All include `type` and `seq`.
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
-| `session.ready` | live | `session_id`, `participants` | Live channel is open |
+| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
 | `pong` | live | none | Answer to `ping` |
-| `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`) | Show `message` to the user |
-| `utterance.received` | live | `utterance_id`, `speaker_id`, `duration_ms` | Whole sentence received |
-| `transcript.final` | live | `utterance_id`, `speaker_id`, `text`, `language`, `language_name` | What was said, its detected language code and the English name of that language as reported live by the speech service |
-| `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text`, `translated` | Text for the listener; `translated: false` when it was already in their language, and `text` is then the original |
-| `tts.audio` | 1E | `utterance_id`, `listener_id`, `format` (`mp3`/`wav`), `audio_base64` | Only if the server makes the voice |
+| `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`); `voice_unavailable` also has `listener_id` | Show `message` to the user |
+| `utterance.received` | live | `utterance_id`, `speaker_id` (`A`, `B`, or `null` until known), `duration_ms` | The server heard a sentence and is processing it. `utterance_id` is made by the server. In call mode `speaker_id` is already known from the audio source |
+| `utterance.ignored` | live | `utterance_id` | No words were recognised (noise, coughing). Remove the pending turn quietly and keep listening |
+| `transcript.final` | live | `utterance_id`, `speaker_id` (`A`, `B` or `null`), `text`, `language`, `language_name` | What was said, in the words and script spoken, its detected language code and English language name |
+| `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text` | The sentence translated into this listener's chosen language |
+| `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
 
-After `utterance.received`, each utterance gets either `transcript.final` followed by
-`translation.final`, or one `error` carrying its `utterance_id`. Results arrive in the order the
-utterances were spoken. The listener is always the other participant, and the translation is
-into their `preferred_language`. At most 5 sentences can wait for translation at once; more get
-a retryable `provider_unavailable` error.
+In together mode, who spoke is decided by the language heard (in call mode the speaker is the audio source, section 7). A person's language matches when its code is the same,
+or when a two-letter and a three-letter code have the same English name (`te` and `tel`). When no
+person matches that way, the model's own answer decides, which covers one language known by two
+names (`tl` Tagalog and `fil` Filipino):
+
+- The language matches exactly one person's chosen language: that person is the speaker
+  (`speaker_id`), and the other person gets one `translation.final`.
+- It matches neither person (a third language): `speaker_id` is `null` and both people get a
+  `translation.final` in their own language.
+- It matches both people (both chose that language): `speaker_id` is `null` and nobody needs a
+  translation, so only `transcript.final` is sent.
+
+After `utterance.received`, each utterance gets exactly one of: `transcript.final` followed by its
+`translation.final` messages (if any), `utterance.ignored`, or one `error` carrying its
+`utterance_id`. Results arrive in the order the sentences end (in call mode, when one `audio.pause` or `session.stop` ends both sides at once, A's comes first). A translation that only repeats the words
+spoken (apart from a single short word such as a name or "No.") is refused as a retryable
+`provider_unavailable` error. At most 5 sentences can
+wait for translation at once; more get a retryable `provider_unavailable` error straight away, so
+that error can arrive before the results of earlier sentences.
+
+Voice, when `server_voice` is `true`: each `translation.final` later gets either one `tts.audio`
+or one `voice_unavailable` error for the same `utterance_id` and `listener_id`. When both
+people need the same words, the voice is made once and sent to each of them. On
+`voice_unavailable`, speak that translation with the browser's own voice if it has one, otherwise
+show captions only. Voices arrive in the order the sentences end (a `voice_unavailable` for a full voice queue is sent at once, so it can arrive before earlier voices), and making a voice never
+delays the next translation. At most 5 voices can wait at once; more get `voice_unavailable`. On
+`session.stop`, voices still being made are finished within the same grace period as translations;
+any not ready by then get `voice_unavailable` before the close.
 
 Show `text` fields as plain text, never as HTML: they contain whatever the speaker said.
 
 ### Example exchange
 
 ```text
--> {"type":"utterance.start","utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","spoken_language":null}
--> (binary audio frames, about 100 ms each)
--> {"type":"utterance.end","utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}
-<- {"type":"utterance.received","seq":4,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","duration_ms":2100}
-<- {"type":"transcript.final","seq":5,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","text":"మీరు ఎలా ఉన్నారు?","language":"te","language_name":"Telugu"}
-<- {"type":"translation.final","seq":6,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","listener_id":"A","target_language":"en","text":"How are you?","translated":true}
+-> (binary audio frames, about 100 ms each, continuously)
+<- {"type":"utterance.received","seq":2,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":null,"duration_ms":2100}
+<- {"type":"transcript.final","seq":3,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","text":"మీరు ఎలా ఉన్నారు?","language":"te","language_name":"Telugu"}
+<- {"type":"translation.final","seq":4,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","listener_id":"A","target_language":"en","text":"How are you?"}
+<- {"type":"tts.audio","seq":5,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","listener_id":"A","format":"wav","audio_base64":"UklGR..."}
+-> {"type":"audio.pause"}
 ```
 
 ## 6. Error codes
 
 | Code | Status | Retryable | When |
 | --- | --- | --- | --- |
-| `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, invalid fields, too large, second open utterance, malformed audio frame |
+| `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, too large, malformed audio frame |
 | `unknown_session` | live | no | The session id does not exist, has expired or its channel is already open (then close 4404) |
-| `no_active_utterance` | live | no | Audio or `utterance.end` without an open utterance |
-| `audio_too_short` | live | no | Under 0.3 s, silence, or no words recognised |
-| `audio_too_long` | live | no | Over 30 s in one utterance |
-| `unsupported_language` | live | yes | The speech service could not identify the language spoken |
 | `provider_unavailable` | live | depends | Retryable: speech service unreachable, slow, erroring, returned an unreadable answer or did not translate the sentence, or 5 sentences are already waiting behind the one being translated. Not retryable: no key or model set up, key or model rejected, audio could not be processed, or the service refused the sentence |
 | `quota_exceeded` | live | yes, later | Free-tier limit reached; try again after a minute |
+| `voice_unavailable` | live | no | The server could not make the voice for this translation (free voice limit, service unreachable, too many waiting); use the browser voice or captions only |
 | `internal_error` | live | yes | Unexpected server error; details only in the backend log. With an `utterance_id`: only that sentence failed and the connection stays open. With `utterance_id: null`: the live channel failed and closes with 1011 |
+
+## 7. Call mode (live)
+
+Call mode translates a call that runs in a browser tab: Google Meet, or Zoom and Teams on the web.
+Desktop call apps have no tab to capture and are not supported.
+Person A is the user of this device; Person B is the other person on the call. Both must agree to
+the call being translated by an online service before it starts.
+
+- Create the session with `"mode": "call"`. `session.ready` then has `mode: "call"`. Call mode
+  needs the server voice: without `GEMINI_TTS_MODEL` the request gets `503` with a readable
+  `detail`.
+- The browser sends two audio sources on the same live channel: this device's microphone (A) and
+  the call's sound (B, captured from the call's browser tab). Every binary frame starts with one
+  byte naming its source, `A` (0x41) or `B` (0x42), followed by audio in the format of section 4.
+  A frame with any other first byte, or with no audio after it, gets `invalid_message`.
+- Each source is listened to separately, so both people can be heard at the same time.
+  `audio.pause` with `participant_id` ends that side's sentence; without it, both.
+- The speaker is the source, never guessed from the language: `speaker_id` is set from the first
+  `utterance.received`. The other person gets a `translation.final` and a voice for every
+  sentence, even when they chose the language spoken (then the text is the words spoken), because
+  they hear the user only through the voice. The speaker gets no translation of their own words.
+- Voices: a `tts.audio` for listener A plays on this device (headphones); a `tts.audio` for
+  listener B is played into a virtual microphone that the call app uses, so the other person
+  hears only the translation, in their language. The browser chooses the output device; the
+  server is not involved. The browser's own voice cannot be sent to a chosen device, so a
+  `voice_unavailable` for listener B means the other person did not hear that sentence: show it
+  on the turn. Free voice limits are low, so this can happen in long calls.
+- Wear headphones: otherwise the call's sound reaches the microphone and is translated twice.
+- Unlike together mode, do not send `audio.pause` while voices play: with headphones nothing
+  echoes, and pausing would cut off the other side. Both sources stream for the whole call.
+- The other person should also use headphones or echo cancellation, or the translated voice can
+  come back through the call and be translated again.
+- A sentence is ready after the pause that ends it (about 1.5 s) plus the translation (a median of
+  about 2.5 s in the benchmark), and its voice follows, so the call works turn by turn.

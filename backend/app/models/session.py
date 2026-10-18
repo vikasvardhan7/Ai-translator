@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.languages import invalid_language_message, language_code
 
 ParticipantId = Literal["A", "B"]
+SessionMode = Literal["together", "call"]
 
 
 class Participant(BaseModel):
@@ -28,6 +29,7 @@ class SessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     consent: bool
+    mode: SessionMode = "together"
     participants: list[Participant] = Field(min_length=2, max_length=2)
 
     @model_validator(mode="after")
@@ -41,5 +43,6 @@ class SessionCreate(BaseModel):
 
 class SessionOut(BaseModel):
     session_id: str
+    mode: SessionMode
     participants: list[Participant]
     created_at: datetime

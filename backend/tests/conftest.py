@@ -8,15 +8,16 @@ from tests.fakes import FakeTranslator
 FRONTEND = "http://localhost:5173"
 
 
-def make_client(settings: Settings | None = None, translator=None) -> TestClient:
+def make_client(settings: Settings | None = None, translator=None, synthesizer=None) -> TestClient:
     app = create_app(settings or Settings(_env_file=None, frontend_origin=FRONTEND))
     app.state.speech_translator = translator
+    app.state.speech_synthesizer = synthesizer
     return TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def no_real_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "SPEECH_TIMEOUT_SECONDS"):
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_TTS_MODEL", "SPEECH_TIMEOUT_SECONDS"):
         monkeypatch.delenv(name, raising=False)
 
 
