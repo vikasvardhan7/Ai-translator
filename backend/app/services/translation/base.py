@@ -5,12 +5,25 @@ from app.models.protocol import ErrorCode
 
 
 @dataclass(frozen=True)
+class Translation:
+    language: str
+    text: str
+    same_language: bool
+
+
+@dataclass(frozen=True)
 class SpeechTranslation:
     text: str
     language: str
     language_name: str
-    translation: str
-    translated: bool
+    translations: tuple[Translation, ...]
+
+    def for_language(self, language: str) -> Translation:
+        return next(t for t in self.translations if t.language == language)
+
+
+class NothingRecognised(Exception):
+    pass
 
 
 class TranslationFailed(Exception):
@@ -23,11 +36,7 @@ class TranslationFailed(Exception):
 
 class SpeechTranslator(Protocol):
     async def translate_speech(
-        self,
-        audio: bytes,
-        mime_type: str,
-        target_language: str,
-        spoken_language: str | None = None,
+        self, audio: bytes, mime_type: str, target_languages: list[str]
     ) -> SpeechTranslation: ...
 
     async def aclose(self) -> None: ...

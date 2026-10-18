@@ -2,7 +2,7 @@
 
 A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages and speaks the translation aloud.
 
-**Status:** Phase 1, Step 1E (backend): sessions API, live WebSocket channel, microphone audio intake, and speech recognition with translation from any spoken language into the listener's language, and the translation spoken aloud (Gemini API free tier) are working. There is no fixed language list: any ISO 639 code is accepted.
+**Status:** Phase 1 (backend): sessions API, live WebSocket channel, hands-free listening that finds each sentence by itself, speech recognition with translation from any spoken language into each person's chosen language, and the translation spoken aloud (Gemini API free tier) are working. There is no fixed language list: any ISO 639 code is accepted.
 
 Nothing is recorded. Audio is held in memory only until its sentence is translated, a session leaves memory when its live channel opens, and a session that is never opened expires after 10 minutes.
 
@@ -52,7 +52,7 @@ Start the server:
 uvicorn app.main:app --reload --port 8000 --ws-max-size 65536
 ```
 
-Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.5.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
+Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.6.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
 
 ### Speech recognition and translation
 
@@ -71,7 +71,7 @@ python -m scripts.benchmark --list-models
 python -m scripts.benchmark --fleurs te,hi,en --count 10 --target en --models <model>,<model>
 ```
 
-`--list-models` asks Google which models your key can use. The benchmark streams real speech clips from Google's FLEURS dataset (CC BY 4.0, about 100 languages) straight into each model, one language at a time, and prints what each model heard, its translation and the correct translation, then a summary. Clips stay in memory only while their language is tested; nothing is saved. Without `--models` it tests `GEMINI_MODEL`.
+`--list-models` asks Google which models your key can use. The benchmark streams real speech clips from Google's FLEURS dataset (CC BY 4.0, about 100 languages) straight into each model, one language at a time, and prints what each model heard, its translation and the correct translation, then a summary. Clips stay in memory only while their language is tested; nothing is saved. Without `--models` it tests `GEMINI_MODEL`. Each clip is sent as in a real conversation, with the clip's language and `--target` as the two people's languages, so the language score shows what the app will detect, not detection without any hint.
 
 ## Frontend setup
 
@@ -97,7 +97,7 @@ Ai-translator/
 │   │   ├── api/             sessions, WebSocket stream
 │   │   ├── core/            settings, language codes, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session store, microphone audio intake, speech translation, voice
+│   │   └── services/        session store, hands-free speech detection, speech translation, voice
 │   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
