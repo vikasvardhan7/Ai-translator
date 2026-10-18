@@ -30,7 +30,8 @@ def is_speech(window: bytes) -> bool:
 
 
 class SpeechDetector:
-    def __init__(self) -> None:
+    def __init__(self, speaker_id: str | None = None) -> None:
+        self._speaker_id = speaker_id
         self._carry = b""
         self._pre_roll: deque[bytes] = deque(maxlen=PRE_ROLL_WINDOWS)
         self._sentence: bytearray | None = None
@@ -98,4 +99,4 @@ class SpeechDetector:
             return None
         trailing = max(0, silent - KEPT_SILENCE_WINDOWS) * WINDOW_BYTES
         pcm = bytes(sentence[: len(sentence) - trailing])
-        return AudioSegment(str(uuid.uuid4()), pcm)
+        return AudioSegment(str(uuid.uuid4()), pcm, self._speaker_id)

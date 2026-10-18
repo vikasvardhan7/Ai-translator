@@ -87,6 +87,12 @@ async def _cancel(worker: asyncio.Task[None]) -> None:
         await worker
 
 
+def _detectors_for(session: Session) -> dict[str | None, SpeechDetector]:
+    if session.mode == "call":
+        return {p.id: SpeechDetector(p.id) for p in session.participants}
+    return {None: SpeechDetector()}
+
+
 def _origin_allowed(websocket: WebSocket, allowed_origin: str) -> bool:
     origin = websocket.headers.get("origin")
     return origin is None or origin == allowed_origin
@@ -119,7 +125,7 @@ class StreamHandler:
         self._translator = translator
         self._synthesizer = synthesizer
         self._sender = StreamSender(websocket)
-        self._detector = SpeechDetector()
+        self._detectors = _detectors_for(session)
         self._pending: asyncio.Queue[AudioSegment] = asyncio.Queue(MAX_PENDING_UTTERANCES)
         self._in_flight: AudioSegment | None = None
         self._voices: asyncio.Queue[_VoiceRequest] = asyncio.Queue(MAX_PENDING_VOICES)
@@ -187,6 +193,7 @@ class StreamHandler:
             session_id=self._session.id,
             participants=[p.model_dump() for p in self._session.participants],
             server_voice=self._synthesizer is not None,
+            mode=self._session.mode,
         )
         while True:
             message = await self._websocket.receive()
@@ -201,8 +208,19 @@ class StreamHandler:
                 return True
 
     async def _hear(self, frame: bytes) -> None:
+        source: str | None = None
+        if self._session.mode == "call":
+            source = chr(frame[0]) if len(frame) > 1 else None
+            if source not in self._detectors:
+                await self._sender.error(
+                    ErrorCode.INVALID_MESSAGE,
+                    "In a call, each audio frame is the byte 'A' (this device's microphone)"
+                    " or 'B' (the call) followed by audio.",
+                )
+                return
+            frame = frame[1:]
         try:
-            segments = self._detector.add(frame)
+            segments = self._detectors[source].add(frame)
         except FrameRejected:
             await self._sender.error(
                 ErrorCode.INVALID_MESSAGE,
@@ -212,9 +230,19 @@ class StreamHandler:
         for segment in segments:
             await self._utterance_received(segment)
 
-    async def _end_sentence(self) -> None:
-        if segment := self._detector.flush():
-            await self._utterance_received(segment)
+    async def _end_sentence(self, source: object = None) -> None:
+        if self._session.mode == "call" and source is not None:
+            if not isinstance(source, str) or source not in self._detectors:
+                await self._sender.error(
+                    ErrorCode.INVALID_MESSAGE, "participant_id must be 'A' or 'B'."
+                )
+                return
+            detectors = [self._detectors[source]]
+        else:
+            detectors = list(self._detectors.values())
+        for detector in detectors:
+            if segment := detector.flush():
+                await self._utterance_received(segment)
 
     async def fail(self) -> None:
         try:
@@ -235,7 +263,7 @@ class StreamHandler:
             case "ping":
                 await self._sender.send("pong")
             case "audio.pause":
-                await self._end_sentence()
+                await self._end_sentence(parsed.get("participant_id"))
             case "session.stop":
                 await self._end_sentence()
                 raise _StopRequested
@@ -248,6 +276,7 @@ class StreamHandler:
         await self._sender.send(
             "utterance.received",
             utterance_id=segment.utterance_id,
+            speaker_id=segment.speaker_id,
             duration_ms=segment.duration_ms,
         )
         try:
@@ -320,10 +349,15 @@ class StreamHandler:
             )
             return
 
-        understood = [
-            p for p in participants if result.for_language(p.preferred_language).same_language
-        ]
-        speaker_id = understood[0].id if len(understood) == 1 else None
+        speaker_id = segment.speaker_id
+        if speaker_id is None:
+            understood = [
+                p for p in participants if result.for_language(p.preferred_language).same_language
+            ]
+            speaker_id = understood[0].id if len(understood) == 1 else None
+            listeners = [p for p in participants if p not in understood]
+        else:
+            listeners = [p for p in participants if p.id != speaker_id]
         await self._sender.send(
             "transcript.final",
             utterance_id=segment.utterance_id,
@@ -333,9 +367,7 @@ class StreamHandler:
             language_name=result.language_name,
         )
         voices: dict[str, list[str]] = {}
-        for listener in participants:
-            if listener in understood:
-                continue
+        for listener in listeners:
             text = result.for_language(listener.preferred_language).text
             await self._sender.send(
                 "translation.final",

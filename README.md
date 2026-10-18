@@ -2,7 +2,7 @@
 
 A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages and speaks the translation aloud.
 
-**Status:** Phase 1 (backend): sessions API, live WebSocket channel, hands-free listening that finds each sentence by itself, speech recognition with translation from any spoken language into each person's chosen language, and the translation spoken aloud (Gemini API free tier) are working. There is no fixed language list: any ISO 639 code is accepted.
+**Status:** Phase 1 (backend): sessions API, live WebSocket channel, hands-free listening that finds each sentence by itself, speech recognition with translation from any spoken language into each person's chosen language, and the translation spoken aloud (Gemini API free tier) are working. The backend side of call mode, for translating Google Meet calls and other calls in a browser tab, is ready (`docs/PROTOCOL.md`, section 7); its browser part is Step 1G. There is no fixed language list: any ISO 639 code is accepted.
 
 Nothing is recorded. Audio is held in memory only until its sentence is translated, a session leaves memory when its live channel opens, and a session that is never opened expires after 10 minutes.
 
@@ -52,7 +52,7 @@ Start the server:
 uvicorn app.main:app --reload --port 8000 --ws-max-size 65536
 ```
 
-Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.6.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
+Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.7.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
 
 ### Speech recognition and translation
 
