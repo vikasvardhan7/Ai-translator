@@ -55,14 +55,19 @@ class GeminiSpeechSynthesizer:
 
 def _wav_audio(response: types.GenerateContentResponse) -> bytes:
     content = response.candidates[0].content if response.candidates else None
-    for part in (content.parts or []) if content else []:
-        blob = part.inline_data
-        if blob is None or not blob.data:
-            continue
-        mime_type = (blob.mime_type or "").lower()
-        if mime_type.startswith(WAV_MIME_TYPES):
+    blobs = [
+        part.inline_data
+        for part in ((content.parts or []) if content else [])
+        if part.inline_data is not None and part.inline_data.data
+    ]
+    for blob in blobs:
+        if (blob.mime_type or "").lower().startswith(WAV_MIME_TYPES):
             return blob.data
-        if mime_type.startswith(PCM_MIME_TYPES):
-            rate = re.search(r"rate=(\d+)", mime_type)
-            return encode_wav(blob.data, int(rate.group(1)) if rate else DEFAULT_PCM_RATE)
-    raise VoiceFailed("The voice service returned no audio.")
+    pcm = [blob for blob in blobs if (blob.mime_type or "").lower().startswith(PCM_MIME_TYPES)]
+    if not pcm:
+        raise VoiceFailed("The voice service returned no audio.")
+    rate = re.search(r"rate=(\d+)", (pcm[0].mime_type or "").lower())
+    sample_rate = int(rate.group(1)) if rate else DEFAULT_PCM_RATE
+    if sample_rate <= 0:
+        raise VoiceFailed("The voice service returned unreadable audio.")
+    return encode_wav(b"".join(blob.data for blob in pcm), sample_rate)

@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 
-from app.services.translation.base import SpeechTranslation, TranslationFailed
+from app.services.translation.base import SpeechTranslation, Translation
 from app.services.voice.base import VoiceFailed
 
 
@@ -9,8 +9,7 @@ from app.services.voice.base import VoiceFailed
 class TranslatorCall:
     audio: bytes
     mime_type: str
-    target_language: str
-    spoken_language: str | None
+    target_languages: list[str]
 
 
 @dataclass
@@ -19,28 +18,26 @@ class FakeTranslator:
     text: str = "మీరు ఎలా ఉన్నారు?"
     translation: str = "How are you?"
     language_name: str = "Telugu"
-    failure: TranslationFailed | None = None
+    failure: Exception | None = None
     delays: list[float] = field(default_factory=list)
     calls: list[TranslatorCall] = field(default_factory=list)
     closed: bool = False
 
     async def translate_speech(
-        self,
-        audio: bytes,
-        mime_type: str,
-        target_language: str,
-        spoken_language: str | None = None,
+        self, audio: bytes, mime_type: str, target_languages: list[str]
     ) -> SpeechTranslation:
-        self.calls.append(TranslatorCall(audio, mime_type, target_language, spoken_language))
+        self.calls.append(TranslatorCall(audio, mime_type, target_languages))
         if self.delays:
             await asyncio.sleep(self.delays.pop(0))
         if self.failure:
             raise self.failure
-        translated = self.language != target_language
-        translation = self.translation if translated else self.text
-        return SpeechTranslation(
-            self.text, self.language, self.language_name, translation, translated
+        translations = tuple(
+            Translation(target, self.text, True)
+            if target == self.language
+            else Translation(target, f"{self.translation} [{target}]", False)
+            for target in target_languages
         )
+        return SpeechTranslation(self.text, self.language, self.language_name, translations)
 
     async def aclose(self) -> None:
         self.closed = True
