@@ -16,11 +16,6 @@ frontend can show `detail` directly.
 | `GET /health` | live | Backend is running: `{"status":"ok","version":"0.4.0"}` |
 | `POST /api/sessions` | live | Start a conversation; returns the session id |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
-| `POST /api/sessions/{session_id}/stop` | 1F | End the conversation and save the transcript |
-| `GET /api/sessions` | 1F | Past conversations, newest first |
-| `GET /api/sessions/{session_id}/transcript` | 1F | All saved turns of one conversation |
-| `GET /api/sessions/{session_id}/export?format=txt\|srt\|vtt\|json` | 1F | Download the transcript |
-| `DELETE /api/sessions/{session_id}` | 1F | Delete a conversation |
 
 ### Language codes
 

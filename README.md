@@ -1,8 +1,8 @@
 # Voice Translator
 
-A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages, speaks the translation aloud, and saves a downloadable transcript.
+A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages and speaks the translation aloud.
 
-**Status:** Phase 1, Step 1D (backend): sessions API, live WebSocket channel, microphone audio intake, and speech recognition with translation from any spoken language into the listener's language (Gemini API free tier) are working. There is no fixed language list: any ISO 639 code is accepted. Voice playback and saved transcripts come next.
+**Status:** Phase 1, Step 1D (backend): sessions API, live WebSocket channel, microphone audio intake, and speech recognition with translation from any spoken language into the listener's language (Gemini API free tier) are working. There is no fixed language list: any ISO 639 code is accepted. Voice playback comes next.
 
 Nothing is recorded. Audio is held in memory only until its sentence is translated, a session leaves memory when its live channel opens, and a session that is never opened expires after 10 minutes.
 
@@ -14,8 +14,8 @@ The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisio
 | --- | --- |
 | Frontend | React 19, TypeScript, Vite, Vitest |
 | Backend | Python 3.12, FastAPI, Uvicorn, pytest, Ruff |
-| Speech and translation | Free tiers only (Gemini API free tier or local models), chosen in Step 1D |
-| Storage | SQLite (added in a later step) |
+| Speech and translation | Gemini API free tier through `google-genai`; the model is set by `GEMINI_MODEL` |
+| Storage | None: nothing is recorded or saved |
 
 ## Prerequisites (Windows)
 
@@ -96,7 +96,8 @@ Ai-translator/
 │   │   ├── api/             sessions, WebSocket stream
 │   │   ├── core/            settings, language codes, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session store
+│   │   └── services/        session store, microphone audio intake, speech translation
+│   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
@@ -104,11 +105,9 @@ Ai-translator/
 │   ├── src/                 React app
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                    architecture blueprint
+├── docs/                    protocol, decisions, developer handbook
 └── README.md
 ```
-
-Folders for speech recognition, translation, storage and exports are added in the steps that need them.
 
 ## Automatic checks
 

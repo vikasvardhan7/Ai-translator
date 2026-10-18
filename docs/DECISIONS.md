@@ -17,4 +17,4 @@ Agreed product and technical decisions. Newest first. Change only with the owner
 | 2026-10-18 | **Any spoken language in, the listener's chosen language out.** Each participant picks a preferred language. Speech language is detected automatically. Translation is skipped when the speech is already in the listener's language. | Core product requirement. Telugu and English are only the first test pair. |
 | 2026-10-18 | Free services only: Gemini API free tier, local models (Whisper) and browser voices. | Cost requirement. Paid services need the owner's approval. |
 | 2026-10-18 | Project lives in `C:\dev\Ai-translator`, outside OneDrive. | OneDrive syncing breaks package installs. |
-| 2026-10-18 | React + TypeScript + Vite frontend; Python 3.12 + FastAPI backend; SQLite until multi-user is needed. | Agreed stack; speech and translation libraries are Python-first. |
+| 2026-10-18 | React + TypeScript + Vite frontend; Python 3.12 + FastAPI backend; no database while nothing is stored. | Agreed stack; speech and translation libraries are Python-first. |
