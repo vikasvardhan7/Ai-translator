@@ -15,6 +15,7 @@ pytestmark = pytest.mark.anyio
 
 API_KEY = "fake-key-for-tests"
 LONG_TELUGU = "మీరు ఎలా ఉన్నారు? నేను బాగున్నాను."
+SHORT_TELUGU = "మీరు ఎలా ఉన్నారు?"
 
 
 def answer(
@@ -30,8 +31,13 @@ def answer(
             "language": language,
             "language_name": language_name,
             "translations": [
-                {"target": code, "target_language_name": name, "text": words}
-                for code, name, words in translations
+                {
+                    "target": code,
+                    "target_language_name": name,
+                    "is_language_spoken": bool(spoken),
+                    "text": words,
+                }
+                for code, name, words, *spoken in translations
             ],
         }
     )
@@ -130,12 +136,12 @@ async def test_a_translation_spelled_like_the_original_is_accepted() -> None:
     assert result.for_language("es") == Translation("es", "No.", False)
 
 
-async def test_a_language_known_by_another_code_and_name_is_matched_by_its_copy() -> None:
+async def test_a_language_known_by_another_code_and_name_is_matched_by_the_model() -> None:
     response = answer(
         transcript="Kumusta ka?",
         language="fil",
         language_name="Filipino",
-        translations=(("en", "English", "How are you?"), ("tl", "Tagalog", "Kumusta ka?")),
+        translations=(("en", "English", "How are you?"), ("tl", "Tagalog", "Kumusta ka?", True)),
     )
 
     result = await call(response, targets=("en", "tl"))
@@ -145,22 +151,32 @@ async def test_a_language_known_by_another_code_and_name_is_matched_by_its_copy(
 
 
 @pytest.mark.parametrize(
-    "translations",
+    ("language", "transcript", "translations"),
     [
-        (("en", "English", LONG_TELUGU), ("te", "Telugu", LONG_TELUGU)),
-        (("en", "English", LONG_TELUGU), ("hi", "Hindi", LONG_TELUGU)),
+        ("te", LONG_TELUGU, (("en", "English", LONG_TELUGU), ("te", "Telugu", LONG_TELUGU))),
+        ("te", SHORT_TELUGU, (("en", "English", SHORT_TELUGU), ("te", "Telugu", SHORT_TELUGU))),
+        ("te", SHORT_TELUGU, (("en", "English", SHORT_TELUGU[:-1]), ("te", "Telugu", ""))),
+        ("kn", LONG_TELUGU, (("en", "English", LONG_TELUGU), ("hi", "Hindi", LONG_TELUGU))),
+        ("ta", LONG_TELUGU, (("en", "English", LONG_TELUGU), ("te", "Telugu", "నమస్కారం"))),
     ],
-    ids=["listener-copy", "third-language-copies"],
+    ids=[
+        "listener-copy",
+        "short-sentence-copy",
+        "copy-without-punctuation",
+        "third-language-copies",
+        "one-copy-of-a-third-language",
+    ],
 )
-async def test_a_sentence_copied_instead_of_translated_is_refused(translations) -> None:
-    targets = tuple(code for code, _, _ in translations)
-    transcript = translations[0][2]
-    language = "te" if "te" in targets else "kn"
+async def test_a_sentence_copied_instead_of_translated_is_refused(
+    language, transcript, translations
+) -> None:
+    targets = tuple(code for code, *_ in translations)
+    response = answer(
+        transcript=transcript, language=language, language_name="", translations=translations
+    )
 
     with pytest.raises(TranslationFailed) as excinfo:
-        await call(
-            answer(transcript=transcript, language=language, translations=translations), targets
-        )
+        await call(response, targets)
 
     assert "could not be translated" in excinfo.value.message
 
@@ -353,3 +369,14 @@ def test_api_key_is_hidden_in_settings_output() -> None:
 def test_timeout_must_be_positive() -> None:
     with pytest.raises(ValueError):
         Settings(_env_file=None, speech_timeout_seconds=0)
+
+
+async def test_a_listener_is_not_taken_for_the_speaker_by_a_wrong_name_or_flag() -> None:
+    response = answer(
+        translations=(("en", "Telugu", "How are you?", True), ("te", "Telugu", "")),
+    )
+
+    result = await call(response)
+
+    assert result.for_language("en") == Translation("en", "How are you?", False)
+    assert result.for_language("te").same_language

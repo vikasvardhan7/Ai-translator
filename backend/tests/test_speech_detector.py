@@ -114,3 +114,11 @@ def test_the_next_sentence_keeps_the_moment_before_it_starts() -> None:
     segments = hear(detector, tone(1.0) + silence(2.0) + tone(1.0) + silence(2.0))
 
     assert [s.duration_ms for s in segments] == [1300, 1600]
+
+
+def test_a_quick_reply_keeps_the_moment_before_it_starts() -> None:
+    detector = SpeechDetector()
+
+    segments = hear(detector, tone(1.0) + silence(1.5) + tone(1.0) + silence(2.0))
+
+    assert [s.duration_ms for s in segments] == [1300, 1600]

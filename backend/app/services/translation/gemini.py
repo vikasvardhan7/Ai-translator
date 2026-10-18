@@ -1,5 +1,6 @@
 import json
 import logging
+import unicodedata
 
 import httpx
 from google import genai
@@ -29,11 +30,13 @@ BLOCKED_FINISH_REASONS = {
 }
 MAX_LANGUAGE_NAME_LENGTH = 60
 MAX_SHARED_TEXT_LENGTH = 20
+IGNORED_CHARACTER_KINDS = ("P", "Z")
 
 
 class _Translation(BaseModel):
     target: str
     target_language_name: str
+    is_language_spoken: bool
     text: str
 
 
@@ -63,7 +66,9 @@ def _instructions(target_languages: list[str]) -> str:
             "language_name: the English name of the language spoken.",
             "translations: one entry for each target code, in the same order, each with"
             " target (the code exactly as given), target_language_name (the English name of"
-            " that language) and text (the full meaning of the transcript, written in that"
+            " that language), is_language_spoken (true only when that target language is the"
+            " language spoken, even under another name or code) and text (the full meaning of"
+            " the transcript, written in that"
             " language and in its native script). The text is only the translation, never a"
             " question, a request or a comment about the task.",
             "Only when the language spoken is a target language does its text repeat the"
@@ -201,14 +206,11 @@ def _parse(text: str | None, target_languages: list[str]) -> SpeechTranslation:
     entries = _entries_for(answer.translations, target_languages)
     same = [_same_language(language, name, t, e.target_language_name) for t, e in entries]
     if not any(same):
-        copies = [e.text.strip() == transcript for _, e in entries]
-        if copies.count(True) == 1:
-            same = copies
+        same = [e.is_language_spoken for _, e in entries]
     translations = []
     for (target, entry), is_same in zip(entries, same, strict=True):
         translated_text = transcript if is_same else entry.text.strip()
-        copied = translated_text == transcript and len(transcript) > MAX_SHARED_TEXT_LENGTH
-        if not translated_text or (not is_same and copied):
+        if not translated_text or (not is_same and _copied(translated_text, transcript)):
             raise _not_translated()
         translations.append(Translation(target, translated_text, is_same))
     return SpeechTranslation(
@@ -237,6 +239,19 @@ def _entries_for(
     return entries
 
 
+def _letters(text: str) -> str:
+    return "".join(
+        c for c in text if not unicodedata.category(c).startswith(IGNORED_CHARACTER_KINDS)
+    ).casefold()
+
+
+def _copied(translated_text: str, transcript: str) -> bool:
+    if _letters(translated_text) != _letters(transcript):
+        return False
+    one_word = len(transcript.split()) == 1
+    return not one_word or len(transcript) > MAX_SHARED_TEXT_LENGTH
+
+
 def _not_translated() -> TranslationFailed:
     return TranslationFailed(
         ErrorCode.PROVIDER_UNAVAILABLE,
@@ -248,5 +263,7 @@ def _not_translated() -> TranslationFailed:
 def _same_language(language: str, name: str, target_language: str, target_name: str) -> bool:
     if language == target_language:
         return True
+    if len(language) == len(target_language):
+        return False
     target_name = target_name.strip()
     return bool(name) and name.casefold() == target_name.casefold()

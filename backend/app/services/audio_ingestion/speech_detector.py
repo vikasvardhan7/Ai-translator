@@ -75,7 +75,11 @@ class SpeechDetector:
         else:
             self._silent_windows += 1
         if self._silent_windows >= END_SILENCE_WINDOWS:
-            return self._finish()
+            quiet = bytes(self._sentence[-PRE_ROLL_WINDOWS * WINDOW_BYTES :])
+            segment = self._finish()
+            for start in range(0, len(quiet), WINDOW_BYTES):
+                self._pre_roll.append(quiet[start : start + WINDOW_BYTES])
+            return segment
         if len(self._sentence) >= MAX_SENTENCE_BYTES:
             segment = self._finish()
             self._sentence = bytearray()

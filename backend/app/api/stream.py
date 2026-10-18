@@ -73,10 +73,12 @@ class StreamSender:
 
 async def _drain(queue: asyncio.Queue, worker: asyncio.Task[None], timeout: float) -> None:
     drained = asyncio.create_task(queue.join())
-    await asyncio.wait(
-        {drained, worker}, timeout=max(0.0, timeout), return_when=asyncio.FIRST_COMPLETED
-    )
-    drained.cancel()
+    try:
+        await asyncio.wait(
+            {drained, worker}, timeout=max(0.0, timeout), return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        drained.cancel()
 
 
 async def _cancel(worker: asyncio.Task[None]) -> None:

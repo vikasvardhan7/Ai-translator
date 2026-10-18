@@ -123,9 +123,10 @@ All include `type` and `seq`.
 | `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
 
-Who spoke is decided by the language heard. A person's language matches when its code or English
-name is the same, or, when no code or name matches, when that person's translation is exactly the
-words spoken:
+Who spoke is decided by the language heard. A person's language matches when its code is the same,
+or when a two-letter and a three-letter code have the same English name (`te` and `tel`). When no
+person matches that way, the model's own answer decides, which covers one language known by two
+names (`tl` Tagalog and `fil` Filipino):
 
 - The language matches exactly one person's chosen language: that person is the speaker
   (`speaker_id`), and the other person gets one `translation.final`.
@@ -136,8 +137,11 @@ words spoken:
 
 After `utterance.received`, each utterance gets exactly one of: `transcript.final` followed by its
 `translation.final` messages (if any), `utterance.ignored`, or one `error` carrying its
-`utterance_id`. Results arrive in the order the sentences were spoken. At most 5 sentences can
-wait for translation at once; more get a retryable `provider_unavailable` error.
+`utterance_id`. Results arrive in the order the sentences were spoken. A translation that only repeats the words
+spoken (apart from a single short word such as a name or "No.") is refused as a retryable
+`provider_unavailable` error. At most 5 sentences can
+wait for translation at once; more get a retryable `provider_unavailable` error straight away, so
+that error can arrive before the results of earlier sentences.
 
 Voice, when `server_voice` is `true`: each `translation.final` later gets either one `tts.audio`
 or one `voice_unavailable` error for the same `utterance_id` and `listener_id`. When both
