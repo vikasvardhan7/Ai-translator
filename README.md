@@ -2,7 +2,9 @@
 
 A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages, speaks the translation aloud, and saves a downloadable transcript.
 
-**Status:** Phase 1, Step 1A (project setup). The frontend and backend skeletons install, run and pass their tests. No translation features yet.
+**Status:** Phase 1, Step 1B (backend): languages list, sessions API and the live WebSocket channel are working. No microphone or translation yet.
+
+The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). The step-by-step plan for both developers is in [`docs/AI-Voice-Translator-Developer-Handbook.docx`](docs/AI-Voice-Translator-Developer-Handbook.docx).
 
 The full design is in [`docs/ARCHITECTURE_BLUEPRINT.md`](docs/ARCHITECTURE_BLUEPRINT.md), with an overview diagram in [`docs/architecture-overview.png`](docs/architecture-overview.png).
 
@@ -50,7 +52,7 @@ Start the server:
 uvicorn app.main:app --reload --port 8000
 ```
 
-Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.1.0"}`. Interactive API docs are at <http://localhost:8000/docs>.
+Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.2.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
 
 ## Frontend setup
 
@@ -73,7 +75,10 @@ Ai-translator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          FastAPI app, CORS, /health
-│   │   └── core/config.py   settings from backend/.env
+│   │   ├── api/             languages, sessions, WebSocket stream
+│   │   ├── core/            settings, language list, error format
+│   │   ├── models/          request and response models
+│   │   └── services/        session store
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools

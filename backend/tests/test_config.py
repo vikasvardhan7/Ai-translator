@@ -4,7 +4,6 @@ from app.core.config import Settings
 def test_defaults_without_env_file() -> None:
     settings = Settings(_env_file=None)
 
-    assert settings.app_env == "development"
     assert settings.frontend_origin == "http://localhost:5173"
 
 

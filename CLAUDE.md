@@ -14,6 +14,14 @@ This repository is an AI two-way real-time voice translator. The owner decides w
 8. Run the relevant tests, type checks and lint before reporting. Never claim something works without testing it.
 9. Finish with a report: what was done, files changed, commands run, test results, remaining issues, how to verify.
 
+## Core product decisions (see docs/DECISIONS.md)
+
+- **Any spoken language in, the listener's chosen language out.** Never hard-code a language pair; languages come from `backend/app/core/languages.py`.
+- **Free services only** (Gemini free tier, local models, browser voices).
+- **Tap-to-talk first**: one button per participant.
+- **`docs/PROTOCOL.md` is the frontend/backend contract.** Change it only in an agreed pull request.
+- **Ownership:** `backend/` belongs to Vikas, `frontend/` to the teammate. Do not edit the other side's folder.
+
 ## Architecture
 
 The full design is in `docs/ARCHITECTURE_BLUEPRINT.md`. Key points:
