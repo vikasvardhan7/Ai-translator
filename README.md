@@ -85,7 +85,7 @@ npm run typecheck
 npm run dev
 ```
 
-Open <http://localhost:5173> to see the placeholder page.
+With the backend running, open <http://localhost:5173> in Chrome or Edge, set up both people, tick the consent box and press Start. Allow the microphone when asked, then just talk: each sentence appears for the other person in their language and is spoken aloud. Use headphones if the voice is picked up by the microphone.
 
 ## Project structure
 
