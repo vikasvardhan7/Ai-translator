@@ -28,4 +28,4 @@ async def create_session(body: SessionCreate, store: Store) -> SessionOut:
 async def session_stream(
     websocket: WebSocket, session_id: str, store: Store, settings: AppSettings
 ) -> None:
-    await handle_stream(websocket, store.get(session_id), allowed_origin=settings.frontend_origin)
+    await handle_stream(websocket, store.get(session_id), settings)

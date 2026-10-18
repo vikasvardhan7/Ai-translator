@@ -2,7 +2,9 @@
 
 A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages, speaks the translation aloud, and saves a downloadable transcript.
 
-**Status:** Phase 1, Step 1B (backend): languages list, sessions API and the live WebSocket channel are working. No microphone or translation yet.
+**Status:** Phase 1, Step 1C (backend): languages list, sessions API, the live WebSocket channel and microphone audio intake are working. No speech recognition or translation yet.
+
+While testing, set `SAVE_DEBUG_AUDIO=true` in `backend/.env` and every received sentence is saved as `backend/data/debug/<id>.wav` so you can listen to it. Keep it `false` otherwise: it records everything people say.
 
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). The step-by-step plan for both developers is in [`docs/AI-Voice-Translator-Developer-Handbook.docx`](docs/AI-Voice-Translator-Developer-Handbook.docx).
 
@@ -49,10 +51,10 @@ ruff check .
 Start the server:
 
 ```powershell
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000 --ws-max-size 65536
 ```
 
-Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.2.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
+Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.3.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
 
 ## Frontend setup
 
