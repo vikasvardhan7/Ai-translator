@@ -8,8 +8,6 @@ While testing, set `SAVE_DEBUG_AUDIO=true` in `backend/.env` and every received 
 
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). The step-by-step plan for both developers is in [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx).
 
-The full design is in [`docs/ARCHITECTURE_BLUEPRINT.md`](docs/ARCHITECTURE_BLUEPRINT.md), with an overview diagram in [`docs/architecture-overview.png`](docs/architecture-overview.png).
-
 ## Tech stack
 
 | Part | Technology |
