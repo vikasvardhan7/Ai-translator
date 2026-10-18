@@ -8,10 +8,28 @@ export interface MicrophoneCapture {
   start(onAudioFrame: (frame: ArrayBuffer) => void, onLevel: (level: number) => void, onLost: () => void): void;
   pause(): void;
   resume(): void;
+  mute(muted: boolean): void;
   stop(): void;
 }
 
 const LEVEL_INTERVAL_MS = 100;
+const RESUME_WAIT_MS = 1_500;
+
+export class MicrophoneNeedsTap extends Error {
+  constructor() {
+    super('This browser needs a tap to turn on the microphone. Tap Turn on microphone.');
+    this.name = 'MicrophoneNeedsTap';
+  }
+}
+
+function resumeOrGiveUp(context: AudioContext): Promise<void> {
+  return Promise.race([
+    context.resume(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, RESUME_WAIT_MS);
+    }),
+  ]);
+}
 
 function microphoneError(error: unknown): Error {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
@@ -53,13 +71,19 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
       },
       video: false,
     });
-    const [streamResult, resumeResult] = await Promise.allSettled([streamPromise, context.resume()]);
+    const [streamResult, resumeResult] = await Promise.allSettled([streamPromise, resumeOrGiveUp(context)]);
     if (streamResult.status === 'rejected') {
       throw streamResult.reason;
     }
     stream = streamResult.value;
     if (resumeResult.status === 'rejected') {
       throw new Error('Audio capture could not start. Check the browser audio settings.');
+    }
+    if (context.state !== 'running') {
+      await resumeOrGiveUp(context);
+    }
+    if (context.state !== 'running') {
+      throw new MicrophoneNeedsTap();
     }
     if (!context.audioWorklet) {
       throw new Error('This browser does not support the audio capture worklet. Use the latest Chrome or Edge.');
@@ -76,7 +100,7 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
   } catch (error) {
     stream?.getTracks().forEach((track) => track.stop());
     await context.close().catch(() => undefined);
-    throw microphoneError(error);
+    throw error instanceof MicrophoneNeedsTap ? error : microphoneError(error);
   }
 
   const microphoneStream = stream;
@@ -152,6 +176,12 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
         return;
       }
       listening = true;
+    },
+
+    mute(muted) {
+      for (const track of microphoneStream.getAudioTracks()) {
+        track.enabled = !muted;
+      }
     },
 
     stop() {

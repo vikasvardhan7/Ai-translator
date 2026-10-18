@@ -9,7 +9,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.core.config import Settings
-from app.services.voice.base import VoiceFailed
+from app.services.voice.base import VoiceFailed, VoiceOption
 from app.services.voice.factory import build_speech_synthesizer
 from app.services.voice.gemini import GeminiSpeechSynthesizer
 from tests.test_gemini import API_KEY, Recorder, error
@@ -113,3 +113,106 @@ async def test_audio_in_several_parts_is_joined() -> None:
 async def test_audio_with_an_impossible_rate_is_refused() -> None:
     with pytest.raises(VoiceFailed):
         await synthesizer(Recorder(audio(b"\x01\x00" * 10, "audio/L16;rate=0"))).synthesize("Hi")
+
+
+async def test_a_chosen_voice_is_asked_for_by_name() -> None:
+    recorder = Recorder(audio(b"RIFF....WAVE", "audio/wav"), audio(b"RIFF....WAVE", "audio/wav"))
+    voice = synthesizer(recorder)
+
+    await voice.synthesize("Hello", "Puck")
+    await voice.synthesize("Hello")
+
+    chosen, automatic = (json.loads(r.content)["generationConfig"] for r in recorder.requests)
+    assert chosen["speechConfig"] == {
+        "voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}
+    }
+    assert "speechConfig" not in automatic
+
+
+def voices_page(voices: list, next_page_token: str = "") -> httpx.Response:
+    return httpx.Response(200, json={"voices": voices, "next_page_token": next_page_token})
+
+
+PUCK = {
+    "id": "Puck",
+    "display_name": "Puck",
+    "description": "Upbeat",
+    "gender": "male",
+    "language_code": "en-US",
+    "pitch": "medium",
+    "accent": "American",
+}
+
+
+async def test_every_page_of_prebuilt_voices_is_listed() -> None:
+    recorder = Recorder(
+        voices_page([PUCK], "page-2"),
+        voices_page([{"id": "Kore", "description": "Firm"}, {"display_name": "No id"}, "odd"]),
+    )
+
+    voices = await synthesizer(recorder).list_voices()
+
+    first, second = recorder.requests
+    assert [v.id for v in voices] == ["Puck", "Kore"]
+    assert voices[0] == VoiceOption(**PUCK)
+    assert voices[1] == VoiceOption("Kore", "", "Firm", "", "", "", "")
+    assert str(first.url).startswith("https://generativelanguage.googleapis.com/v1beta/voices?")
+    assert first.headers["x-goog-api-key"] == API_KEY
+    assert API_KEY not in str(first.url)
+    assert dict(first.url.params) == {"type": "prebuilt", "page_size": "1000"}
+    assert dict(second.url.params) == {
+        "type": "prebuilt",
+        "page_size": "1000",
+        "page_token": "page-2",
+    }
+
+
+async def test_camel_case_voice_fields_are_read_too() -> None:
+    page = {"voices": [{"id": "Kore", "displayName": "Kore", "languageCode": "en-US"}]}
+    first = httpx.Response(200, json={**page, "nextPageToken": "next"})
+    recorder = Recorder(first, voices_page([]))
+
+    voices = await synthesizer(recorder).list_voices()
+
+    assert voices == [VoiceOption("Kore", "Kore", "", "", "en-US", "", "")]
+    assert len(recorder.requests) == 2
+
+
+async def test_a_repeated_page_token_ends_the_list() -> None:
+    recorder = Recorder(voices_page([PUCK], "same"), voices_page([], "same"))
+
+    voices = await synthesizer(recorder).list_voices()
+
+    assert [v.id for v in voices] == ["Puck"]
+    assert len(recorder.requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (error(429, "RESOURCE_EXHAUSTED"), "The free voice limit was reached."),
+        (error(500, "INTERNAL"), "The voice list could not be loaded."),
+        (error(403, "PERMISSION_DENIED"), "The voice list could not be loaded."),
+        (httpx.ConnectError("offline"), "The voice list could not be loaded."),
+        (httpx.Response(200, text="not json"), "The voice list could not be loaded."),
+        (httpx.Response(200, json=["not", "an", "object"]), "The voice list could not be loaded."),
+    ],
+    ids=["quota", "server", "forbidden", "offline", "not-json", "not-an-object"],
+)
+async def test_voice_list_failures_become_clear_errors(response, message, caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(VoiceFailed) as excinfo:
+        await synthesizer(Recorder(response)).list_voices()
+
+    assert excinfo.value.message == message
+    assert API_KEY not in caplog.text
+
+
+async def test_a_failure_on_a_later_page_fails_the_whole_list() -> None:
+    recorder = Recorder(voices_page([PUCK], "page-2"), error(429, "RESOURCE_EXHAUSTED"))
+
+    with pytest.raises(VoiceFailed) as excinfo:
+        await synthesizer(recorder).list_voices()
+
+    assert "limit" in excinfo.value.message

@@ -9,10 +9,9 @@ ParticipantId = Literal["A", "B"]
 SessionMode = Literal["together", "call"]
 
 
-class Participant(BaseModel):
+class Person(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    id: ParticipantId
     name: str = Field(min_length=1, max_length=40)
     preferred_language: str
 
@@ -23,6 +22,10 @@ class Participant(BaseModel):
         if code is None:
             raise ValueError(invalid_language_message(value))
         return code
+
+
+class Participant(Person):
+    id: ParticipantId
 
 
 class SessionCreate(BaseModel):

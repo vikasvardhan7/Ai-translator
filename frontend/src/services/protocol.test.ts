@@ -22,6 +22,26 @@ describe('parseServerMessage', () => {
     })).toMatchObject({ type: 'session.ready', server_voice: true, mode: 'together' });
   });
 
+  it('reads a conversation across two devices and the other person leaving', () => {
+    expect(parse({
+      type: 'session.ready',
+      session_id: 'room-1',
+      participants: [
+        { id: 'A', name: 'Person 1', preferred_language: 'te' },
+        { id: 'B', name: 'Person 2', preferred_language: 'en' },
+      ],
+      server_voice: true,
+      mode: 'remote',
+      you: 'B',
+    })).toMatchObject({ mode: 'remote' });
+    expect(parse({ type: 'peer.left', participant_id: 'A' })).toEqual({ type: 'peer.left', seq: 1, participant_id: 'A' });
+    expect(parse({ type: 'peer.left', participant_id: 'C' })).toBeNull();
+    expect(parse({
+      type: 'participants.updated',
+      participants: [{ id: 'A', name: 'Person 1', preferred_language: 'hi' }],
+    })).toMatchObject({ type: 'participants.updated', participants: [{ preferred_language: 'hi' }] });
+  });
+
   it('accepts sentences whose speaker is not known yet', () => {
     expect(parse({ type: 'utterance.received', utterance_id: id, speaker_id: null, duration_ms: 1300 }))
       .toEqual({ type: 'utterance.received', seq: 1, utterance_id: id, speaker_id: null, duration_ms: 1300 });
@@ -52,6 +72,14 @@ describe('parseServerMessage', () => {
       target_language: 'en',
       text: 'How are you?',
     });
+  });
+
+  it('reads when someone starts and stops speaking', () => {
+    expect(parse({ type: 'speech.activity', speaker_id: null, active: true }))
+      .toEqual({ type: 'speech.activity', seq: 1, speaker_id: null, active: true });
+    expect(parse({ type: 'speech.activity', speaker_id: 'B', active: false }))
+      .toMatchObject({ speaker_id: 'B', active: false });
+    expect(parse({ type: 'speech.activity', speaker_id: null, active: 'yes' })).toBeNull();
   });
 
   it('reads ignored sentences, voices and voice failures', () => {

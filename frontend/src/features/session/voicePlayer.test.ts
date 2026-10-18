@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createBrowserVoicePlayer, pickVoice } from './voicePlayer';
+import { browserVoicesFor, createBrowserVoicePlayer, pickVoice } from './voicePlayer';
 
 const voice = (lang: string, localService = false) => ({ lang, localService });
 
@@ -16,6 +16,17 @@ describe('pickVoice', () => {
     expect(pickVoice([voice('te-IN')], 'tel')).toEqual(voice('te-IN'));
   });
 
+  it('uses the voice the person chose when it speaks the language', () => {
+    const voices = [
+      { lang: 'en-US', localService: true, voiceURI: 'local' },
+      { lang: 'en-GB', localService: false, voiceURI: 'chosen' },
+      { lang: 'te-IN', localService: false, voiceURI: 'telugu' },
+    ];
+
+    expect(pickVoice(voices, 'en', 'chosen')?.voiceURI).toBe('chosen');
+    expect(pickVoice(voices, 'en', 'telugu')?.voiceURI).toBe('local');
+  });
+
   it('finds nothing when no voice speaks the language', () => {
     expect(pickVoice([voice('en-US')], 'ta')).toBeNull();
   });
@@ -25,6 +36,18 @@ describe('browser voice player', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it('lists this browser\'s voices for a language', async () => {
+    vi.stubGlobal('speechSynthesis', Object.assign(new EventTarget(), {
+      getVoices: () => [
+        { lang: 'en-US', localService: true, voiceURI: 'en-voice', name: 'English voice' },
+        { lang: 'hi-IN', localService: true, voiceURI: 'hi-voice', name: 'Hindi voice' },
+      ],
+    }));
+
+    expect(await browserVoicesFor('hi')).toEqual([{ id: 'hi-voice', name: 'Hindi voice' }]);
+    expect(await browserVoicesFor('te')).toEqual([]);
   });
 
   it('does not speak a sentence stopped while the voice list was loading', async () => {

@@ -22,6 +22,12 @@ class SpeechTranslation:
         return next(t for t in self.translations if t.language == language)
 
 
+@dataclass(frozen=True)
+class DetectedLanguage:
+    language: str
+    language_name: str
+
+
 class NothingRecognised(Exception):
     pass
 
@@ -38,5 +44,7 @@ class SpeechTranslator(Protocol):
     async def translate_speech(
         self, audio: bytes, mime_type: str, target_languages: list[str]
     ) -> SpeechTranslation: ...
+
+    async def detect_language(self, audio: bytes, mime_type: str) -> DetectedLanguage: ...
 
     async def aclose(self) -> None: ...

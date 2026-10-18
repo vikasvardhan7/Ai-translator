@@ -52,7 +52,7 @@ Start the server:
 uvicorn app.main:app --reload --port 8000 --ws-max-size 65536
 ```
 
-Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.7.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
+Check it at <http://localhost:8000/health>. It should return `{"status":"ok","version":"0.8.0"}`. Interactive API docs, where you can try every endpoint, are at <http://localhost:8000/docs>.
 
 ### Speech recognition and translation
 
@@ -85,7 +85,20 @@ npm run typecheck
 npm run dev
 ```
 
-With the backend running, open <http://localhost:5173> in Chrome or Edge, set up both people, tick the consent box and press Start. Allow the microphone when asked, then just talk: each sentence appears for the other person in their language and is spoken aloud. Use headphones if the voice is picked up by the microphone.
+With the backend running, open <http://localhost:5173> in Edge or Chrome and press "We both agree, let's start". The assistant asks whether the other person is next to you or on another device, then each of you says hello and it finds your languages. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed) and show the transcript, which you can download as text or subtitles. Use headphones or keep the volume low so the app does not hear its own voice.
+
+## Talking to someone on another device
+
+The other person can be on any phone or computer with Edge or Chrome. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed).
+
+1. Install the tunnel once: `winget install --id Cloudflare.cloudflared`
+2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
+3. Start the backend as above (`uvicorn ... --port 8000`).
+4. In a third terminal run `cloudflared tunnel --url http://localhost:8000` and copy the `https://...trycloudflare.com` address it prints.
+5. Open that address on your laptop (not localhost), press "We both agree, let's start", choose "On another device" and say hello.
+6. Send the invite link to the other person. When they open it and say hello, the conversation starts on both devices: each of you talks into your own device, sees both sides of the chat and hears the other person in your language.
+
+The address changes every time the tunnel starts, and the conversation stops when your laptop sleeps or the tunnel is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background.
 
 ## Project structure
 

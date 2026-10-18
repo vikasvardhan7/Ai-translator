@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import ConsentScreen from './features/consent/ConsentScreen';
 import { PrivacyPolicy, TermsAndConditions } from './features/legal/LegalPages';
 import { createSession } from './services/api';
-import type { CreateSessionResponse } from './services/protocol';
+import { inviteFromHash, sessionConversation, type Conversation, type Invite } from './services/conversations';
 import SessionScreen from './features/session/SessionScreen';
 
 type Screen = 'start' | 'session' | 'privacy' | 'terms';
@@ -71,7 +71,8 @@ function AppNavigation({ screen, onNavigate }: AppNavigationProps) {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>(() => screenFromHash());
-  const [session, setSession] = useState<CreateSessionResponse | null>(null);
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [invite, setInvite] = useState<Invite | null>(() => inviteFromHash(window.location.hash));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasChangedScreens, setHasChangedScreens] = useState(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -81,6 +82,7 @@ export default function App() {
   useEffect(() => {
     function syncScreenFromHash(): void {
       setScreen((current) => (current === 'session' ? current : screenFromHash()));
+      setInvite((current) => inviteFromHash(window.location.hash) ?? (window.location.hash.startsWith('#join') ? null : current));
     }
 
     window.addEventListener('hashchange', syncScreenFromHash);
@@ -132,27 +134,31 @@ export default function App() {
 
   const returnToStart = useCallback(() => {
     sessionIdRef.current = null;
-    setSession(null);
+    setConversation(null);
+    setInvite(null);
     setScreen('start');
     if (window.location.hash !== '#start') {
       window.location.hash = 'start';
     }
   }, []);
 
-  function startSession(nextSession: CreateSessionResponse): void {
-    sessionIdRef.current = nextSession.session_id;
-    setSession(nextSession);
+  const startConversation = useCallback((next: Conversation) => {
+    if (window.location.hash.startsWith('#join')) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    sessionIdRef.current = next.id;
+    setConversation(next);
     setScreen('session');
-  }
+  }, []);
 
   async function restartSession(): Promise<void> {
-    if (!session) {
+    if (!conversation || conversation.mode === 'remote') {
       return;
     }
-    const startedFrom = session.session_id;
-    const next = await createSession(session.participants, true, session.mode);
+    const startedFrom = conversation.id;
+    const next = await createSession(conversation.participants, true, conversation.mode);
     if (sessionIdRef.current === startedFrom) {
-      startSession(next);
+      startConversation(sessionConversation(next));
     }
   }
 
@@ -162,13 +168,13 @@ export default function App() {
   }
 
   let page: ReactNode;
-  if (screen === 'session' && session) {
+  if (screen === 'session' && conversation) {
     page = (
       <SessionScreen
-        key={session.session_id}
-        session={session}
+        key={conversation.id}
+        conversation={conversation}
         onReturnToStart={returnToStart}
-        onRestart={restartSession}
+        onRestart={conversation.mode === 'remote' ? null : restartSession}
       />
     );
   } else if (screen === 'privacy') {
@@ -176,7 +182,7 @@ export default function App() {
   } else if (screen === 'terms') {
     page = <TermsAndConditions />;
   } else {
-    page = <ConsentScreen onSessionCreated={startSession} />;
+    page = <ConsentScreen invite={invite} onConversation={startConversation} onLeaveInvite={returnToStart} />;
   }
 
   return (
@@ -224,15 +230,15 @@ export default function App() {
         {page}
       </div>
 
-      <footer className="site-footer">
-        <p>Voice Translator</p>
-        {screen !== 'session' && (
+      {screen !== 'session' && (
+        <footer className="site-footer">
+          <p>Voice Translator</p>
           <nav aria-label="Footer links">
             <AppLink screen="privacy" currentScreen={screen} onNavigate={navigate}>Privacy</AppLink>
             <AppLink screen="terms" currentScreen={screen} onNavigate={navigate}>Terms</AppLink>
           </nav>
-        )}
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }

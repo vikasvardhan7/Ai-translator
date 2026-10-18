@@ -3,6 +3,9 @@ import base64
 import contextlib
 import json
 import logging
+import re
+from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -11,10 +14,13 @@ from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from app.core.config import Settings
+from app.core.languages import invalid_language_message, language_code
+from app.core.text import MAX_RECENT_TRANSLATIONS, is_echo
 from app.models.protocol import ErrorCode
 from app.services.audio_ingestion.segment import AudioSegment
 from app.services.audio_ingestion.speech_detector import FrameRejected, SpeechDetector
 from app.services.audio_ingestion.wav import encode_wav
+from app.services.room_store import Device, Room, RoomStore
 from app.services.session_store import Session
 from app.services.translation.base import NothingRecognised, SpeechTranslator, TranslationFailed
 from app.services.voice.base import SpeechSynthesizer, VoiceFailed
@@ -25,11 +31,26 @@ MAX_TEXT_MESSAGE_BYTES = 64 * 1024
 MAX_PENDING_UTTERANCES = 5
 MAX_PENDING_VOICES = 5
 STOP_GRACE_SECONDS = 5
+ECHO_SECONDS = 12
+VOICE_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 CLOSE_NORMAL = 1000
 CLOSE_INTERNAL_ERROR = 1011
 CLOSE_ORIGIN_NOT_ALLOWED = 4403
+CLOSE_FORBIDDEN = 4401
 CLOSE_UNKNOWN_SESSION = 4404
+CLOSE_NOT_JOINED = 4409
+
+BROADCAST_TYPES = frozenset(
+    {
+        "utterance.received",
+        "transcript.final",
+        "translation.final",
+        "utterance.ignored",
+        "speech.activity",
+        "participants.updated",
+    }
+)
 
 
 class _StopRequested(Exception):
@@ -41,18 +62,12 @@ class _VoiceRequest:
     utterance_id: str
     listener_ids: tuple[str, ...]
     text: str
+    voice: str | None
 
 
-class StreamSender:
-    def __init__(self, websocket: WebSocket) -> None:
-        self._websocket = websocket
-        self._seq = 0
-        self._lock = asyncio.Lock()
-
-    async def send(self, message_type: str, **fields: Any) -> None:
-        async with self._lock:
-            self._seq += 1
-            await self._websocket.send_json({"type": message_type, "seq": self._seq, **fields})
+class Sender(ABC):
+    @abstractmethod
+    async def send(self, message_type: str, **fields: Any) -> None: ...
 
     async def error(
         self,
@@ -71,6 +86,55 @@ class StreamSender:
         )
 
 
+class StreamSender(Sender):
+    def __init__(self, websocket: WebSocket) -> None:
+        self._websocket = websocket
+        self._seq = 0
+        self._lock = asyncio.Lock()
+
+    async def send(self, message_type: str, **fields: Any) -> None:
+        async with self._lock:
+            self._seq += 1
+            await self._websocket.send_json({"type": message_type, "seq": self._seq, **fields})
+
+
+async def send_quietly(device: Device, message_type: str, **fields: Any) -> None:
+    with contextlib.suppress(Exception):
+        await device.send(message_type, **fields)
+
+
+class RoomSender(Sender):
+    def __init__(self, room: Room, participant_id: str) -> None:
+        self._devices = room.devices
+        self._own_id = participant_id
+
+    async def send(self, message_type: str, **fields: Any) -> None:
+        for device_id in self._recipients(message_type, fields):
+            device = self._devices.get(device_id)
+            if device is None:
+                continue
+            if device_id == self._own_id:
+                await device.send(message_type, **fields)
+            else:
+                await send_quietly(device, message_type, **fields)
+
+    def _recipients(self, message_type: str, fields: dict[str, Any]) -> list[str]:
+        is_error = message_type == "error"
+        if message_type == "tts.audio" or (
+            is_error and fields.get("code") == ErrorCode.VOICE_UNAVAILABLE
+        ):
+            return [fields["listener_id"]]
+        if message_type in BROADCAST_TYPES or (is_error and fields.get("utterance_id")):
+            return list(self._devices)
+        return [self._own_id]
+
+
+@dataclass(frozen=True)
+class Seat:
+    room: Room
+    participant_id: str
+
+
 async def _drain(queue: asyncio.Queue, worker: asyncio.Task[None], timeout: float) -> None:
     drained = asyncio.create_task(queue.join())
     try:
@@ -87,15 +151,29 @@ async def _cancel(worker: asyncio.Task[None]) -> None:
         await worker
 
 
-def _detectors_for(session: Session) -> dict[str | None, SpeechDetector]:
+def _now() -> float:
+    return asyncio.get_running_loop().time()
+
+
+def _detectors_for(session: Session, you: str | None) -> dict[str | None, SpeechDetector]:
     if session.mode == "call":
         return {p.id: SpeechDetector(p.id) for p in session.participants}
-    return {None: SpeechDetector()}
+    return {you: SpeechDetector(you)}
+
+
+def _own_origin(websocket: WebSocket) -> str:
+    forwarded = websocket.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    secure = forwarded == "https" or websocket.url.scheme in ("https", "wss")
+    return f"{'https' if secure else 'http'}://{websocket.headers.get('host', '')}"
 
 
 def _origin_allowed(websocket: WebSocket, allowed_origin: str) -> bool:
     origin = websocket.headers.get("origin")
-    return origin is None or origin == allowed_origin
+    return origin is None or origin in (allowed_origin, _own_origin(websocket))
+
+
+def _is_voice_choice(voice: object) -> bool:
+    return voice is None or (isinstance(voice, str) and VOICE_NAME.fullmatch(voice) is not None)
 
 
 def _parse(text: str) -> dict[str, Any] | str:
@@ -118,18 +196,29 @@ class StreamHandler:
         settings: Settings,
         translator: SpeechTranslator | None,
         synthesizer: SpeechSynthesizer | None,
+        seat: Seat | None = None,
     ) -> None:
         self._websocket = websocket
         self._session = session
         self._settings = settings
         self._translator = translator
         self._synthesizer = synthesizer
-        self._sender = StreamSender(websocket)
-        self._detectors = _detectors_for(session)
+        self._you = seat.participant_id if seat else None
+        self._sender: Sender = (
+            RoomSender(seat.room, seat.participant_id) if seat else StreamSender(websocket)
+        )
+        self._detectors = _detectors_for(session, self._you)
         self._pending: asyncio.Queue[AudioSegment] = asyncio.Queue(MAX_PENDING_UTTERANCES)
         self._in_flight: AudioSegment | None = None
         self._voices: asyncio.Queue[_VoiceRequest] = asyncio.Queue(MAX_PENDING_VOICES)
         self._speaking: _VoiceRequest | None = None
+        self._server_voice_for = (
+            seat.room.server_voice_for if seat else {p.id for p in session.participants}
+        )
+        self._voice_for: dict[str, str] = seat.room.voice_for if seat else {}
+        self._recent_translations: deque[tuple[float, str]] = (
+            seat.room.recent_translations if seat else deque(maxlen=MAX_RECENT_TRANSLATIONS)
+        )
 
     async def run(self) -> None:
         translating = asyncio.create_task(self._translate_in_order())
@@ -188,12 +277,14 @@ class StreamHandler:
         return unfinished
 
     async def _receive(self) -> bool:
+        you = {"you": self._you} if self._you else {}
         await self._sender.send(
             "session.ready",
             session_id=self._session.id,
             participants=[p.model_dump() for p in self._session.participants],
             server_voice=self._synthesizer is not None,
             mode=self._session.mode,
+            **you,
         )
         while True:
             message = await self._websocket.receive()
@@ -208,7 +299,7 @@ class StreamHandler:
                 return True
 
     async def _hear(self, frame: bytes) -> None:
-        source: str | None = None
+        source = self._you
         if self._session.mode == "call":
             source = chr(frame[0]) if len(frame) > 1 else None
             if source not in self._detectors:
@@ -219,8 +310,10 @@ class StreamHandler:
                 )
                 return
             frame = frame[1:]
+        detector = self._detectors[source]
+        was_speaking = detector.in_sentence
         try:
-            segments = self._detectors[source].add(frame)
+            segments = detector.add(frame)
         except FrameRejected:
             await self._sender.error(
                 ErrorCode.INVALID_MESSAGE,
@@ -229,6 +322,10 @@ class StreamHandler:
             return
         for segment in segments:
             await self._utterance_received(segment)
+        if detector.in_sentence != was_speaking:
+            await self._sender.send(
+                "speech.activity", speaker_id=source, active=detector.in_sentence
+            )
 
     async def _end_sentence(self, source: object = None) -> None:
         if self._session.mode == "call" and source is not None:
@@ -237,12 +334,73 @@ class StreamHandler:
                     ErrorCode.INVALID_MESSAGE, "participant_id must be 'A' or 'B'."
                 )
                 return
-            detectors = [self._detectors[source]]
+            detectors = {source: self._detectors[source]}
         else:
-            detectors = list(self._detectors.values())
-        for detector in detectors:
+            detectors = self._detectors
+        for speaker_id, detector in detectors.items():
+            was_speaking = detector.in_sentence
             if segment := detector.flush():
                 await self._utterance_received(segment)
+            if was_speaking:
+                await self._sender.send("speech.activity", speaker_id=speaker_id, active=False)
+
+    async def _set_voice(self, listener_id: object, settings: dict[str, Any]) -> None:
+        known = {p.id for p in self._session.participants}
+        server_voice = settings.get("server_voice")
+        voice = settings.get("voice")
+        if not (isinstance(listener_id, str) and listener_id in known) or not isinstance(
+            server_voice, bool
+        ):
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "voice.settings needs listener_id 'A' or 'B' and server_voice true or false.",
+            )
+        elif not _is_voice_choice(voice):
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "voice must be a voice name of 1 to 64 letters, digits, '_' or '-',"
+                " or null for the automatic voice.",
+            )
+        elif self._session.mode == "call" and not server_voice:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "In a call the server voice is always on: the other person can only hear it.",
+            )
+        else:
+            if server_voice:
+                self._server_voice_for.add(listener_id)
+            else:
+                self._server_voice_for.discard(listener_id)
+            if voice is not None:
+                self._voice_for[listener_id] = voice
+            elif "voice" in settings:
+                self._voice_for.pop(listener_id, None)
+
+    async def _set_language(self, participant_id: object, language: object) -> None:
+        participants = self._session.participants
+        person = next((p for p in participants if p.id == participant_id), None)
+        code = language_code(language) if isinstance(language, str) else None
+        if person is None:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE, "language.set needs participant_id 'A' or 'B'."
+            )
+        elif code is None:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                invalid_language_message(language)
+                if isinstance(language, str)
+                else "language.set needs a language code such as te, hi, en or yue.",
+            )
+        elif any(p.preferred_language == code for p in participants if p is not person):
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                f"You both chose {code}. Pick a different language for one of you.",
+            )
+        else:
+            person.preferred_language = code
+            await self._sender.send(
+                "participants.updated", participants=[p.model_dump() for p in participants]
+            )
 
     async def fail(self) -> None:
         try:
@@ -264,6 +422,12 @@ class StreamHandler:
                 await self._sender.send("pong")
             case "audio.pause":
                 await self._end_sentence(parsed.get("participant_id"))
+            case "voice.settings":
+                await self._set_voice(self._you or parsed.get("listener_id"), parsed)
+            case "language.set":
+                await self._set_language(
+                    self._you or parsed.get("participant_id"), parsed.get("language")
+                )
             case "session.stop":
                 await self._end_sentence()
                 raise _StopRequested
@@ -331,7 +495,7 @@ class StreamHandler:
             )
             return
 
-        participants = self._session.participants
+        participants = [p.model_copy() for p in self._session.participants]
         targets = list(dict.fromkeys(p.preferred_language for p in participants))
         try:
             result = await self._translator.translate_speech(
@@ -347,6 +511,9 @@ class StreamHandler:
                 utterance_id=segment.utterance_id,
                 retryable=failure.retryable,
             )
+            return
+        if self._is_echo(result.text):
+            await self._sender.send("utterance.ignored", utterance_id=segment.utterance_id)
             return
 
         speaker_id = segment.speaker_id
@@ -366,7 +533,7 @@ class StreamHandler:
             language=result.language,
             language_name=result.language_name,
         )
-        voices: dict[str, list[str]] = {}
+        voices: dict[tuple[str, str | None], list[str]] = {}
         for listener in listeners:
             text = result.for_language(listener.preferred_language).text
             await self._sender.send(
@@ -377,11 +544,21 @@ class StreamHandler:
                 target_language=listener.preferred_language,
                 text=text,
             )
-            voices.setdefault(text, []).append(listener.id)
+            self._recent_translations.append((_now(), text))
+            if listener.id in self._server_voice_for:
+                voices.setdefault((text, self._voice_for.get(listener.id)), []).append(listener.id)
         if self._synthesizer is None:
             return
-        for text, listener_ids in voices.items():
-            await self._queue_voice(_VoiceRequest(segment.utterance_id, tuple(listener_ids), text))
+        for (text, voice), listener_ids in voices.items():
+            await self._queue_voice(
+                _VoiceRequest(segment.utterance_id, tuple(listener_ids), text, voice)
+            )
+
+    def _is_echo(self, transcript: str) -> bool:
+        since = _now() - ECHO_SECONDS
+        return any(
+            is_echo(transcript, text) for sent, text in self._recent_translations if sent > since
+        )
 
     async def _queue_voice(self, request: _VoiceRequest) -> None:
         try:
@@ -425,7 +602,7 @@ class StreamHandler:
 
     async def _speak(self, synthesizer: SpeechSynthesizer, request: _VoiceRequest) -> None:
         try:
-            audio = await synthesizer.synthesize(request.text)
+            audio = await synthesizer.synthesize(request.text, request.voice)
         except VoiceFailed as failure:
             await self._voice_failed(request, failure.message)
             return
@@ -441,29 +618,20 @@ class StreamHandler:
             )
 
 
-async def handle_stream(
-    websocket: WebSocket,
-    take_session: Callable[[], Session | None],
-    settings: Settings,
-    translator: SpeechTranslator | None,
-    synthesizer: SpeechSynthesizer | None,
-) -> None:
+async def _accept(websocket: WebSocket, settings: Settings) -> bool:
     await websocket.accept()
+    if _origin_allowed(websocket, settings.frontend_origin):
+        return True
+    await websocket.close(code=CLOSE_ORIGIN_NOT_ALLOWED)
+    return False
 
-    if not _origin_allowed(websocket, settings.frontend_origin):
-        await websocket.close(code=CLOSE_ORIGIN_NOT_ALLOWED)
-        return
 
-    session = take_session()
-    if session is None:
-        await StreamSender(websocket).error(
-            ErrorCode.UNKNOWN_SESSION,
-            "This session does not exist, has expired or is already open. Start a new session.",
-        )
-        await websocket.close(code=CLOSE_UNKNOWN_SESSION)
-        return
+async def _refuse(websocket: WebSocket, code: ErrorCode, message: str, close_code: int) -> None:
+    await StreamSender(websocket).error(code, message)
+    await websocket.close(code=close_code)
 
-    handler = StreamHandler(websocket, session, settings, translator, synthesizer)
+
+async def _run(handler: StreamHandler, session_id: str) -> None:
     try:
         await handler.run()
     except WebSocketDisconnect:
@@ -471,5 +639,82 @@ async def handle_stream(
     except Exception:
         if not handler.connected():
             return
-        logger.exception("Live channel failed for session %s", session.id)
+        logger.exception("Live channel failed for session %s", session_id)
         await handler.fail()
+
+
+async def handle_stream(
+    websocket: WebSocket,
+    take_session: Callable[[], Session | None],
+    settings: Settings,
+    translator: SpeechTranslator | None,
+    synthesizer: SpeechSynthesizer | None,
+) -> None:
+    if not await _accept(websocket, settings):
+        return
+
+    session = take_session()
+    if session is None:
+        await _refuse(
+            websocket,
+            ErrorCode.UNKNOWN_SESSION,
+            "This session does not exist, has expired or is already open. Start a new session.",
+            CLOSE_UNKNOWN_SESSION,
+        )
+        return
+
+    await _run(StreamHandler(websocket, session, settings, translator, synthesizer), session.id)
+
+
+async def handle_room_stream(
+    websocket: WebSocket,
+    rooms: RoomStore,
+    room_id: str,
+    token: str,
+    settings: Settings,
+    translator: SpeechTranslator | None,
+    synthesizer: SpeechSynthesizer | None,
+) -> None:
+    if not await _accept(websocket, settings):
+        return
+
+    room = rooms.get(room_id)
+    if room is None:
+        await _refuse(
+            websocket,
+            ErrorCode.UNKNOWN_SESSION,
+            "This conversation does not exist or has expired. Ask for a new invite link.",
+            CLOSE_UNKNOWN_SESSION,
+        )
+        return
+    participant_id = room.participant_for(token)
+    if participant_id is None:
+        await websocket.close(code=CLOSE_FORBIDDEN)
+        return
+    if room.guest is None:
+        await _refuse(
+            websocket,
+            ErrorCode.NOT_JOINED,
+            "The other person has not joined yet.",
+            CLOSE_NOT_JOINED,
+        )
+        return
+    if not rooms.connect(room, participant_id, StreamSender(websocket)):
+        await _refuse(
+            websocket,
+            ErrorCode.UNKNOWN_SESSION,
+            "This conversation is already open on another device.",
+            CLOSE_UNKNOWN_SESSION,
+        )
+        return
+
+    seat = Seat(room, participant_id)
+    try:
+        await _run(
+            StreamHandler(websocket, room.session(), settings, translator, synthesizer, seat),
+            room.id,
+        )
+    finally:
+        rooms.disconnect(room, participant_id)
+        for device in list(room.devices.values()):
+            await send_quietly(device, "peer.left", participant_id=participant_id)

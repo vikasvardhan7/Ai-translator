@@ -1,17 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SpeakerId } from '../../services/protocol';
-import { VoiceQueue, type VoicePlayer } from './voiceQueue';
+import { VoiceQueue, type VoicePlayer, type VoiceStyle } from './voiceQueue';
 
 class FakePlayer implements VoicePlayer {
   played: string[] = [];
   voices = new Set(['en', 'te']);
   failWav = false;
+  chosen: (string | null)[] = [];
   private finish: (() => void) | null = null;
 
 
-  playWav(base64: string, onStart: () => void): Promise<void> {
+  rates: number[] = [];
+
+  playWav(base64: string, onStart: () => void, rate = 1): Promise<void> {
     this.played.push(`wav:${base64}`);
+    this.rates.push(rate);
     if (this.failWav) {
       return Promise.reject(new Error('blocked'));
     }
@@ -21,11 +25,13 @@ class FakePlayer implements VoicePlayer {
     });
   }
 
-  speak(text: string, language: string, onStart: () => void): Promise<boolean> {
+  speak(text: string, language: string, onStart: () => void, style?: VoiceStyle): Promise<boolean> {
     if (!this.voices.has(language)) {
       return Promise.resolve(false);
     }
     this.played.push(`say:${language}:${text}`);
+    this.rates.push(style?.rate ?? 1);
+    this.chosen.push(style?.browserVoice ?? null);
     onStart();
     return new Promise((resolve) => {
       this.finish = () => resolve(true);
@@ -60,7 +66,7 @@ describe('VoiceQueue', () => {
     player = new FakePlayer();
     speaking = [];
     noVoice = [];
-    queue = new VoiceQueue(player, (id) => speaking.push(id), (language) => noVoice.push(language), 1_000);
+    queue = new VoiceQueue(player, (id) => speaking.push(id), (language) => noVoice.push(language), 1_000, 5_000);
   });
 
   afterEach(() => {
@@ -208,5 +214,112 @@ describe('VoiceQueue', () => {
     await settle();
 
     expect(player.played).toEqual(['wav:same', 'wav:same']);
+  });
+
+  it('speaks at once with the browser voice when this computer has one', async () => {
+    queue.setServerVoice(true);
+    queue.setLocalVoice('A', true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    queue.expect('u1', 'B', 'Bagunnara', 'te');
+    await settle();
+    expect(player.played).toEqual(['say:en:Hello']);
+
+    player.end();
+    queue.audio('u1', 'B', 'telugu');
+    await settle();
+    expect(player.played).toEqual(['say:en:Hello', 'wav:telugu']);
+  });
+
+  it('stops waiting for the server once a browser voice is found', async () => {
+    queue.setServerVoice(true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    await settle();
+    expect(player.played).toEqual([]);
+
+    queue.setLocalVoice('A', true);
+    await settle();
+    queue.audio('u1', 'A', 'late');
+    await settle();
+    expect(player.played).toEqual(['say:en:Hello']);
+  });
+
+  it('waits while someone is speaking and plays when they stop', async () => {
+    queue.setHeld(true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    await settle();
+    expect(player.played).toEqual([]);
+    expect(speaking).toEqual([]);
+
+    queue.setHeld(false);
+    await settle();
+    expect(player.played).toEqual(['say:en:Hello']);
+  });
+
+  it('does not cut off a voice that is already playing when someone starts speaking', async () => {
+    queue.expect('u1', 'A', 'Hello', 'en');
+    queue.expect('u2', 'A', 'Again', 'en');
+    await settle();
+    queue.setHeld(true);
+    player.end();
+    await settle();
+
+    expect(player.played).toEqual(['say:en:Hello']);
+    expect(speaking).toEqual(['A', null]);
+  });
+
+  it('does not wait forever for someone who never stops', async () => {
+    queue.setHeld(true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    vi.advanceTimersByTime(5_000);
+    await settle();
+
+    expect(player.played).toEqual(['say:en:Hello']);
+  });
+
+  it('does not restart the wait when more people start speaking', async () => {
+    queue.setHeld(true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    vi.advanceTimersByTime(4_000);
+    queue.setHeld(true);
+    vi.advanceTimersByTime(1_000);
+    await settle();
+    expect(player.played).toEqual(['say:en:Hello']);
+
+    player.end();
+    await settle();
+    queue.setHeld(true);
+    queue.expect('u2', 'A', 'Again', 'en');
+    await settle();
+    expect(player.played).toEqual(['say:en:Hello', 'say:en:Again']);
+  });
+
+  it('waits again once everyone has stopped after a long wait', async () => {
+    queue.setHeld(true);
+    vi.advanceTimersByTime(5_000);
+    queue.setHeld(false);
+    queue.setHeld(true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    await settle();
+
+    expect(player.played).toEqual([]);
+  });
+
+  it('speaks each person\'s voices with their own speed and chosen voice', async () => {
+    queue.setStyle('A', { rate: 1.25, browserVoice: 'voice-a' });
+    queue.setServerVoice(true);
+    queue.expect('u1', 'A', 'Hello', 'en');
+    queue.audio('u1', 'A', 'natural');
+    await settle();
+    player.end();
+    await settle();
+    queue.setServerVoice(false);
+    queue.expect('u2', 'A', 'Again', 'en');
+    queue.expect('u3', 'B', 'Bagunnara', 'te');
+    await settle();
+    player.end();
+    await settle();
+
+    expect(player.rates).toEqual([1.25, 1.25, 1]);
+    expect(player.chosen).toEqual(['voice-a', null]);
   });
 });

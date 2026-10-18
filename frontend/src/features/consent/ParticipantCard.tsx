@@ -18,7 +18,7 @@ export default function ParticipantCard({
   onChange,
 }: ParticipantCardProps) {
   const nameId = `participant-${participant.id.toLowerCase()}-name`;
-  const personLabel = participant.id === 'A' ? 'Person A' : 'Person B';
+  const personLabel = participant.id === 'A' ? 'Person 1' : 'Person 2';
 
   return (
     <section className="participant-card" aria-labelledby={`${nameId}-heading`}>

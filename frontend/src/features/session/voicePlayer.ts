@@ -1,5 +1,5 @@
 import { languageName } from '../../services/languageNames';
-import type { VoicePlayer } from './voiceQueue';
+import type { VoicePlayer, VoiceStyle } from './voiceQueue';
 
 const VOICE_LIST_WAIT_MS = 1_500;
 
@@ -16,17 +16,25 @@ function primaryCode(tag: string): string {
   return tag.toLowerCase().replace(/_/g, '-').split('-')[0] ?? '';
 }
 
-export function pickVoice<T extends { lang: string; localService: boolean }>(
-  voices: readonly T[],
-  language: string,
-): T | null {
+function voicesFor<T extends { lang: string }>(voices: readonly T[], language: string): T[] {
   const code = primaryCode(language);
   const name = languageName(code);
-  const matches = voices.filter((voice) => {
+  return voices.filter((voice) => {
     const voiceCode = primaryCode(voice.lang);
     return voiceCode === code || languageName(voiceCode) === name;
   });
-  return matches.find((voice) => voice.localService) ?? matches[0] ?? null;
+}
+
+export function pickVoice<T extends { lang: string; localService: boolean; voiceURI?: string }>(
+  voices: readonly T[],
+  language: string,
+  preferred: string | null = null,
+): T | null {
+  const matches = voicesFor(voices, language);
+  return matches.find((voice) => preferred !== null && voice.voiceURI === preferred)
+    ?? matches.find((voice) => voice.localService)
+    ?? matches[0]
+    ?? null;
 }
 
 function loadVoices(): Promise<SpeechSynthesisVoice[]> {
@@ -45,6 +53,26 @@ function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
+export function unlockBrowserAudio(): void {
+  const silence = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=');
+  void silence.play().catch(() => undefined);
+  if (typeof speechSynthesis !== 'undefined') {
+    speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+  }
+}
+
+export interface BrowserVoice {
+  id: string;
+  name: string;
+}
+
+export async function browserVoicesFor(language: string): Promise<BrowserVoice[]> {
+  if (typeof speechSynthesis === 'undefined') {
+    return [];
+  }
+  return voicesFor(await loadVoices(), language).map((voice) => ({ id: voice.voiceURI, name: voice.name }));
+}
+
 export function createBrowserVoicePlayer(): VoicePlayer {
   let audio: HTMLAudioElement | null = null;
   let utterance: SpeechSynthesisUtterance | null = null;
@@ -52,10 +80,11 @@ export function createBrowserVoicePlayer(): VoicePlayer {
   let stops = 0;
 
   return {
-    playWav(base64, onStart) {
+    playWav(base64, onStart, rate = 1) {
       return new Promise<void>((resolve, reject) => {
         const url = wavUrl(base64);
         const element = new Audio(url);
+        element.playbackRate = rate;
         let done = false;
         const finish = (error?: Error): void => {
           if (done) {
@@ -94,12 +123,12 @@ export function createBrowserVoicePlayer(): VoicePlayer {
       });
     },
 
-    async speak(text, language, onStart) {
+    async speak(text, language, onStart, style?: VoiceStyle) {
       if (typeof speechSynthesis === 'undefined') {
         return false;
       }
       const ticket = stops;
-      const voice = pickVoice(await loadVoices(), language);
+      const voice = pickVoice(await loadVoices(), language, style?.browserVoice ?? null);
       if (ticket !== stops) {
         return true;
       }
@@ -110,6 +139,7 @@ export function createBrowserVoicePlayer(): VoicePlayer {
         const current = new SpeechSynthesisUtterance(text);
         current.voice = voice;
         current.lang = voice.lang;
+        current.rate = style?.rate ?? 1;
         let done = false;
         const finish = (): void => {
           if (done) {

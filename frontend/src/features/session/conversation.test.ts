@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Participant, ServerMessage } from '../../services/protocol';
-import { applyServerMessage, MAX_TURNS, viewFor, type Turn } from './conversation';
+import { applyServerMessage, bubbleFor, MAX_TURNS, type Turn } from './conversation';
 
 const A: Participant = { id: 'A', name: 'Asha', preferred_language: 'en' };
 const B: Participant = { id: 'B', name: 'Bala', preferred_language: 'te' };
+const people = [A, B];
 
 function play(messages: ServerMessage[], start: Turn[] = []): Turn[] {
-  return messages.reduce(applyServerMessage, start);
+  return messages.reduce((turns, message) => applyServerMessage(turns, message), start);
 }
 
 const received = (id: string): ServerMessage => ({
@@ -43,13 +44,14 @@ describe('conversation store', () => {
     const [turn] = play([received('u1'), transcript('u1', 'B'), translation('u1', 'A', 'How are you?')]);
 
     expect(turn).toMatchObject({ utteranceId: 'u1', speakerId: 'B', status: 'done' });
-    expect(viewFor(turn!, A)).toEqual({
-      kind: 'translated',
-      text: 'How are you?',
-      original: 'మీరు ఎలా ఉన్నారు?',
+    expect(bubbleFor(turn!, people)).toEqual({
+      kind: 'spoken',
+      side: 'B',
+      text: 'మీరు ఎలా ఉన్నారు?',
       languageName: 'Telugu',
+      translations: [{ listenerId: 'A', text: 'How are you?' }],
+      translating: false,
     });
-    expect(viewFor(turn!, B)).toEqual({ kind: 'own', text: 'మీరు ఎలా ఉన్నారు?', languageName: 'Telugu' });
   });
 
   it('keeps turns in the order received and ignores duplicates', () => {
@@ -72,14 +74,20 @@ describe('conversation store', () => {
       translation('u1', 'B', 'నమస్కారం'),
     ])[0]!;
 
-    expect(viewFor(turn, A)).toMatchObject({ kind: 'translated', text: 'Hello' });
-    expect(viewFor(turn, B)).toMatchObject({ kind: 'translated', text: 'నమస్కారం' });
+    expect(bubbleFor(turn, people)).toMatchObject({
+      side: null,
+      translations: [
+        { listenerId: 'A', text: 'Hello' },
+        { listenerId: 'B', text: 'నమస్కారం' },
+      ],
+      translating: false,
+    });
   });
 
-  it('shows the original to a person who chose the language spoken', () => {
+  it('shows only the words when both people chose the language spoken', () => {
     const turn = play([received('u1'), transcript('u1', null)])[0]!;
 
-    expect(viewFor(turn, B)).toMatchObject({ kind: 'understood', text: 'మీరు ఎలా ఉన్నారు?' });
+    expect(bubbleFor(turn, people)).toMatchObject({ kind: 'spoken', translations: [], translating: false });
   });
 
   it('marks a failed sentence but not one whose voice failed', () => {
@@ -93,19 +101,18 @@ describe('conversation store', () => {
       { type: 'error', seq: 3, code: 'voice_unavailable', message: 'No voice.', retryable: false, utterance_id: 'u2', listener_id: 'A' },
     ])[0]!;
 
-    expect(viewFor(failed, A)).toEqual({ kind: 'failed', error: 'Try again.' });
+    expect(bubbleFor(failed, people)).toEqual({ kind: 'failed', side: null, error: 'Try again.' });
     expect(voiced.status).toBe('done');
   });
 
   it('shows a sentence as pending until its transcript arrives', () => {
-    expect(viewFor(play([received('u1')])[0]!, A)).toEqual({ kind: 'pending' });
+    expect(bubbleFor(play([received('u1')])[0]!, people)).toEqual({ kind: 'pending', side: null });
   });
 
-  it('keeps the listener on pending until their translation arrives', () => {
+  it('shows the words while the translation is still coming', () => {
     const turn = play([received('u1'), transcript('u1', 'B')])[0]!;
 
-    expect(viewFor(turn, A)).toEqual({ kind: 'pending' });
-    expect(viewFor(turn, B)).toMatchObject({ kind: 'own' });
+    expect(bubbleFor(turn, people)).toMatchObject({ kind: 'spoken', side: 'B', translations: [], translating: true });
   });
 
   it('ignores messages for sentences it never received', () => {

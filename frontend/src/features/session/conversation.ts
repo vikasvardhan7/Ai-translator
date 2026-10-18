@@ -8,6 +8,8 @@ export interface Turn {
   utteranceId: string;
   speakerId: SpeakerId | null;
   status: TurnStatus;
+  startedAt: number;
+  endedAt: number;
   original?: { text: string; language: string; languageName: string };
   translations: Partial<Record<SpeakerId, { targetLanguage: string; text: string }>>;
   error?: string;
@@ -25,7 +27,12 @@ function update(turns: Turn[], utteranceId: string, change: (turn: Turn) => Turn
   return found ? next : turns;
 }
 
-export function applyServerMessage(turns: Turn[], message: ServerMessage): Turn[] {
+export function applyServerMessage(
+  turns: Turn[],
+  message: ServerMessage,
+  now: number = Date.now(),
+  limit: number = MAX_TURNS,
+): Turn[] {
   switch (message.type) {
     case 'utterance.received':
       if (turns.some((turn) => turn.utteranceId === message.utterance_id)) {
@@ -37,9 +44,11 @@ export function applyServerMessage(turns: Turn[], message: ServerMessage): Turn[
           utteranceId: message.utterance_id,
           speakerId: message.speaker_id,
           status: 'processing' as const,
+          startedAt: now - message.duration_ms,
+          endedAt: now,
           translations: {},
         },
-      ].slice(-MAX_TURNS);
+      ].slice(-limit);
     case 'utterance.ignored':
       return turns.filter((turn) => turn.utteranceId !== message.utterance_id);
     case 'transcript.final':
@@ -75,30 +84,44 @@ export function applyServerMessage(turns: Turn[], message: ServerMessage): Turn[
   }
 }
 
-export type TurnView =
-  | { kind: 'pending' }
-  | { kind: 'failed'; error: string }
-  | { kind: 'own'; text: string; languageName: string }
-  | { kind: 'translated'; text: string; original: string; languageName: string }
-  | { kind: 'understood'; text: string; languageName: string };
+export interface BubbleTranslation {
+  listenerId: SpeakerId;
+  text: string;
+}
 
-export function viewFor(turn: Turn, person: Participant): TurnView {
+export type Bubble =
+  | { kind: 'pending'; side: SpeakerId | null }
+  | { kind: 'failed'; side: SpeakerId | null; error: string }
+  | {
+    kind: 'spoken';
+    side: SpeakerId | null;
+    text: string;
+    languageName: string;
+    translations: BubbleTranslation[];
+    translating: boolean;
+  };
+
+export function bubbleFor(turn: Turn, participants: readonly Participant[]): Bubble {
+  const side = turn.speakerId;
   if (turn.status === 'failed') {
-    return { kind: 'failed', error: turn.error ?? 'This sentence could not be translated.' };
+    return { kind: 'failed', side, error: turn.error ?? 'This sentence could not be translated.' };
   }
   if (!turn.original) {
-    return { kind: 'pending' };
+    return { kind: 'pending', side };
   }
-  const { text, languageName } = turn.original;
-  if (turn.speakerId === person.id) {
-    return { kind: 'own', text, languageName };
-  }
-  const translation = turn.translations[person.id];
-  if (translation) {
-    return { kind: 'translated', text: translation.text, original: text, languageName };
-  }
-  if (turn.speakerId !== null) {
-    return { kind: 'pending' };
-  }
-  return { kind: 'understood', text, languageName };
+  const translations = participants.flatMap((person) => {
+    const translation = turn.translations[person.id];
+    return translation ? [{ listenerId: person.id, text: translation.text }] : [];
+  });
+  const translating = side !== null && participants.some(
+    (person) => person.id !== side && !turn.translations[person.id],
+  );
+  return {
+    kind: 'spoken',
+    side,
+    text: turn.original.text,
+    languageName: turn.original.languageName,
+    translations,
+    translating,
+  };
 }

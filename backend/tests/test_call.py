@@ -4,7 +4,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from tests.audio import frames, silence, tone
-from tests.conftest import VALID_BODY, make_client
+from tests.conftest import VALID_BODY, make_client, receive
 from tests.fakes import FakeSynthesizer, FakeTranslator
 from tests.test_pipeline import open_stream
 
@@ -27,13 +27,13 @@ def until_closed(ws) -> list[dict]:
     messages = []
     with pytest.raises(WebSocketDisconnect):
         while True:
-            messages.append(ws.receive_json())
+            messages.append(receive(ws))
     return messages
 
 
 def whole_call(translator, source: str, body=CALL_BODY, synthesizer=None) -> list[dict]:
     with open_stream(call_client(translator, synthesizer), body) as ws:
-        ws.receive_json()
+        receive(ws)
         say(ws, source, tone(1.0))
         return until_closed(ws)
 
@@ -46,7 +46,7 @@ def test_a_call_session_says_its_mode() -> None:
 
     assert (created["mode"], default["mode"]) == ("call", "together")
     with client.websocket_connect(f"/api/sessions/{created['session_id']}/stream") as ws:
-        assert ws.receive_json()["mode"] == "call"
+        assert receive(ws)["mode"] == "call"
 
 
 def test_an_unknown_mode_is_refused() -> None:
@@ -114,7 +114,7 @@ def test_a_third_language_is_translated_only_for_the_other_person() -> None:
 
 def test_both_sides_are_heard_at_the_same_time() -> None:
     with open_stream(call_client(), CALL_BODY) as ws:
-        ws.receive_json()
+        receive(ws)
         for mine, theirs in zip(frames(tone(1.0)), frames(tone(1.0)), strict=True):
             ws.send_bytes(b"A" + mine)
             ws.send_bytes(b"B" + theirs)
@@ -126,11 +126,11 @@ def test_both_sides_are_heard_at_the_same_time() -> None:
 
 def test_a_pause_for_one_side_leaves_the_other_listening() -> None:
     with open_stream(call_client(), CALL_BODY) as ws:
-        ws.receive_json()
+        receive(ws)
         say(ws, "A", tone(1.0))
         say(ws, "B", tone(1.0))
         ws.send_json({"type": "audio.pause", "participant_id": "B"})
-        first = ws.receive_json()
+        first = receive(ws)
         say(ws, "A", silence(2.0))
         messages = until_closed(ws)
 
@@ -151,19 +151,19 @@ def test_a_pause_for_one_side_leaves_the_other_listening() -> None:
 )
 def test_call_frames_without_a_known_source_are_refused(frame: bytes, part: str) -> None:
     with open_stream(call_client(), CALL_BODY) as ws:
-        ws.receive_json()
+        receive(ws)
         ws.send_bytes(frame)
-        error = ws.receive_json()
+        error = receive(ws)
 
     assert (error["code"], part in error["message"]) == ("invalid_message", True)
 
 
 def test_a_full_second_after_the_tag_is_accepted() -> None:
     with open_stream(call_client(), CALL_BODY) as ws:
-        ws.receive_json()
+        receive(ws)
         ws.send_bytes(b"A" + b"\x00\x00" * 16_000)
         ws.send_json({"type": "ping"})
-        assert ws.receive_json()["type"] == "pong"
+        assert receive(ws)["type"] == "pong"
 
 
 @pytest.mark.parametrize(
@@ -171,11 +171,11 @@ def test_a_full_second_after_the_tag_is_accepted() -> None:
 )
 def test_a_pause_for_an_unknown_side_is_refused_and_the_call_goes_on(side) -> None:
     with open_stream(call_client(), CALL_BODY) as ws:
-        ws.receive_json()
+        receive(ws)
         ws.send_json({"type": "audio.pause", "participant_id": side})
-        error = ws.receive_json()
+        error = receive(ws)
         ws.send_json({"type": "ping"})
-        pong = ws.receive_json()
+        pong = receive(ws)
 
     assert (error["code"], pong["type"]) == ("invalid_message", "pong")
 
@@ -183,15 +183,24 @@ def test_a_pause_for_an_unknown_side_is_refused_and_the_call_goes_on(side) -> No
 @pytest.mark.parametrize("side", ["B", ["A"]], ids=["text", "list"])
 def test_together_mode_ignores_a_side_on_pause(side) -> None:
     with open_stream(make_client(translator=FakeTranslator())) as ws:
-        ws.receive_json()
+        receive(ws)
         for frame in frames(tone(1.0)):
             ws.send_bytes(frame)
         ws.send_json({"type": "audio.pause", "participant_id": side})
-        received = ws.receive_json()
+        received = receive(ws)
 
     assert (received["type"], received["speaker_id"]) == ("utterance.received", None)
 
 
 def test_a_default_session_is_ready_in_together_mode() -> None:
     with open_stream(make_client(translator=FakeTranslator())) as ws:
-        assert ws.receive_json()["mode"] == "together"
+        assert receive(ws)["mode"] == "together"
+
+
+def test_a_call_keeps_the_server_voice_on() -> None:
+    with open_stream(call_client(), CALL_BODY) as ws:
+        receive(ws)
+        ws.send_json({"type": "voice.settings", "listener_id": "B", "server_voice": False})
+        error = receive(ws)
+
+    assert error["code"] == "invalid_message"

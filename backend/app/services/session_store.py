@@ -1,11 +1,14 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from app.models.session import Participant, SessionMode
 
 UNOPENED_SESSION_LIFETIME = timedelta(minutes=10)
 MAX_UNOPENED_SESSIONS = 100
+
+ConversationMode = SessionMode | Literal["remote"]
 
 
 class SessionLimitReached(Exception):
@@ -16,7 +19,7 @@ class SessionLimitReached(Exception):
 class Session:
     id: str
     participants: list[Participant]
-    mode: SessionMode
+    mode: ConversationMode
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

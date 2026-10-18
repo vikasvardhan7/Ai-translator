@@ -1,5 +1,6 @@
 export type SpeakerId = 'A' | 'B';
 export type SessionMode = 'together' | 'call';
+export type ConversationMode = SessionMode | 'remote';
 
 export interface Participant {
   id: SpeakerId;
@@ -10,6 +11,8 @@ export interface Participant {
 export type BrowserMessage =
   | { type: 'ping' }
   | { type: 'audio.pause' }
+  | { type: 'voice.settings'; listener_id: SpeakerId; server_voice: boolean; voice: string | null }
+  | { type: 'language.set'; participant_id: SpeakerId; language: string }
   | { type: 'session.stop' };
 
 export interface SessionReadyMessage {
@@ -18,7 +21,19 @@ export interface SessionReadyMessage {
   session_id: string;
   participants: Participant[];
   server_voice: boolean;
-  mode: SessionMode;
+  mode: ConversationMode;
+}
+
+export interface ParticipantsUpdatedMessage {
+  type: 'participants.updated';
+  seq: number;
+  participants: Participant[];
+}
+
+export interface PeerLeftMessage {
+  type: 'peer.left';
+  seq: number;
+  participant_id: SpeakerId;
 }
 
 export interface PongMessage {
@@ -42,6 +57,13 @@ export interface UtteranceReceivedMessage {
   utterance_id: string;
   speaker_id: SpeakerId | null;
   duration_ms: number;
+}
+
+export interface SpeechActivityMessage {
+  type: 'speech.activity';
+  seq: number;
+  speaker_id: SpeakerId | null;
+  active: boolean;
 }
 
 export interface UtteranceIgnoredMessage {
@@ -82,8 +104,11 @@ export interface TtsAudioMessage {
 export type ServerMessage =
   | SessionReadyMessage
   | PongMessage
+  | PeerLeftMessage
+  | ParticipantsUpdatedMessage
   | ServerErrorMessage
   | UtteranceReceivedMessage
+  | SpeechActivityMessage
   | UtteranceIgnoredMessage
   | TranscriptFinalMessage
   | TranslationFinalMessage
@@ -122,6 +147,10 @@ export function isSessionMode(value: unknown): value is SessionMode {
   return value === 'together' || value === 'call';
 }
 
+function isConversationMode(value: unknown): value is ConversationMode {
+  return isSessionMode(value) || value === 'remote';
+}
+
 export function isParticipant(value: unknown): value is Participant {
   return (
     isRecord(value) &&
@@ -144,7 +173,7 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
         Array.isArray(parsed.participants) &&
         parsed.participants.every(isParticipant) &&
         typeof parsed.server_voice === 'boolean' &&
-        isSessionMode(parsed.mode)
+        isConversationMode(parsed.mode)
       ) {
         return {
           type: 'session.ready',
@@ -154,6 +183,16 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           server_voice: parsed.server_voice,
           mode: parsed.mode,
         };
+      }
+      return null;
+    case 'participants.updated':
+      if (Array.isArray(parsed.participants) && parsed.participants.every(isParticipant)) {
+        return { type: 'participants.updated', seq, participants: parsed.participants };
+      }
+      return null;
+    case 'peer.left':
+      if (isSpeakerId(parsed.participant_id)) {
+        return { type: 'peer.left', seq, participant_id: parsed.participant_id };
       }
       return null;
     case 'pong':
@@ -190,6 +229,11 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           speaker_id: parsed.speaker_id,
           duration_ms: parsed.duration_ms,
         };
+      }
+      return null;
+    case 'speech.activity':
+      if (isSpeakerOrNull(parsed.speaker_id) && typeof parsed.active === 'boolean') {
+        return { type: 'speech.activity', seq, speaker_id: parsed.speaker_id, active: parsed.active };
       }
       return null;
     case 'utterance.ignored':

@@ -15,7 +15,7 @@ from app.models.session import Participant
 from app.services.session_store import Session
 from app.services.translation.base import NothingRecognised, TranslationFailed
 from tests.audio import frames, tone
-from tests.conftest import FRONTEND, VALID_BODY, make_client
+from tests.conftest import FRONTEND, VALID_BODY, make_client, receive
 from tests.fakes import FakeSynthesizer, FakeTranslator
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -34,9 +34,9 @@ def speak(ws, seconds: float = 1.0) -> None:
 
 def turn(translator, count: int = 3, body=VALID_BODY) -> list[dict]:
     with open_stream(make_client(translator=translator), body) as ws:
-        ws.receive_json()
+        receive(ws)
         speak(ws)
-        return [ws.receive_json() for _ in range(count)]
+        return [receive(ws) for _ in range(count)]
 
 
 def test_telugu_speech_is_translated_for_the_english_listener() -> None:
@@ -48,14 +48,14 @@ def test_telugu_speech_is_translated_for_the_english_listener() -> None:
     assert UUID.match(utterance_id)
     assert received == {
         "type": "utterance.received",
-        "seq": 2,
+        "seq": received["seq"],
         "utterance_id": utterance_id,
         "speaker_id": None,
         "duration_ms": 1000,
     }
     assert transcript == {
         "type": "transcript.final",
-        "seq": 3,
+        "seq": transcript["seq"],
         "utterance_id": utterance_id,
         "speaker_id": "B",
         "text": "మీరు ఎలా ఉన్నారు?",
@@ -64,13 +64,14 @@ def test_telugu_speech_is_translated_for_the_english_listener() -> None:
     }
     assert translation == {
         "type": "translation.final",
-        "seq": 4,
+        "seq": translation["seq"],
         "utterance_id": utterance_id,
         "speaker_id": "B",
         "listener_id": "A",
         "target_language": "en",
         "text": "How are you? [en]",
     }
+    assert received["seq"] < transcript["seq"] < translation["seq"]
     call = translator.calls[0]
     assert (call.mime_type, call.target_languages) == ("audio/wav", ["en", "te"])
     with wave.open(io.BytesIO(call.audio)) as wav_file:
@@ -103,11 +104,11 @@ def test_nothing_is_translated_when_both_people_understand() -> None:
     body["participants"][0]["preferred_language"] = "te"
 
     with open_stream(make_client(translator=FakeTranslator()), body) as ws:
-        ws.receive_json()
+        receive(ws)
         speak(ws)
-        received, transcript = ws.receive_json(), ws.receive_json()
+        received, transcript = receive(ws), receive(ws)
         ws.send_json({"type": "ping"})
-        after = ws.receive_json()
+        after = receive(ws)
 
     assert (received["type"], transcript["type"], after["type"]) == (
         "utterance.received",
@@ -119,17 +120,18 @@ def test_nothing_is_translated_when_both_people_understand() -> None:
 
 def test_unrecognised_speech_is_ignored_and_listening_continues() -> None:
     with open_stream(make_client(translator=FakeTranslator(failure=NothingRecognised()))) as ws:
-        ws.receive_json()
+        receive(ws)
         speak(ws)
-        received, ignored = ws.receive_json(), ws.receive_json()
+        received, ignored = receive(ws), receive(ws)
         ws.send_json({"type": "ping"})
-        assert ws.receive_json()["type"] == "pong"
+        assert receive(ws)["type"] == "pong"
 
     assert ignored == {
         "type": "utterance.ignored",
-        "seq": 3,
+        "seq": ignored["seq"],
         "utterance_id": received["utterance_id"],
     }
+    assert ignored["seq"] > received["seq"]
 
 
 def test_provider_failure_is_reported_on_the_utterance() -> None:
@@ -152,36 +154,37 @@ def test_missing_setup_gives_a_setup_message() -> None:
 
 def test_listening_continues_while_a_sentence_is_being_translated() -> None:
     with open_stream(make_client(translator=FakeTranslator(delays=[0.5]))) as ws:
-        ws.receive_json()
+        receive(ws)
         speak(ws)
-        assert ws.receive_json()["type"] == "utterance.received"
+        assert receive(ws)["type"] == "utterance.received"
         ws.send_json({"type": "ping"})
-        assert ws.receive_json()["type"] == "pong"
-        assert ws.receive_json()["type"] == "transcript.final"
+        assert receive(ws)["type"] == "pong"
+        assert receive(ws)["type"] == "transcript.final"
 
 
 def test_results_keep_the_order_of_speaking() -> None:
     with open_stream(make_client(translator=FakeTranslator(delays=[0.4, 0.0]))) as ws:
-        ws.receive_json()
+        receive(ws)
         speak(ws)
         speak(ws)
-        messages = [ws.receive_json() for _ in range(6)]
+        messages = [receive(ws) for _ in range(6)]
 
     received = [m["utterance_id"] for m in messages if m["type"] == "utterance.received"]
     finals = [m["utterance_id"] for m in messages if m["type"] == "translation.final"]
     assert finals == received
-    assert [m["seq"] for m in messages] == list(range(2, 8))
+    seqs = [m["seq"] for m in messages]
+    assert seqs == sorted(set(seqs))
 
 
 def test_session_stop_finishes_the_sentence_being_spoken() -> None:
     with open_stream(make_client(translator=FakeTranslator(delays=[0.3]))) as ws:
-        ws.receive_json()
+        receive(ws)
         for frame in frames(tone(1.0)):
             ws.send_bytes(frame)
         ws.send_json({"type": "session.stop"})
-        types = [ws.receive_json()["type"] for _ in range(3)]
+        types = [receive(ws)["type"] for _ in range(3)]
         with pytest.raises(WebSocketDisconnect) as closed:
-            ws.receive_json()
+            receive(ws)
 
     assert types == ["utterance.received", "transcript.final", "translation.final"]
     assert closed.value.code == 1000
@@ -195,14 +198,14 @@ def test_session_stop_reports_sentences_it_could_not_finish(monkeypatch) -> None
     translator = FakeTranslator(delays=[5.0, 5.0, 5.0])
 
     with open_stream(make_client(settings, translator=translator)) as ws:
-        ws.receive_json()
+        receive(ws)
         for _ in range(3):
             speak(ws, seconds=0.5)
-        received = [ws.receive_json()["utterance_id"] for _ in range(3)]
+        received = [receive(ws)["utterance_id"] for _ in range(3)]
         ws.send_json({"type": "session.stop"})
-        errors = [ws.receive_json() for _ in range(3)]
+        errors = [receive(ws) for _ in range(3)]
         with pytest.raises(WebSocketDisconnect) as closed:
-            ws.receive_json()
+            receive(ws)
 
     assert [e["utterance_id"] for e in errors] == received
     assert {e["code"] for e in errors} == {"provider_unavailable"}
@@ -211,10 +214,10 @@ def test_session_stop_reports_sentences_it_could_not_finish(monkeypatch) -> None
 
 def test_too_many_waiting_sentences_get_a_busy_error() -> None:
     with open_stream(make_client(translator=FakeTranslator(delays=[1.0]))) as ws:
-        ws.receive_json()
+        receive(ws)
         for _ in range(7):
             speak(ws, seconds=0.5)
-        messages = [ws.receive_json() for _ in range(8)]
+        messages = [receive(ws) for _ in range(8)]
 
     received = [m["utterance_id"] for m in messages if m["type"] == "utterance.received"]
     busy = [m for m in messages if m["type"] == "error"]
@@ -232,11 +235,11 @@ def test_an_unexpected_crash_keeps_translating_later_sentences() -> None:
             return await super().translate_speech(*args, **kwargs)
 
     with open_stream(make_client(translator=BrokenOnce())) as ws:
-        ws.receive_json()
+        receive(ws)
         speak(ws)
-        received, error = ws.receive_json(), ws.receive_json()
+        received, error = receive(ws), receive(ws)
         speak(ws)
-        later = [ws.receive_json()["type"] for _ in range(3)]
+        later = [receive(ws)["type"] for _ in range(3)]
 
     assert (error["code"], error["utterance_id"]) == ("internal_error", received["utterance_id"])
     assert "boom" not in error["message"]
@@ -271,4 +274,4 @@ async def test_leaving_right_after_stop_is_not_a_server_failure(caplog) -> None:
     )
 
     assert "Live channel failed" not in caplog.text
-    assert sent == ["session.ready", "utterance.received"]
+    assert sent == ["session.ready", "speech.activity", "utterance.received"]

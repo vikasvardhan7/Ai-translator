@@ -2,12 +2,12 @@ import { getBackendUrl } from '../config';
 import type { BrowserMessage, ServerMessage } from './protocol';
 import { parseServerMessage } from './protocol';
 
-function socketUrl(sessionId: string): string {
+function socketUrl(streamPath: string): string {
   const baseUrl = getBackendUrl();
   const socketBase = baseUrl.startsWith('https://')
     ? `wss://${baseUrl.slice('https://'.length)}`
     : `ws://${baseUrl.replace(/^http:\/\//, '')}`;
-  return `${socketBase}/api/sessions/${encodeURIComponent(sessionId)}/stream`;
+  return `${socketBase}${streamPath}`;
 }
 
 export function shouldAcceptSequence(sequence: number, lastSequence: number): boolean {
@@ -29,11 +29,11 @@ export class SessionSocket {
     return this.socket?.readyState === WebSocket.OPEN;
   }
 
-  connect(sessionId: string): void {
+  connect(streamPath: string): void {
     this.closeCurrentSocket();
     this.lastSequence = 0;
 
-    const socket = this.createSocket(socketUrl(sessionId));
+    const socket = this.createSocket(socketUrl(streamPath));
     this.socket = socket;
 
     socket.addEventListener('open', () => {

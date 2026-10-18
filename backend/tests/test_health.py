@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
-from tests.conftest import FRONTEND, make_client
+from tests.conftest import FRONTEND, VALID_BODY, make_client
 from tests.fakes import FakeSynthesizer, FakeTranslator
 
 
@@ -61,3 +61,25 @@ def test_a_failed_close_still_closes_the_other_service() -> None:
             pass
 
     assert synthesizer.closed is True
+
+
+def test_the_built_frontend_is_served_beside_the_api(tmp_path) -> None:
+    (tmp_path / "index.html").write_text("<main>app</main>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("start()")
+    client = TestClient(create_app(Settings(_env_file=None), frontend_dist=tmp_path))
+
+    assert client.get("/").text == "<main>app</main>"
+    assert client.get("/assets/app.js").text == "start()"
+    assert client.get("/missing.js").status_code == 404
+    assert client.get("/health").json()["status"] == "ok"
+    assert client.get("/docs").status_code == 200
+    assert client.post("/api/sessions", json=VALID_BODY).status_code == 201
+    assert client.post("/api/rooms", json={"consent": False}).status_code == 422
+
+
+def test_without_a_built_frontend_only_the_api_is_served(tmp_path) -> None:
+    client = TestClient(create_app(Settings(_env_file=None), frontend_dist=tmp_path / "dist"))
+
+    assert client.get("/").status_code == 404
+    assert client.get("/health").status_code == 200

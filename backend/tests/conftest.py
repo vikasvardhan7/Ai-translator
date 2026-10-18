@@ -8,6 +8,12 @@ from tests.fakes import FakeTranslator
 FRONTEND = "http://localhost:5173"
 
 
+def receive(ws) -> dict:
+    while (message := ws.receive_json())["type"] == "speech.activity":
+        pass
+    return message
+
+
 def make_client(settings: Settings | None = None, translator=None, synthesizer=None) -> TestClient:
     app = create_app(settings or Settings(_env_file=None, frontend_origin=FRONTEND))
     app.state.speech_translator = translator

@@ -68,7 +68,7 @@ describe('SessionSocket', () => {
   });
 
   it('connects to the session stream and pings every 20 seconds', () => {
-    socket.connect('s 1');
+    socket.connect('/api/sessions/s%201/stream');
     const fake = created[0]!;
     fake.open();
     vi.advanceTimersByTime(20_000);

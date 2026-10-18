@@ -7,7 +7,7 @@ from app.services.audio_ingestion.speech_detector import (
     SpeechDetector,
     is_speech,
 )
-from tests.audio import frames, silence, tone
+from tests.audio import frames, mix, noise, silence, talk, tone, varying
 
 
 def hear(detector: SpeechDetector, pcm: bytes, frame_bytes: int = 3200) -> list:
@@ -50,7 +50,7 @@ def test_each_sentence_gets_its_own_id() -> None:
 def test_long_speech_is_split_at_thirty_seconds() -> None:
     detector = SpeechDetector()
 
-    segments = hear(detector, tone(31.0), frame_bytes=BYTES_PER_SECOND)
+    segments = hear(detector, talk(31.0), frame_bytes=BYTES_PER_SECOND)
 
     assert [len(s.pcm) for s in segments] == [MAX_SENTENCE_BYTES]
     assert detector.flush().duration_ms == 1000
@@ -94,7 +94,7 @@ def test_speech_after_a_short_pause_is_kept_on_flush() -> None:
 def test_the_end_of_a_long_sentence_is_kept_after_the_split() -> None:
     detector = SpeechDetector()
 
-    segments = hear(detector, tone(30.2) + silence(2.0), frame_bytes=BYTES_PER_SECOND // 5)
+    segments = hear(detector, talk(30.2) + silence(2.0), frame_bytes=BYTES_PER_SECOND // 5)
 
     assert [s.duration_ms for s in segments] == [30_000, 500]
 
@@ -102,7 +102,7 @@ def test_the_end_of_a_long_sentence_is_kept_after_the_split() -> None:
 def test_silence_after_a_split_is_not_sent() -> None:
     detector = SpeechDetector()
 
-    segments = hear(detector, tone(30.0) + silence(2.0), frame_bytes=BYTES_PER_SECOND)
+    segments = hear(detector, talk(30.0) + silence(2.0), frame_bytes=BYTES_PER_SECOND)
 
     assert [s.duration_ms for s in segments] == [30_000]
     assert detector.flush() is None
@@ -119,6 +119,57 @@ def test_the_next_sentence_keeps_the_moment_before_it_starts() -> None:
 def test_a_quick_reply_keeps_the_moment_before_it_starts() -> None:
     detector = SpeechDetector()
 
-    segments = hear(detector, tone(1.0) + silence(1.5) + tone(1.0) + silence(2.0))
+    segments = hear(detector, tone(1.0) + silence(1.0) + tone(1.0) + silence(2.0))
 
     assert [s.duration_ms for s in segments] == [1300, 1600]
+
+
+def test_a_short_pause_inside_a_sentence_does_not_end_it() -> None:
+    detector = SpeechDetector()
+
+    segments = hear(detector, tone(1.0) + silence(0.8) + tone(1.0) + silence(2.0))
+
+    assert [s.duration_ms for s in segments] == [3100]
+
+
+def test_sentences_end_in_a_noisy_room() -> None:
+    detector = SpeechDetector()
+    room = noise(15.0, 500)
+    voice = silence(5.0) + tone(2.0) + silence(3.0) + tone(2.0) + silence(3.0)
+
+    segments = hear(detector, mix(room, voice))
+
+    assert [s.duration_ms for s in segments][-2:] == [2600, 2600]
+
+
+def test_a_sound_that_never_stops_becomes_background() -> None:
+    detector = SpeechDetector()
+
+    hear(detector, silence(0.5))
+
+    segments = hear(detector, tone(15.0))
+
+    assert len(segments) == 1
+    assert segments[0].duration_ms < 7000
+    assert not detector.in_sentence
+
+
+def test_long_speech_without_pauses_is_kept_whole() -> None:
+    detector = SpeechDetector()
+    hear(detector, silence(0.5))
+
+    segments = hear(detector, varying(10.0, quiet=500, loud=1500) + silence(2.0))
+
+    assert [s.duration_ms for s in segments] == [10_600]
+
+
+def test_it_reports_whether_a_sentence_is_in_progress() -> None:
+    detector = SpeechDetector()
+    hear(detector, silence(0.5))
+    assert not detector.in_sentence
+
+    hear(detector, tone(0.5))
+    assert detector.in_sentence
+
+    hear(detector, silence(1.5))
+    assert not detector.in_sentence
