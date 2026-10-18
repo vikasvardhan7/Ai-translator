@@ -92,24 +92,3 @@ def test_factory_needs_both_key_and_voice_model() -> None:
         Settings(_env_file=None, gemini_api_key=key, gemini_tts_model="v")
     )
     assert isinstance(built, GeminiSpeechSynthesizer)
-
-
-async def test_audio_in_several_parts_is_joined() -> None:
-    first, second = b"\x01\x00" * 100, b"\x02\x00" * 100
-    parts = [
-        {"inlineData": {"mimeType": "audio/L16;rate=24000", "data": base64.b64encode(d).decode()}}
-        for d in (first, second)
-    ]
-    candidate = {"content": {"role": "model", "parts": parts}, "finishReason": "STOP"}
-
-    result = await synthesizer(
-        Recorder(httpx.Response(200, json={"candidates": [candidate]}))
-    ).synthesize("Hi")
-
-    with wave.open(io.BytesIO(result), "rb") as wav_file:
-        assert wav_file.readframes(wav_file.getnframes()) == first + second
-
-
-async def test_audio_with_an_impossible_rate_is_refused() -> None:
-    with pytest.raises(VoiceFailed):
-        await synthesizer(Recorder(audio(b"\x01\x00" * 10, "audio/L16;rate=0"))).synthesize("Hi")

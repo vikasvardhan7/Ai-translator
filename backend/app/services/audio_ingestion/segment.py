@@ -9,6 +9,8 @@ BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH * CHANNELS
 @dataclass(frozen=True)
 class AudioSegment:
     utterance_id: str
+    speaker_id: str
+    spoken_language: str | None
     pcm: bytes
 
     @property
