@@ -33,3 +33,13 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Coding-agent files: each developer keeps their own copy locally
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+.codex/
+.cursor/
+.cursorrules
+.aider*

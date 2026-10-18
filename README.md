@@ -87,7 +87,6 @@ Ai-translator/
 │   ├── package.json
 │   └── vite.config.ts
 ├── docs/                    architecture blueprint
-├── CLAUDE.md                working rules for coding agents
 └── README.md
 ```
 
