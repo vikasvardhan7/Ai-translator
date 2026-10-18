@@ -81,6 +81,30 @@ def test_session_stop_closes_normally(client: TestClient, session_id: str) -> No
             ws.receive_json()
 
     assert closed.value.code == 1000
+    assert_session_released(client, session_id)
+
+
+def assert_session_released(client: TestClient, session_id: str) -> None:
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
+        assert ws.receive_json()["code"] == "unknown_session"
+
+
+def test_a_session_opens_only_one_live_channel(client: TestClient, session_id: str) -> None:
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as first:
+        assert first.receive_json()["type"] == "session.ready"
+        with client.websocket_connect(f"/api/sessions/{session_id}/stream") as second:
+            assert second.receive_json()["code"] == "unknown_session"
+        first.send_json({"type": "ping"})
+        assert first.receive_json()["type"] == "pong"
+
+
+def test_session_is_released_when_the_browser_disconnects(
+    client: TestClient, session_id: str
+) -> None:
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
+        ws.receive_json()
+
+    assert_session_released(client, session_id)
 
 
 def test_browser_from_other_origin_is_refused(client: TestClient, session_id: str) -> None:
@@ -91,6 +115,8 @@ def test_browser_from_other_origin_is_refused(client: TestClient, session_id: st
             ws.receive_json()
 
     assert closed.value.code == 4403
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
+        assert ws.receive_json()["type"] == "session.ready"
 
 
 def test_browser_from_frontend_origin_is_accepted(client: TestClient, session_id: str) -> None:

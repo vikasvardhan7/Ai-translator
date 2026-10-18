@@ -3,14 +3,36 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
+from tests.fakes import FakeTranslator
 
 FRONTEND = "http://localhost:5173"
 
 
+def make_client(settings: Settings | None = None, translator=None) -> TestClient:
+    app = create_app(settings or Settings(_env_file=None, frontend_origin=FRONTEND))
+    app.state.speech_translator = translator
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def no_real_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "SPEECH_TIMEOUT_SECONDS"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
-def client() -> TestClient:
-    settings = Settings(_env_file=None, frontend_origin=FRONTEND)
-    return TestClient(create_app(settings))
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.fixture
+def translator() -> FakeTranslator:
+    return FakeTranslator()
+
+
+@pytest.fixture
+def client(translator: FakeTranslator) -> TestClient:
+    return make_client(translator=translator)
 
 
 VALID_BODY = {

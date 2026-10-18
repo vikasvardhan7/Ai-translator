@@ -20,12 +20,6 @@ dist/
 *.tsbuildinfo
 npm-debug.log*
 
-# Local data created by the app (databases, recordings, exported transcripts)
-*.db
-*.sqlite
-*.sqlite3
-/backend/data/
-
 # Editors and OS
 .vscode/*
 !.vscode/extensions.json
@@ -33,13 +27,3 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# Coding-agent files: each developer keeps their own copy locally
-CLAUDE.md
-CLAUDE.local.md
-.claude/
-AGENTS.md
-.codex/
-.cursor/
-.cursorrules
-.aider*

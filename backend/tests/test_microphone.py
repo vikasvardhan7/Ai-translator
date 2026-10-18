@@ -1,3 +1,4 @@
+import io
 import wave
 
 import pytest
@@ -8,7 +9,7 @@ from app.services.audio_ingestion.microphone import (
     MicrophoneInput,
     is_silent,
 )
-from app.services.audio_ingestion.wav import write_wav
+from app.services.audio_ingestion.wav import encode_wav
 from tests.audio import frames, silence, tone
 
 UID = "0f8fad5b-d9cb-469f-a165-70867728950e"
@@ -139,13 +140,10 @@ def test_is_silent() -> None:
     assert not is_silent(tone(1.0))
 
 
-def test_wav_file_has_correct_format(tmp_path) -> None:
+def test_wav_is_built_in_memory_with_the_right_format() -> None:
     segment = speak(MicrophoneInput(), tone(1.5))
 
-    path = write_wav(segment, tmp_path / "debug")
-
-    assert path.name == f"{UID}.wav"
-    with wave.open(str(path), "rb") as wav_file:
+    with wave.open(io.BytesIO(encode_wav(segment.pcm)), "rb") as wav_file:
         assert wav_file.getnchannels() == 1
         assert wav_file.getsampwidth() == 2
         assert wav_file.getframerate() == 16_000
