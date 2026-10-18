@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.models.protocol import ErrorCode
-from app.services.translation.base import TranslationFailed
+from app.services.translation.base import NothingRecognised, TranslationFailed
 from scripts.benchmark import (
     Row,
     Sample,
@@ -145,4 +145,15 @@ async def test_provider_errors_are_recorded_with_their_message() -> None:
 async def test_successful_sample_records_language_and_text() -> None:
     result = await translate_sample(FakeTranslator(), "m", SAMPLE, "en")
 
-    assert (result.detected, result.correct, result.translation) == ("te", True, "How are you?")
+    assert (result.detected, result.correct, result.translation) == (
+        "te",
+        True,
+        "How are you? [en]",
+    )
+
+
+@pytest.mark.anyio
+async def test_unrecognised_speech_is_recorded() -> None:
+    result = await translate_sample(FakeTranslator(failure=NothingRecognised()), "m", SAMPLE, "en")
+
+    assert result.error == "nothing recognised"

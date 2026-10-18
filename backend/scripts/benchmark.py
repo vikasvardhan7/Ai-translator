@@ -14,7 +14,7 @@ from google.genai import errors
 
 from app.core.config import get_settings
 from app.core.languages import language_code
-from app.services.translation.base import TranslationFailed
+from app.services.translation.base import NothingRecognised, TranslationFailed
 from app.services.translation.gemini import GeminiSpeechTranslator
 from scripts.fleurs import list_configs, read_sentences, stream_clips
 
@@ -88,11 +88,13 @@ async def translate_sample(translator: Any, model: str, sample: Sample, target: 
     row = Row(model, sample.name, sample.expected)
     started = time.perf_counter()
     try:
-        result = await translator.translate_speech(sample.audio, "audio/wav", target)
+        result = await translator.translate_speech(sample.audio, "audio/wav", [target])
         row.detected = result.language
         row.transcript = result.text
-        row.translation = result.translation
+        row.translation = result.for_language(target).text
         row.correct = result.language == row.expected
+    except NothingRecognised:
+        row.error = "nothing recognised"
     except TranslationFailed as failure:
         row.error = f"{failure.code.value}: {failure.message}"
     except Exception as exc:
