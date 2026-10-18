@@ -1,0 +1,35 @@
+# Secrets: never commit real environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# Local data created by the app (databases, recordings, exported transcripts)
+*.db
+*.sqlite
+*.sqlite3
+/backend/data/
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
