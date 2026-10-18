@@ -18,6 +18,7 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_LANGUAGE = "unsupported_language"
     PROVIDER_UNAVAILABLE = "provider_unavailable"
     QUOTA_EXCEEDED = "quota_exceeded"
+    VOICE_UNAVAILABLE = "voice_unavailable"
     INTERNAL_ERROR = "internal_error"
 
 

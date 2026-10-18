@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
+    gemini_tts_model: str | None = None
     speech_timeout_seconds: float = Field(default=30.0, gt=0)
 
 

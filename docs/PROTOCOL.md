@@ -13,7 +13,7 @@ frontend can show `detail` directly.
 
 | Method and path | Status | Purpose |
 | --- | --- | --- |
-| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.4.0"}` |
+| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.5.0"}` |
 | `POST /api/sessions` | live | Start a conversation; returns the session id |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
 
@@ -119,13 +119,13 @@ All include `type` and `seq`.
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
-| `session.ready` | live | `session_id`, `participants` | Live channel is open |
+| `session.ready` | live | `session_id`, `participants`, `server_voice` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
 | `pong` | live | none | Answer to `ping` |
 | `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`) | Show `message` to the user |
 | `utterance.received` | live | `utterance_id`, `speaker_id`, `duration_ms` | Whole sentence received |
 | `transcript.final` | live | `utterance_id`, `speaker_id`, `text`, `language`, `language_name` | What was said, its detected language code and the English name of that language as reported live by the speech service |
 | `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text`, `translated` | Text for the listener; `translated: false` when it was already in their language, and `text` is then the original |
-| `tts.audio` | 1E | `utterance_id`, `listener_id`, `format` (`mp3`/`wav`), `audio_base64` | Only if the server makes the voice |
+| `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
 
 After `utterance.received`, each utterance gets either `transcript.final` followed by
@@ -133,6 +133,15 @@ After `utterance.received`, each utterance gets either `transcript.final` follow
 utterances were spoken. The listener is always the other participant, and the translation is
 into their `preferred_language`. At most 5 sentences can wait for translation at once; more get
 a retryable `provider_unavailable` error.
+
+Voice, when `server_voice` is `true`: after `translation.final` with `translated: true`, the same
+`utterance_id` later gets either one `tts.audio` or one `voice_unavailable` error. On
+`voice_unavailable`, speak the translation with the browser's own voice if it has one, otherwise
+show captions only. Voices arrive in the order the utterances were spoken, and making a voice never
+delays the next translation. Nothing is spoken when `translated` is `false`. At most 5 voices can
+wait at once; more get `voice_unavailable`. On `session.stop`, voices still being made are
+finished within the same grace period as translations; any not ready by then get
+`voice_unavailable` before the close.
 
 Show `text` fields as plain text, never as HTML: they contain whatever the speaker said.
 
@@ -159,4 +168,5 @@ Show `text` fields as plain text, never as HTML: they contain whatever the speak
 | `unsupported_language` | live | yes | The speech service could not identify the language spoken |
 | `provider_unavailable` | live | depends | Retryable: speech service unreachable, slow, erroring, returned an unreadable answer or did not translate the sentence, or 5 sentences are already waiting behind the one being translated. Not retryable: no key or model set up, key or model rejected, audio could not be processed, or the service refused the sentence |
 | `quota_exceeded` | live | yes, later | Free-tier limit reached; try again after a minute |
+| `voice_unavailable` | live | no | The server could not make the voice for this translation (free voice limit, service unreachable, too many waiting); use the browser voice or captions only |
 | `internal_error` | live | yes | Unexpected server error; details only in the backend log. With an `utterance_id`: only that sentence failed and the connection stays open. With `utterance_id: null`: the live channel failed and closes with 1011 |

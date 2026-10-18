@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from app.services.translation.base import SpeechTranslation, TranslationFailed
+from app.services.voice.base import VoiceFailed
 
 
 @dataclass
@@ -43,3 +44,26 @@ class FakeTranslator:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+@dataclass
+class FakeSynthesizer:
+    audio: bytes = b"RIFF-voice"
+    failure: Exception | None = None
+    delays: list[float] = field(default_factory=list)
+    texts: list[str] = field(default_factory=list)
+    closed: bool = False
+
+    async def synthesize(self, text: str) -> bytes:
+        self.texts.append(text)
+        if self.delays:
+            await asyncio.sleep(self.delays.pop(0))
+        if self.failure:
+            raise self.failure
+        return self.audio
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+VOICE_LIMIT = VoiceFailed("The free voice limit was reached.")
