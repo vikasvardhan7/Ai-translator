@@ -18,9 +18,6 @@ class Session:
     participants: list[Participant]
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def listener_for(self, speaker_id: str) -> Participant:
-        return next(p for p in self.participants if p.id != speaker_id)
-
 
 class SessionStore:
     def __init__(self) -> None:

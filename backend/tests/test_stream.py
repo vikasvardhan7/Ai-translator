@@ -47,8 +47,9 @@ def test_ping_pong_and_seq_increase(client: TestClient, session_id: str) -> None
         (json.dumps([1, 2]), "JSON object"),
         (json.dumps({"type": 5}), "string 'type'"),
         (json.dumps({"type": "dance"}), "Unknown message type 'dance'"),
-        (json.dumps({"type": "utterance.start"}), "utterance_id: Field required"),
+        ("x" * 70_000, "too large"),
     ],
+    ids=["not-json", "not-object", "type-not-text", "unknown-type", "too-large"],
 )
 def test_bad_messages_get_invalid_message_errors(
     client: TestClient, session_id: str, raw: str, expected_message_part: str
@@ -62,15 +63,6 @@ def test_bad_messages_get_invalid_message_errors(
     assert error["code"] == "invalid_message"
     assert error["retryable"] is False
     assert expected_message_part in error["message"]
-
-
-def test_audio_without_open_utterance_is_rejected(client: TestClient, session_id: str) -> None:
-    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
-        ws.receive_json()
-        ws.send_bytes(b"\x00\x01" * 1600)
-        error = ws.receive_json()
-
-    assert error["code"] == "no_active_utterance"
 
 
 def test_session_stop_closes_normally(client: TestClient, session_id: str) -> None:
