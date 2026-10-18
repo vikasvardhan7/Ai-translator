@@ -47,7 +47,7 @@ def test_ping_pong_and_seq_increase(client: TestClient, session_id: str) -> None
         (json.dumps([1, 2]), "JSON object"),
         (json.dumps({"type": 5}), "string 'type'"),
         (json.dumps({"type": "dance"}), "Unknown message type 'dance'"),
-        (json.dumps({"type": "utterance.start"}), "Unknown message type 'utterance.start'"),
+        (json.dumps({"type": "utterance.start"}), "utterance_id: Field required"),
     ],
 )
 def test_bad_messages_get_invalid_message_errors(
