@@ -1,4 +1,4 @@
-# AI Voice Translator
+# Voice Translator
 
 A two-way, real-time voice translator. Two people who speak different languages (Telugu and English first) talk through one app: it recognizes speech, translates it into the other person's language, shows captions in both languages, speaks the translation aloud, and saves a downloadable transcript.
 
@@ -6,7 +6,7 @@ A two-way, real-time voice translator. Two people who speak different languages 
 
 While testing, set `SAVE_DEBUG_AUDIO=true` in `backend/.env` and every received sentence is saved as `backend/data/debug/<id>.wav` so you can listen to it. Keep it `false` otherwise: it records everything people say.
 
-The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). The step-by-step plan for both developers is in [`docs/AI-Voice-Translator-Developer-Handbook.docx`](docs/AI-Voice-Translator-Developer-Handbook.docx).
+The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). The step-by-step plan for both developers is in [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx).
 
 The full design is in [`docs/ARCHITECTURE_BLUEPRINT.md`](docs/ARCHITECTURE_BLUEPRINT.md), with an overview diagram in [`docs/architecture-overview.png`](docs/architecture-overview.png).
 
@@ -16,7 +16,7 @@ The full design is in [`docs/ARCHITECTURE_BLUEPRINT.md`](docs/ARCHITECTURE_BLUEP
 | --- | --- |
 | Frontend | React 19, TypeScript, Vite, Vitest |
 | Backend | Python 3.12, FastAPI, Uvicorn, pytest, Ruff |
-| AI services | Free tiers only (Gemini free API or local models), chosen in the AI pipeline step |
+| Speech and translation | Free tiers only (Gemini API free tier or local models), chosen in Step 1D |
 | Storage | SQLite (added in a later step) |
 
 ## Prerequisites (Windows)
@@ -92,7 +92,11 @@ Ai-translator/
 └── README.md
 ```
 
-Folders for audio, AI services, storage and exports are added in the steps that need them.
+Folders for speech recognition, translation, storage and exports are added in the steps that need them.
+
+## Automatic checks
+
+Every pull request and every push to `main` runs the backend tests and lint (on Linux and Windows) and the frontend type check, tests and build on GitHub Actions. See `.github/workflows/checks.yml`. Merge only when all checks are green.
 
 ## Security
 

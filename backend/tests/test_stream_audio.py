@@ -19,17 +19,16 @@ def debug_client(tmp_path) -> TestClient:
 
 def open_stream(client: TestClient):
     session_id = client.post("/api/sessions", json=VALID_BODY).json()["session_id"]
-    ws = client.websocket_connect(f"/api/sessions/{session_id}/stream")
-    return ws
+    return client.websocket_connect(f"/api/sessions/{session_id}/stream")
 
 
-def say(ws, pcm: bytes, utterance_id: str = UID, speaker_id: str = "B", language=None) -> dict:
+def say(ws, pcm: bytes, utterance_id: str = UID, speaker_id: str = "B") -> dict:
     ws.send_json(
         {
             "type": "utterance.start",
             "utterance_id": utterance_id,
             "speaker_id": speaker_id,
-            "spoken_language": language,
+            "spoken_language": None,
         }
     )
     for frame in frames(pcm):

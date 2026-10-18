@@ -158,6 +158,6 @@ All include `type` and `seq`.
 | `audio_too_short` | live | no | Under 0.3 s, or silence |
 | `audio_too_long` | live | no | Over 30 s in one utterance |
 | `unsupported_language` | 1D | no | Detected or requested language is not in the list |
-| `provider_unavailable` | 1D | yes | AI service unreachable or timed out |
+| `provider_unavailable` | 1D | yes | Speech or translation service unreachable or timed out |
 | `quota_exceeded` | 1D | yes, later | Free-tier limit reached |
 | `internal_error` | live | yes | Unexpected server error; details only in the backend log. The connection closes with 1011 |
