@@ -13,6 +13,7 @@ from app.api import access, languages, rooms, sessions, voices
 from app.core.access import new_host_key
 from app.core.config import BACKEND_DIR, Settings, get_settings
 from app.core.errors import install_error_handlers
+from app.services.public_address import PublicAddress, find_cloudflared
 from app.services.room_store import RoomStore
 from app.services.session_store import SessionStore
 from app.services.translation.factory import build_speech_translator
@@ -67,6 +68,7 @@ def create_app(
         )
         yield
         async with AsyncExitStack() as services:
+            services.push_async_callback(app.state.public_address.aclose)
             for service in (app.state.speech_translator, app.state.speech_synthesizer):
                 if service is not None:
                     services.push_async_callback(service.aclose)
@@ -78,6 +80,11 @@ def create_app(
     app.state.rooms = RoomStore()
     app.state.speech_translator = build_speech_translator(settings)
     app.state.speech_synthesizer = build_speech_synthesizer(settings)
+    cloudflared = find_cloudflared(settings.cloudflared_path)
+    app.state.public_address = PublicAddress(
+        [cloudflared] if cloudflared else None,
+        app_served=frontend_dist is not None and frontend_dist.is_dir(),
+    )
 
     app.add_middleware(
         CORSMiddleware,

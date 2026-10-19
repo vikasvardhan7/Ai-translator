@@ -151,6 +151,12 @@ export interface RoomInfo {
 export interface CreatedRoom extends RoomInfo {
   host_token: string;
   guest_token: string;
+  public_url: string | null;
+  public_url_problem: string | null;
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
 }
 
 function readRoom(body: unknown): RoomInfo {
@@ -176,7 +182,13 @@ export async function createRoom(host: PersonDetails): Promise<CreatedRoom> {
   if (!isRecord(body) || typeof body.host_token !== 'string' || typeof body.guest_token !== 'string') {
     throw new Error('The backend returned an invalid conversation.');
   }
-  return { ...room, host_token: body.host_token, guest_token: body.guest_token };
+  return {
+    ...room,
+    host_token: body.host_token,
+    guest_token: body.guest_token,
+    public_url: textOrNull(body.public_url),
+    public_url_problem: textOrNull(body.public_url_problem),
+  };
 }
 
 export async function getRoom(roomId: string, token: string): Promise<RoomInfo> {

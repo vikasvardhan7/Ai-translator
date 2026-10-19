@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.main import create_app
 from app.services import retry
+from app.services.public_address import PublicAddress
 from tests.fakes import FakeTranslator
 
 FRONTEND = "http://localhost:5173"
@@ -31,6 +32,7 @@ def make_client(
     )
     app.state.speech_translator = translator
     app.state.speech_synthesizer = synthesizer
+    app.state.public_address = PublicAddress(None, app_served=True)
     return TestClient(app, base_url=f"http://{TEST_HOST}", client=client)
 
 

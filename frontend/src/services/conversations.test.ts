@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { inviteFromHash, inviteLink, isLocalOnly, roomConversation, sessionConversation } from './conversations';
+import { inviteFromHash, inviteLink, inviteProblem, roomConversation, sessionConversation } from './conversations';
 
 const host = { id: 'A' as const, name: 'Person 1', preferred_language: 'te' };
 const guest = { id: 'B' as const, name: 'Person 2', preferred_language: 'en' };
@@ -42,20 +42,27 @@ describe('conversations', () => {
     });
   });
 
+  const room = { room_id: 'r1', host, guest: null, host_token: 'h', guest_token: 'g/1', public_url: null, public_url_problem: null };
+
   it('makes an invite link that can be read back', () => {
-    const link = inviteLink(
-      { room_id: 'r1', host, guest: null, host_token: 'h', guest_token: 'g/1' },
-      'https://quiet-river.trycloudflare.com',
-    );
+    const link = inviteLink(room, 'https://quiet-river.trycloudflare.com');
 
     expect(link).toBe('https://quiet-river.trycloudflare.com/#join/r1/g%2F1');
     expect(inviteFromHash(new URL(link).hash)).toEqual({ roomId: 'r1', token: 'g/1' });
     expect(inviteFromHash('#privacy')).toBeNull();
   });
 
-  it('knows when a link would only work on this computer', () => {
-    expect(isLocalOnly('localhost')).toBe(true);
-    expect(isLocalOnly('127.0.0.1')).toBe(true);
-    expect(isLocalOnly('quiet-river.trycloudflare.com')).toBe(false);
+  it('prefers the public link the backend opened, even when the page is on localhost', () => {
+    const link = inviteLink({ ...room, public_url: 'https://fast-cloud.trycloudflare.com/' }, 'http://localhost:8000');
+
+    expect(link).toBe('https://fast-cloud.trycloudflare.com/#join/r1/g%2F1');
+    expect(inviteProblem({ ...room, public_url: 'https://fast-cloud.trycloudflare.com' }, 'localhost')).toBeNull();
+  });
+
+  it('explains when a link would only work on this computer', () => {
+    expect(inviteProblem(room, 'localhost')).toBe('This link only works on this computer.');
+    expect(inviteProblem({ ...room, public_url_problem: 'No public link: cloudflared is not installed.' }, '127.0.0.1'))
+      .toBe('No public link: cloudflared is not installed.');
+    expect(inviteProblem(room, 'quiet-river.trycloudflare.com')).toBeNull();
   });
 });

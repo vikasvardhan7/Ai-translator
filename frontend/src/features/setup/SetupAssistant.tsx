@@ -13,7 +13,7 @@ import {
 } from '../../services/api';
 import {
   inviteLink,
-  isLocalOnly,
+  inviteProblem,
   roomConversation,
   sessionConversation,
   type Conversation,
@@ -67,6 +67,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
   const [level, setLevel] = useState(0);
   const [retry, setRetry] = useState<Retry>({ kind: 'listen', person: 'A' });
   const [link, setLink] = useState('');
+  const [linkProblem, setLinkProblem] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const whereRef = useRef<Where>(invite ? 'guest' : 'here');
   const hostRef = useRef<Participant | null>(null);
@@ -279,8 +280,14 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       }
       roomRef.current = room;
       setLink(inviteLink(room, window.location.origin));
+      setLinkProblem(inviteProblem(room, window.location.hostname));
       setCopied(false);
-      add('assistant', 'Send this link to the other person. I will start as soon as they open it and say hello.');
+      add(
+        'assistant',
+        room.public_url || inviteProblem(room, window.location.hostname) === null
+          ? 'Send this link to the other person. I will start as soon as they open it and say hello.'
+          : 'I could not make a public link, so this one only works on this computer.',
+      );
       setPhase('waiting');
       waitForGuest(room);
       return;
@@ -417,6 +424,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
     stopWaiting();
     foundRef.current = {};
     setLink('');
+    setLinkProblem(null);
     if (whereRef.current === 'guest') {
       add('assistant', 'Starting over. Say hello in your language.');
       void listen('B');
@@ -441,7 +449,6 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
 
   const meter = Math.round(Math.max(0, Math.min(1, level)) * 100);
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-  const localOnly = isLocalOnly(window.location.hostname);
   const listName = whereRef.current === 'guest' ? null : onChooseManually;
 
   return (
@@ -469,10 +476,8 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
         <div className="invite-box">
           <label className="field-label" htmlFor="invite-link">Invite link</label>
           <input id="invite-link" className="text-input invite-link" readOnly value={link} onFocus={(event) => event.currentTarget.select()} />
-          {localOnly && (
-            <p className="invite-warning" role="note">
-              This link only works on this computer. To invite someone on another device, open this app through your public tunnel link first (see the README).
-            </p>
+          {linkProblem && (
+            <p className="invite-warning" role="note">{linkProblem}</p>
           )}
         </div>
       )}

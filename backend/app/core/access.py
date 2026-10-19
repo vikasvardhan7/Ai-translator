@@ -44,6 +44,18 @@ def is_forwarded(connection: HTTPConnection) -> bool:
     return any(name in connection.headers for name in FORWARDING_HEADERS)
 
 
+def own_origin(connection: HTTPConnection) -> str:
+    forwarded = connection.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    secure = forwarded == "https" or connection.url.scheme in ("https", "wss")
+    return f"{'https' if secure else 'http'}://{connection.headers.get('host', '')}"
+
+
+def is_local_page(connection: HTTPConnection) -> bool:
+    return not is_forwarded(connection) and _is_loopback(
+        _host_name(connection.headers.get("host", "").strip().lower())
+    )
+
+
 def is_trusted_host(connection: HTTPConnection) -> bool:
     host = _host_name(connection.headers.get("host", "").strip().lower())
     return _is_loopback(host) or is_forwarded(connection)

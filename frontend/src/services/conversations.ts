@@ -39,7 +39,15 @@ export function roomConversation(room: RoomInfo, token: string, you: SpeakerId):
 }
 
 export function inviteLink(room: CreatedRoom, origin: string): string {
-  return `${origin}/#join/${encodeURIComponent(room.room_id)}/${encodeURIComponent(room.guest_token)}`;
+  const base = (room.public_url ?? origin).replace(/\/+$/, '');
+  return `${base}/#join/${encodeURIComponent(room.room_id)}/${encodeURIComponent(room.guest_token)}`;
+}
+
+export function inviteProblem(room: CreatedRoom, hostname: string): string | null {
+  if (room.public_url || !isLocalOnly(hostname)) {
+    return null;
+  }
+  return room.public_url_problem ?? 'This link only works on this computer.';
 }
 
 export function inviteFromHash(hash: string): Invite | null {
@@ -54,6 +62,6 @@ export function inviteFromHash(hash: string): Invite | null {
   }
 }
 
-export function isLocalOnly(hostname: string): boolean {
+function isLocalOnly(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost');
 }

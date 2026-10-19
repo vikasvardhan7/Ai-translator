@@ -35,6 +35,8 @@ class RoomOut(BaseModel):
 class RoomCreated(RoomOut):
     host_token: str
     guest_token: str
+    public_url: str | None
+    public_url_problem: str | None
 
 
 class RoomJoined(RoomOut):

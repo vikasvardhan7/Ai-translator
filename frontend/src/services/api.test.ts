@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, leaveRoom, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom } from './api';
+import { ApiError, createRoom, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -197,5 +197,21 @@ describe('frontend API calls', () => {
       pitch: '',
       accent: '',
     }]);
+  });
+
+  it('starts a two-device conversation and keeps the public link and any problem', async () => {
+    const created = { room_id: 'r1', host: { id: 'A', name: 'Person 1', preferred_language: 'te' }, guest: null, host_token: 'h', guest_token: 'g' };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...created, public_url: 'https://fast-cloud.trycloudflare.com', public_url_problem: null }), { status: 201 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...created, public_url: null, public_url_problem: 'No public link: cloudflared is not installed.' }), { status: 201 }));
+
+    await expect(createRoom({ name: 'Person 1', preferred_language: 'te' })).resolves.toMatchObject({
+      host_token: 'h',
+      public_url: 'https://fast-cloud.trycloudflare.com',
+      public_url_problem: null,
+    });
+    await expect(createRoom({ name: 'Person 1', preferred_language: 'te' })).resolves.toMatchObject({
+      public_url: null,
+      public_url_problem: 'No public link: cloudflared is not installed.',
+    });
   });
 });

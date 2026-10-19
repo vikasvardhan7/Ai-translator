@@ -72,7 +72,15 @@ def test_a_room_is_created_with_two_tokens_and_no_guest(client: TestClient) -> N
 
     data = response.json()
     assert response.status_code == 201
-    assert set(data) == {"room_id", "host_token", "guest_token", "host", "guest"}
+    assert set(data) == {
+        "room_id",
+        "host_token",
+        "guest_token",
+        "host",
+        "guest",
+        "public_url",
+        "public_url_problem",
+    }
     assert data["host"] == {"id": "A", "name": "Host", "preferred_language": "en"}
     assert data["guest"] is None
     assert data["host_token"] != data["guest_token"]

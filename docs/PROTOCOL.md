@@ -107,8 +107,16 @@ Sessions are held in memory only. A session leaves memory when its live channel 
 
 ### Conversations across two devices (rooms)
 
-Person A starts a room and shares an invite link (`<app address>/#join/<room_id>/<guest_token>`).
-Person B opens it on their own phone or computer. Each device then opens its own live channel with
+Person A starts a room and shares an invite link (`<public address>/#join/<room_id>/<guest_token>`).
+Person B opens it on their own phone or computer. `public_url` is the address the link must use:
+`PUBLIC_URL` from `backend/.env` when set; otherwise, when the request came through a tunnel or
+proxy, the address the page was opened from; otherwise, from a page on this computer, the backend
+starts `cloudflared tunnel --url http://localhost:<port>` itself (once, kept for as long as the
+backend runs; `CLOUDFLARED_PATH` names the program when it is not on the PATH or where winget puts
+it) and answers with the `https://...trycloudflare.com` address it printed, waiting up to 25 s for
+it. When there is no public address, `public_url` is `null` and `public_url_problem` says why in
+one sentence (cloudflared not installed, the frontend not built so the backend cannot serve the
+app, or the tunnel did not start); the link then only works on this computer. Each device then opens its own live channel with
 its own token, sends only its own microphone, and hears only the translations meant for it.
 The invite link works once: joining returns a new token for the guest's device and the invite
 token stops working, so a forwarded link cannot be used to listen in. Rooms live in memory only: a
@@ -119,7 +127,7 @@ same token for as long as the room lasts. At most 100 rooms can wait at once.
 
 | Request | Body | Answers |
 | --- | --- | --- |
-| `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, guest_token, host, guest: null}`; `422` bad body; `503` too many waiting rooms |
+| `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, guest_token, host, guest: null, public_url, public_url_problem}`; `422` bad body; `503` too many waiting rooms |
 | `GET /api/rooms/{room_id}` with header `X-Room-Token` | none | `200` `{room_id, host, guest}` (`guest` is `null` until someone joins); `403` wrong token; `404` unknown or expired |
 | `DELETE /api/rooms/{room_id}` with header `X-Room-Token` | none | `204` the room ends (an invite is cancelled, or this person leaves without a live channel) and any connected device gets `peer.left`; `403` wrong token; `404` |
 | `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": guest_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token`, the guest device's own token (the guest is participant `B`); `403` not the invite token; `404`; `409` someone already joined; `422` bad body |

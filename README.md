@@ -97,16 +97,17 @@ The backend log prints one line per sentence with how long each step took, so yo
 
 ## Talking to someone on another device
 
-The other person can be on any phone or computer with Edge or Chrome. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed).
+The other person can be on any phone or computer with Edge or Chrome. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed). The backend starts the tunnel for you.
 
-1. Install the tunnel once: `winget install --id Cloudflare.cloudflared`
+1. Install the tunnel program once: `winget install --id Cloudflare.cloudflared`
 2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
 3. Start the backend as above (`uvicorn ... --port 8000`).
-4. In a third terminal run `cloudflared tunnel --url http://localhost:8000` and copy the `https://...trycloudflare.com` address it prints.
-5. Open that address on your laptop (not localhost). The app asks for the host key printed in the backend window; type it once and it is remembered in that browser. Then press "I agree, let's start", choose "On another device" and say hello.
-6. Send the invite link to the other person. They need no key. When they open it and say hello, the conversation starts on both devices: each of you talks into your own device, sees both sides of the chat and hears the other person in your language.
+4. Open <http://localhost:8000>, press "I agree, let's start", choose "On another device" and say hello. The backend opens the tunnel (a few seconds the first time) and the invite link it shows is the public `https://...trycloudflare.com` link.
+5. Send the invite link to the other person. They need no key. When they open it and say hello, the conversation starts on both devices: each of you talks into your own device, sees both sides of the chat and hears the other person in your language.
 
-The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation needs it, and invited guests are let in by their invite link. The address changes every time the tunnel starts, and the conversation stops when your laptop sleeps or the tunnel is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If either phone loses its connection for a moment, both screens show it and the call continues when it is back.
+If the app says there is no public link, it also says why: cloudflared is not installed, the frontend is not built, or the tunnel did not start (the backend window has the details). The backend looks for cloudflared on the PATH and where winget puts it; `CLOUDFLARED_PATH` in `backend/.env` names it directly, and `PUBLIC_URL` replaces the tunnel with an address of your own when the app is hosted somewhere. You can also open the app yourself through the public link (for example to be the host from your phone); then the app asks for the host key printed in the backend window, once per browser.
+
+The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation needs it, and invited guests are let in by their invite link. The tunnel address stays the same while the backend runs and changes when it starts again; the conversation stops when your laptop sleeps or the backend is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If either phone loses its connection for a moment, both screens show it and the call continues when it is back.
 
 ## Project structure
 

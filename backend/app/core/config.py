@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     gemini_model: str | None = None
     gemini_tts_model: str | None = None
     host_key_everywhere: bool = False
+    cloudflared_path: str | None = None
+    public_url: str | None = None
     speech_timeout_seconds: float = Field(default=30.0, gt=0)
 
 

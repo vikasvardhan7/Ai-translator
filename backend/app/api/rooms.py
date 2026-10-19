@@ -1,17 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, status
 
 from app.api.dependencies import (
     get_app_settings,
+    get_public_address,
     get_room_store,
     get_speech_synthesizer,
     get_speech_translator,
     require_host,
 )
 from app.api.stream import handle_room_stream, tell_others
+from app.core.access import is_local_page, own_origin
 from app.core.config import Settings
 from app.models.room import RoomCreate, RoomCreated, RoomJoin, RoomJoined, RoomOut
+from app.services.public_address import DID_NOT_START, PublicAddress
 from app.services.room_store import GUEST_ID, Room, RoomLimitReached, RoomStore
 from app.services.translation.base import SpeechTranslator
 from app.services.voice.base import SpeechSynthesizer
@@ -22,6 +25,7 @@ Rooms = Annotated[RoomStore, Depends(get_room_store)]
 AppSettings = Annotated[Settings, Depends(get_app_settings)]
 Translator = Annotated[SpeechTranslator | None, Depends(get_speech_translator)]
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
+Public = Annotated[PublicAddress, Depends(get_public_address)]
 
 
 def _find(rooms: RoomStore, room_id: str) -> Room:
@@ -44,7 +48,9 @@ def _out(room: Room) -> RoomOut:
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_host)],
 )
-async def create_room(body: RoomCreate, rooms: Rooms) -> RoomCreated:
+async def create_room(
+    body: RoomCreate, request: Request, rooms: Rooms, settings: AppSettings, public: Public
+) -> RoomCreated:
     try:
         room = rooms.create(body.host)
     except RoomLimitReached as exc:
@@ -52,13 +58,30 @@ async def create_room(body: RoomCreate, rooms: Rooms) -> RoomCreated:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Too many conversations are waiting to start. Try again in a few minutes.",
         ) from exc
+    public_url, problem = await _public_link(request, settings, public)
     return RoomCreated(
         room_id=room.id,
         host_token=room.host_token,
         guest_token=room.guest_token,
         host=room.host,
         guest=None,
+        public_url=public_url,
+        public_url_problem=problem,
     )
+
+
+async def _public_link(
+    request: Request, settings: Settings, public: PublicAddress
+) -> tuple[str | None, str | None]:
+    if settings.public_url:
+        return settings.public_url.rstrip("/"), None
+    if not is_local_page(request):
+        return own_origin(request), None
+    if public.problem is not None:
+        return None, public.problem
+    port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    address = await public.get(f"http://localhost:{port}")
+    return address, None if address else DID_NOT_START
 
 
 @router.get("/{room_id}", response_model=RoomOut)

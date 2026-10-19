@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from app.core.access import is_trusted_host
+from app.core.access import is_trusted_host, own_origin
 from app.core.config import Settings
 from app.core.languages import invalid_language_message, language_code
 from app.core.text import MAX_REMEMBERED, PlayedVoice, is_echo, is_overheard
@@ -215,18 +215,12 @@ def _default_server_voice(session: Session) -> set[str]:
     return {p.id for p in session.participants}
 
 
-def _own_origin(websocket: WebSocket) -> str:
-    forwarded = websocket.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-    secure = forwarded == "https" or websocket.url.scheme in ("https", "wss")
-    return f"{'https' if secure else 'http'}://{websocket.headers.get('host', '')}"
-
-
 def _origin_allowed(websocket: WebSocket, allowed_origin: str) -> bool:
     origin = websocket.headers.get("origin")
     return (
         origin is None
         or origin == allowed_origin
-        or (origin == _own_origin(websocket) and is_trusted_host(websocket))
+        or (origin == own_origin(websocket) and is_trusted_host(websocket))
     )
 
 
