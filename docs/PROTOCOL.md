@@ -20,9 +20,10 @@ host and no proxy headers) are the host automatically, unless `HOST_KEY_EVERYWHE
 computer without adding `X-Forwarded-For` (a bare nginx `proxy_pass`, an SSH tunnel), because
 such requests look local. Through a tunnel or any other address, the requests that spend the
 Gemini quota need the key in an `X-Host-Key` header (case, spaces and dashes do not matter):
-`POST /api/sessions`, `POST /api/rooms`, `POST /api/languages/detect` and `GET /api/voices`.
-Without it they answer `401` with a `detail` that says so. An invited guest sends `X-Room-Id` and
-`X-Room-Token` (the invite token, or the device token after joining) instead on the last two, so
+`POST /api/sessions`, `POST /api/rooms`, `POST /api/languages/detect`, `GET /api/voices` and
+`POST /api/assistant`. Without it they answer `401` with a `detail` that says so. An invited guest
+sends `X-Room-Id` and `X-Room-Token` (the invite token, or the device token after joining) instead
+on the last three, so
 joining needs no key. `GET /api/access` answers `{"host": true | false}` for the caller, so the
 app can ask for the key only when it is needed.
 
@@ -31,6 +32,7 @@ app can ask for the key only when it is needed.
 | `GET /health` | live | Backend is running: `{"status":"ok","version":"0.9.0"}` |
 | `GET /api/access` | live | Whether this caller is the host: `{"host": true}` from the backend's own computer or with the right `X-Host-Key`, otherwise `{"host": false}` |
 | `GET /api/voices` | live | The natural (Gemini) voices a person can choose, listed live from Google: `{"voices": [{id, display_name, description, gender, language_code, pitch, accent}]}`. Empty when no voice model is set up; `503` when Google cannot be reached or the free limit is used up |
+| `POST /api/assistant` | live | Answer a question about the conversation so far (host key or invite); see below |
 | `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
 | `POST /api/rooms` | live | Start a conversation across two devices; returns the room id and two tokens (host key) |
@@ -43,6 +45,32 @@ app can ask for the key only when it is needed.
 Every voice request to Gemini (speech, translation, voice) is tried once more after a short wait
 when Gemini is busy (`429` with a suggested wait of at most 2 s, or none), has a server problem
 or cannot be reached; a longer suggested wait, a bad request or a slow answer is not retried.
+
+### POST /api/assistant
+
+The assistant panel in a call answers questions about what has been said: a summary, action
+items, decisions, who said what. The browser sends the question, the reader's language and the
+transcript it already shows; the server keeps none of it.
+
+```json
+{
+  "question": "What did they say about the budget?",
+  "language": "te",
+  "transcript": [
+    { "speaker": "Meeting", "text": "We close the budget next week." },
+    { "speaker": "You", "text": "I will send the numbers on Monday." }
+  ]
+}
+```
+
+- `question`: 1 to 500 characters. `language`: an ISO 639 code (the answer is written in it).
+  `transcript`: at most 400 lines, oldest first; `speaker` 1 to 40 characters, `text` 1 to 2000.
+  Anything else, or an unknown field, gets `422`.
+- `200` gives `{"answer": "..."}`. The model answers only from the transcript and says so when it
+  does not contain the answer; instructions spoken in the meeting are never followed.
+- `503` with a `detail` when no `GEMINI_API_KEY` and `GEMINI_MODEL` are set, the free limit is
+  reached, or Gemini cannot be reached. It uses `GEMINI_MODEL`, tried once more like the other
+  Gemini requests.
 
 ### Language codes
 

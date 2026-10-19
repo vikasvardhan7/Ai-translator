@@ -9,10 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import access, languages, rooms, sessions, voices
+from app.api import access, assistant, languages, rooms, sessions, voices
 from app.core.access import new_host_key
 from app.core.config import BACKEND_DIR, Settings, get_settings
 from app.core.errors import install_error_handlers
+from app.services.assistant.factory import build_meeting_assistant
 from app.services.public_address import PublicAddress, find_cloudflared
 from app.services.room_store import RoomStore
 from app.services.session_store import SessionStore
@@ -69,7 +70,11 @@ def create_app(
         yield
         async with AsyncExitStack() as services:
             services.push_async_callback(app.state.public_address.aclose)
-            for service in (app.state.speech_translator, app.state.speech_synthesizer):
+            for service in (
+                app.state.speech_translator,
+                app.state.speech_synthesizer,
+                app.state.meeting_assistant,
+            ):
                 if service is not None:
                     services.push_async_callback(service.aclose)
 
@@ -80,6 +85,7 @@ def create_app(
     app.state.rooms = RoomStore()
     app.state.speech_translator = build_speech_translator(settings)
     app.state.speech_synthesizer = build_speech_synthesizer(settings)
+    app.state.meeting_assistant = build_meeting_assistant(settings)
     cloudflared = find_cloudflared(settings.cloudflared_path)
     app.state.public_address = PublicAddress(
         [cloudflared] if cloudflared else None,
@@ -103,6 +109,7 @@ def create_app(
     app.include_router(languages.router)
     app.include_router(rooms.router)
     app.include_router(voices.router)
+    app.include_router(assistant.router)
     if frontend_dist is not None and frontend_dist.is_dir():
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     return app

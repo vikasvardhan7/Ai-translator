@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Sequence
 
 import httpx
 from google import genai
@@ -32,6 +33,7 @@ BLOCKED_FINISH_REASONS = {
 }
 MAX_LANGUAGE_NAME_LENGTH = 60
 MAX_SHARED_TEXT_LENGTH = 20
+MAX_CONTEXT_LENGTH = 1500
 LANGUAGE_FIELD = (
     "language: the ISO 639 code of the language spoken, two letters when one exists,"
     " otherwise three, for example te, hi, en or yue."
@@ -102,6 +104,21 @@ def _instructions(target_languages: list[str]) -> str:
     )
 
 
+def _request(target_languages: list[str], context: Sequence[str]) -> str:
+    request = (
+        "Transcribe this utterance and translate it into the languages with"
+        f" ISO 639 codes {', '.join(target_languages)}."
+    )
+    earlier = "\n".join(f"- {sentence}" for sentence in context if sentence.strip())
+    if not earlier:
+        return request
+    return (
+        f"{request}\n\nEarlier sentences in this conversation, given only so you hear names"
+        " and topic words correctly. Never transcribe, translate or repeat them:\n"
+        f"{earlier[-MAX_CONTEXT_LENGTH:]}"
+    )
+
+
 def _unreadable() -> TranslationFailed:
     return TranslationFailed(
         ErrorCode.PROVIDER_UNAVAILABLE,
@@ -134,12 +151,13 @@ class GeminiSpeechTranslator:
         audio: bytes,
         mime_type: str,
         target_languages: list[str],
+        *,
+        context: Sequence[str] = (),
     ) -> SpeechTranslation:
         text = await self._generate(
             audio,
             mime_type,
-            "Transcribe this utterance and translate it into the languages with"
-            f" ISO 639 codes {', '.join(target_languages)}.",
+            _request(target_languages, context),
             _instructions(target_languages),
             _Answer,
         )

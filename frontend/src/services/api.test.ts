@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, createRoom, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
+import { ApiError, askAssistant, createRoom, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -213,5 +213,27 @@ describe('frontend API calls', () => {
       public_url: null,
       public_url_problem: 'No public link: cloudflared is not installed.',
     });
+  });
+  it('asks the assistant with the live transcript and the room headers', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"answer":"  Ravi wants the budget next week. "}', { status: 200 }));
+    const transcript = [{ speaker: 'Meeting', text: 'Budget next week.' }];
+
+    await expect(askAssistant('What about the budget?', 'te', transcript, { roomId: 'room-1', token: 'secret' }))
+      .resolves.toBe('Ravi wants the budget next week.');
+    const [url, init] = fetchMock.mock.calls[0];
+    const headers = new Headers(init?.headers);
+    expect(url).toBe('http://localhost:8000/api/assistant');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ question: 'What about the budget?', language: 'te', transcript });
+    expect(headers.get('X-Room-Id')).toBe('room-1');
+    expect(headers.get('X-Room-Token')).toBe('secret');
+  });
+
+  it('passes on why the assistant could not answer and refuses an empty answer', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"detail":"The free AI limit was reached."}', { status: 503 }));
+    fetchMock.mockResolvedValueOnce(new Response('{"answer":"  "}', { status: 200 }));
+
+    await expect(askAssistant('Summarise', 'en', [])).rejects.toThrow('The free AI limit was reached.');
+    await expect(askAssistant('Summarise', 'en', [])).rejects.toThrow('gave no answer');
   });
 });

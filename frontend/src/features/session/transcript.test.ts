@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Participant } from '../../services/protocol';
 import { applyServerMessage, speakerNames, type Turn } from './conversation';
-import { transcriptSubtitles, transcriptText } from './transcript';
+import { MAX_ASSISTANT_LINES, assistantTranscript, transcriptSubtitles, transcriptText } from './transcript';
 
 const people: Participant[] = [
   { id: 'A', name: 'Person 1', preferred_language: 'en' },
@@ -72,5 +72,23 @@ describe('transcript downloads', () => {
 
     expect(text).toContain('Meeting (Telugu): మీరు ఎలా ఉన్నారు?');
     expect(text).toContain('You heard (English): How are you?');
+  });
+});
+
+describe('transcript for the assistant', () => {
+  it('gives each finished sentence with who said it, on one line', () => {
+    let turns = sentence([], 'u1', 10_000);
+    turns = applyServerMessage(turns, { type: 'utterance.received', seq: 4, utterance_id: 'u2', speaker_id: 'A', duration_ms: 1_000 }, 11_000);
+
+    expect(assistantTranscript(turns, names)).toEqual([{ speaker: 'Person 2', text: 'మీరు ఎలా ఉన్నారు?' }]);
+  });
+
+  it('keeps only the latest sentences', () => {
+    let turns: Turn[] = [];
+    for (let index = 0; index < MAX_ASSISTANT_LINES + 5; index += 1) {
+      turns = sentence(turns, `u${index}`, index * 1_000);
+    }
+
+    expect(assistantTranscript(turns, names)).toHaveLength(Math.min(turns.length, MAX_ASSISTANT_LINES));
   });
 });

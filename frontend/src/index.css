@@ -1794,6 +1794,83 @@ html[data-page-visible='hidden'] .hero-arc {
   font-size: 1.3rem;
 }
 
+.assistant-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assistant-messages {
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.assistant-exchange {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assistant-question,
+.assistant-answer {
+  margin: 0;
+  padding: 10px 14px;
+  max-width: 92%;
+  border-radius: 16px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.assistant-question {
+  align-self: flex-end;
+  color: var(--button-text);
+  background: var(--sky-strong);
+  border-bottom-right-radius: 4px;
+}
+
+.assistant-answer {
+  align-self: flex-start;
+  color: var(--text);
+  background: var(--surface);
+  border-bottom-left-radius: 4px;
+}
+
+.assistant-thinking {
+  color: var(--muted);
+}
+
+.assistant-failed {
+  color: var(--danger);
+}
+
+.assistant-form {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.assistant-form .text-input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 999px;
+  padding-inline: 16px;
+}
+
 .settings-person {
   padding: 16px;
   display: flex;

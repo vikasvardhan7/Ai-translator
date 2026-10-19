@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from app.services.translation.base import DetectedLanguage, SpeechTranslation, Translation
@@ -10,6 +11,7 @@ class TranslatorCall:
     audio: bytes
     mime_type: str
     target_languages: list[str]
+    context: tuple[str, ...] = ()
 
 
 @dataclass
@@ -25,9 +27,14 @@ class FakeTranslator:
     closed: bool = False
 
     async def translate_speech(
-        self, audio: bytes, mime_type: str, target_languages: list[str]
+        self,
+        audio: bytes,
+        mime_type: str,
+        target_languages: list[str],
+        *,
+        context: Sequence[str] = (),
     ) -> SpeechTranslation:
-        self.calls.append(TranslatorCall(audio, mime_type, target_languages))
+        self.calls.append(TranslatorCall(audio, mime_type, target_languages, tuple(context)))
         if self.delays:
             await asyncio.sleep(self.delays.pop(0))
         if self.failure:

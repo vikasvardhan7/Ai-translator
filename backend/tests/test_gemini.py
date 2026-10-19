@@ -496,3 +496,24 @@ async def test_detection_failures_become_clear_errors(
     assert failure.retryable is retryable
     assert message_part in failure.message
     assert API_KEY not in caplog.text
+
+
+async def test_earlier_sentences_are_sent_only_to_help_hearing() -> None:
+    recorder = Recorder(answer())
+
+    await translator(recorder).translate_speech(
+        b"RIFFdata", "audio/wav", ["en", "te"], context=["Ravi joined.", " ", "Budget is due."]
+    )
+
+    request = json.loads(recorder.requests[0].content)["contents"][0]["parts"][1]["text"]
+    assert "- Ravi joined.\n- Budget is due." in request
+    assert "Never transcribe, translate or repeat them" in request
+
+
+async def test_without_earlier_sentences_the_request_is_unchanged() -> None:
+    recorder = Recorder(answer())
+
+    await translator(recorder).translate_speech(b"RIFFdata", "audio/wav", ["en", "te"])
+
+    request = json.loads(recorder.requests[0].content)["contents"][0]["parts"][1]["text"]
+    assert "Earlier sentences" not in request

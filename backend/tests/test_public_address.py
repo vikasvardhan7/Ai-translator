@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -43,7 +44,20 @@ async def test_the_tunnel_is_started_once_and_its_address_reused() -> None:
     await public.aclose()
 
     assert (first, second) == (FAKE_ADDRESS, FAKE_ADDRESS)
-    assert process is not None and process.returncode is not None
+    assert process is not None and process.poll() is not None
+
+
+async def test_the_tunnel_starts_on_a_loop_without_subprocess_support(monkeypatch) -> None:
+    def refuse(*args, **kwargs):
+        raise NotImplementedError
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
+    public = PublicAddress(fake_tunnel(ANNOUNCING), app_served=True)
+
+    address = await public.get("http://localhost:8000")
+    await public.aclose()
+
+    assert address == FAKE_ADDRESS
 
 
 async def test_a_tunnel_that_stops_is_started_again() -> None:
@@ -186,4 +200,4 @@ def test_the_tunnel_is_closed_with_the_backend() -> None:
         client.post("/api/rooms", json=HOST)
         process = public._process
 
-    assert process is not None and process.returncode is not None
+    assert process is not None and process.poll() is not None

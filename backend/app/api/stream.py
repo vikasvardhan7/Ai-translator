@@ -15,7 +15,7 @@ from starlette.websockets import WebSocketState
 from app.core.access import is_trusted_host, own_origin
 from app.core.config import Settings
 from app.core.languages import invalid_language_message, language_code
-from app.core.text import MAX_REMEMBERED, PlayedVoice, is_echo, is_overheard
+from app.core.text import CONTEXT_SENTENCES, MAX_REMEMBERED, PlayedVoice, is_echo, is_overheard
 from app.models.protocol import ErrorCode
 from app.services.audio_ingestion.segment import AudioSegment
 from app.services.audio_ingestion.speech_detector import FrameRejected, SpeechDetector
@@ -277,6 +277,9 @@ class StreamHandler:
         self._translations: dict[tuple[str, str], str] = seat.room.translations if seat else {}
         self._heard_in_meeting: deque[_Heard] = deque(maxlen=MAX_REMEMBERED)
         self._said_here: deque[_Heard] = deque(maxlen=MAX_REMEMBERED)
+        self._recent_sentences: deque[str] = (
+            seat.room.recent_sentences if seat else deque(maxlen=CONTEXT_SENTENCES)
+        )
         self.ended = False
 
     async def run(self) -> None:
@@ -595,7 +598,7 @@ class StreamHandler:
         started = _now()
         try:
             result = await self._translator.translate_speech(
-                encode_wav(segment.pcm), "audio/wav", targets
+                encode_wav(segment.pcm), "audio/wav", targets, context=list(self._recent_sentences)
             )
         except NothingRecognised:
             await self._sender.send("utterance.ignored", utterance_id=segment.utterance_id)
@@ -625,6 +628,7 @@ class StreamHandler:
             await self._sender.send("utterance.ignored", utterance_id=segment.utterance_id)
             return
 
+        self._recent_sentences.append(result.text)
         speaker_id = segment.speaker_id
         if speaker_id is None:
             understood = [

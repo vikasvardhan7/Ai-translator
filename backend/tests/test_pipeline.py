@@ -303,3 +303,23 @@ def test_each_sentence_logs_how_long_each_step_took_without_its_words(caplog) ->
     assert float(sentence.group(2)) >= float(sentence.group(1))
     assert re.search(r"Voice \w{8}: made in [\d.]+ s, ready [\d.]+ s after", caplog.text)
     assert "How are you" not in caplog.text
+
+
+def test_the_last_sentences_help_the_next_one_be_heard() -> None:
+    translator = FakeTranslator(transcripts=["one", "two", "three", "four", "five", "six"])
+
+    with open_stream(make_client(translator=translator)) as ws:
+        receive(ws)
+        for _ in range(6):
+            speak(ws)
+            for _ in range(3):
+                receive(ws)
+
+    assert [call.context for call in translator.calls] == [
+        (),
+        ("one",),
+        ("one", "two"),
+        ("one", "two", "three"),
+        ("one", "two", "three", "four"),
+        ("two", "three", "four", "five"),
+    ]

@@ -54,3 +54,16 @@ export function transcriptSubtitles(turns: readonly Turn[], viewer: SpeakerId, n
     ].join('\n');
   }).join('\n');
 }
+
+export const MAX_ASSISTANT_LINES = 400;
+export const MAX_ASSISTANT_LINE_LENGTH = 2000;
+
+export function assistantTranscript(turns: readonly Turn[], names: Names): Array<{ speaker: string; text: string }> {
+  return spoken(turns)
+    .map((turn) => ({
+      speaker: speakerName(names, turn.speakerId),
+      text: oneLine(turn.original!.text).slice(0, MAX_ASSISTANT_LINE_LENGTH),
+    }))
+    .filter((line) => line.text)
+    .slice(-MAX_ASSISTANT_LINES);
+}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import CallTiles, { type Tile } from '../call/CallTiles';
 import CaptionStrip from '../call/CaptionStrip';
+import AssistantPanel from '../call/AssistantPanel';
 import ControlBar from '../call/ControlBar';
 import SettingsPanel, { type ListenerSettings } from '../call/SettingsPanel';
 import TranscriptPanel from '../call/TranscriptPanel';
@@ -121,6 +122,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   const [serverVoice, setServerVoice] = useState(false);
   const [settings, setSettings] = useState<Record<SpeakerId, ListenerSettings>>(settingsRef.current);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(() => window.matchMedia?.(WIDE_SCREEN).matches ?? false);
   const [liveSince, setLiveSince] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -656,6 +658,15 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         onClose={() => setSettingsOpen(false)}
       />
 
+      <AssistantPanel
+        open={assistantOpen}
+        turns={turns}
+        names={names}
+        language={listeners[0]?.preferred_language ?? participants[0].preferred_language}
+        room={conversation.room ?? undefined}
+        onClose={() => setAssistantOpen(false)}
+      />
+
       <ControlBar
         meeting={meeting ? { connected: meetingSound === 'on', busy: meetingSound === 'connecting' } : null}
         muted={muted}
@@ -664,12 +675,20 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         voiceOn={voiceOn}
         settingsOpen={settingsOpen}
         transcriptOpen={transcriptOpen}
+        assistantOpen={assistantOpen}
         ended={ended}
         onMute={toggleMute}
         onMeeting={() => void toggleMeetingSound()}
         onVoice={toggleVoice}
-        onSettings={() => setSettingsOpen((open) => !open)}
+        onSettings={() => {
+          setAssistantOpen(false);
+          setSettingsOpen((open) => !open);
+        }}
         onTranscript={() => setTranscriptOpen((open) => !open)}
+        onAssistant={() => {
+          setSettingsOpen(false);
+          setAssistantOpen((open) => !open);
+        }}
         onEnd={endSession}
       />
     </main>

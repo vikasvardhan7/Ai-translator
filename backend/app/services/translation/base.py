@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -42,7 +43,12 @@ class TranslationFailed(Exception):
 
 class SpeechTranslator(Protocol):
     async def translate_speech(
-        self, audio: bytes, mime_type: str, target_languages: list[str]
+        self,
+        audio: bytes,
+        mime_type: str,
+        target_languages: list[str],
+        *,
+        context: Sequence[str] = (),
     ) -> SpeechTranslation: ...
 
     async def detect_language(self, audio: bytes, mime_type: str) -> DetectedLanguage: ...

@@ -257,3 +257,25 @@ export async function getVoices(room?: RoomAccess): Promise<VoiceOption[]> {
   }
   return body.voices.map(readVoice).filter((voice): voice is VoiceOption => voice !== null);
 }
+
+export interface SaidLine {
+  speaker: string;
+  text: string;
+}
+
+export async function askAssistant(
+  question: string,
+  language: string,
+  transcript: SaidLine[],
+  room?: RoomAccess,
+): Promise<string> {
+  const body = await requestJson<unknown>('/api/assistant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...roomHeaders(room) },
+    body: JSON.stringify({ question, language, transcript }),
+  });
+  if (!isRecord(body) || typeof body.answer !== 'string' || !body.answer.trim()) {
+    throw new Error('The assistant gave no answer. Please ask again.');
+  }
+  return body.answer.trim();
+}

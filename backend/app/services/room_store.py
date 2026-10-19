@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from app.core.text import MAX_REMEMBERED, PlayedVoice
+from app.core.text import CONTEXT_SENTENCES, MAX_REMEMBERED, PlayedVoice
 from app.models.session import Participant, ParticipantId, Person
 from app.services.session_store import Device, Session
 
@@ -41,6 +41,7 @@ class Room:
     voice_for: dict[str, str] = field(default_factory=dict)
     recent_voices: deque[PlayedVoice] = field(default_factory=lambda: deque(maxlen=MAX_REMEMBERED))
     translations: dict[tuple[str, str], str] = field(default_factory=dict)
+    recent_sentences: deque[str] = field(default_factory=lambda: deque(maxlen=CONTEXT_SENTENCES))
 
     def participant_for(self, token: str) -> ParticipantId | None:
         if _same_token(token, self.host_token):
