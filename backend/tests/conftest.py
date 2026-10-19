@@ -38,7 +38,13 @@ def make_client(
 
 @pytest.fixture(autouse=True)
 def no_real_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_TTS_MODEL", "SPEECH_TIMEOUT_SECONDS"):
+    for name in (
+        "GEMINI_API_KEY",
+        "GEMINI_MODEL",
+        "GEMINI_TTS_MODEL",
+        "GEMINI_ASSISTANT_MODEL",
+        "SPEECH_TIMEOUT_SECONDS",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 

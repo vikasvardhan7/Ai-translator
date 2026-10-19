@@ -13,14 +13,13 @@ interface ControlBarProps {
   voiceOn: boolean;
   settingsOpen: boolean;
   transcriptOpen: boolean;
-  assistantOpen: boolean;
   ended: boolean;
   onMute: () => void;
   onMeeting: () => void;
   onVoice: () => void;
   onSettings: () => void;
   onTranscript: () => void;
-  onAssistant: () => void;
+  onAsk: () => void;
   onEnd: () => void;
 }
 
@@ -32,14 +31,13 @@ export default function ControlBar({
   voiceOn,
   settingsOpen,
   transcriptOpen,
-  assistantOpen,
   ended,
   onMute,
   onMeeting,
   onVoice,
   onSettings,
   onTranscript,
-  onAssistant,
+  onAsk,
   onEnd,
 }: ControlBarProps) {
   const glow = muted || !micReady ? 0 : Math.min(1, level * 1.6);
@@ -84,7 +82,7 @@ export default function ControlBar({
         <Icon name="transcript" />
         <span>Transcript</span>
       </button>
-      <button className="control" type="button" aria-expanded={assistantOpen} aria-controls="call-assistant" onClick={onAssistant}>
+      <button className="control" type="button" onClick={onAsk}>
         <Icon name="assistant" />
         <span>Ask</span>
       </button>

@@ -4,7 +4,7 @@ import { languageName } from '../../services/languageNames';
 import type { Participant, SpeakerId } from '../../services/protocol';
 import ChatTimeline from '../session/ChatTimeline';
 import { MAX_TURNS, type Names, type Turn } from '../session/conversation';
-import { transcriptSubtitles, transcriptText } from '../session/transcript';
+import { downloadSubtitles, downloadText } from '../session/download';
 import { usePanelFocus } from './usePanelFocus';
 
 interface TranscriptPanelProps {
@@ -14,25 +14,6 @@ interface TranscriptPanelProps {
   names: Names;
   you: SpeakerId | null;
   onClose: () => void;
-}
-
-function stamp(): string {
-  const now = new Date();
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-}
-
-const KEEP_DOWNLOAD_MS = 10_000;
-
-function save(name: string, text: string, type: string): void {
-  const url = URL.createObjectURL(new Blob(['\uFEFF', text], { type }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), KEEP_DOWNLOAD_MS);
 }
 
 export default function TranscriptPanel({ open, turns, participants, names, you, onClose }: TranscriptPanelProps) {
@@ -54,7 +35,7 @@ export default function TranscriptPanel({ open, turns, participants, names, you,
           className="button button-small button-secondary"
           type="button"
           disabled={empty}
-          onClick={() => save(`conversation-${stamp()}.txt`, transcriptText(turns, participants, names), 'text/plain;charset=utf-8')}
+          onClick={() => downloadText(turns, participants, names)}
         >
           Download text
         </button>
@@ -64,11 +45,7 @@ export default function TranscriptPanel({ open, turns, participants, names, you,
             type="button"
             disabled={empty}
             key={reader.id}
-            onClick={() => save(
-              `conversation-${stamp()}-${reader.preferred_language}.srt`,
-              transcriptSubtitles(turns, reader.id, names),
-              'application/x-subrip;charset=utf-8',
-            )}
+            onClick={() => downloadSubtitles(turns, reader, names)}
           >
             Subtitles ({languageName(reader.preferred_language)})
           </button>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, createSession, getHealth, isHost } from '../../services/api';
 import { sessionConversation, type Conversation, type Invite } from '../../services/conversations';
+import type { Where } from '../assistant/agent';
 import type { Participant } from '../../services/protocol';
 import SetupAssistant from '../setup/SetupAssistant';
 import HostKeyPrompt from './HostKeyPrompt';
@@ -11,6 +12,7 @@ import { canStartSession } from './validation';
 
 interface ConsentScreenProps {
   invite: Invite | null;
+  start: Where | null;
   onConversation: (conversation: Conversation) => void;
   onLeaveInvite: () => void;
 }
@@ -40,7 +42,7 @@ function messageFor(error: unknown): string {
   return 'The request could not be completed.';
 }
 
-export default function ConsentScreen({ invite, onConversation, onLeaveInvite }: ConsentScreenProps) {
+export default function ConsentScreen({ invite, start, onConversation, onLeaveInvite }: ConsentScreenProps) {
   const consentHeadingRef = useRef<HTMLHeadingElement>(null);
   const [participants, setParticipants] = useState<[Participant, Participant]>(initialParticipants);
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
@@ -161,6 +163,7 @@ export default function ConsentScreen({ invite, onConversation, onLeaveInvite }:
           <SetupAssistant
             key={invite ? `${invite.roomId}/${invite.token}` : 'own'}
             invite={invite}
+            start={start}
             onConversation={onConversation}
             onChooseManually={chooseManually}
             onLeaveInvite={onLeaveInvite}

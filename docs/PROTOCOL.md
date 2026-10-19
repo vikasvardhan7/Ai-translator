@@ -48,29 +48,46 @@ or cannot be reached; a longer suggested wait, a bad request or a slow answer is
 
 ### POST /api/assistant
 
-The assistant panel in a call answers questions about what has been said: a summary, action
-items, decisions, who said what. The browser sends the question, the reader's language and the
-transcript it already shows; the server keeps none of it.
+The Assistant app answers anything, searches the web when it needs to, knows what has been said
+in the running call and carries out app commands. The browser sends the chat so far, the reader's
+language, the transcript it shows and the commands possible right now; the server keeps none of it.
 
 ```json
 {
-  "question": "What did they say about the budget?",
+  "messages": [
+    { "role": "user", "text": "Mute me and summarise the meeting" }
+  ],
   "language": "te",
   "transcript": [
     { "speaker": "Meeting", "text": "We close the budget next week." },
     { "speaker": "You", "text": "I will send the numbers on Monday." }
-  ]
+  ],
+  "actions": ["open_app", "close_app", "mute", "show_transcript", "end_conversation"]
 }
 ```
 
-- `question`: 1 to 500 characters. `language`: an ISO 639 code (the answer is written in it).
-  `transcript`: at most 400 lines, oldest first; `speaker` 1 to 40 characters, `text` 1 to 2000.
-  Anything else, or an unknown field, gets `422`.
-- `200` gives `{"answer": "..."}`. The model answers only from the transcript and says so when it
-  does not contain the answer; instructions spoken in the meeting are never followed.
-- `503` with a `detail` when no `GEMINI_API_KEY` and `GEMINI_MODEL` are set, the free limit is
-  reached, or Gemini cannot be reached. It uses `GEMINI_MODEL`, tried once more like the other
-  Gemini requests.
+- `messages`: 1 to 30, oldest first, `role` `user` or `assistant`, `text` 1 to 4000 characters;
+  the last one is the person's. `language`: an ISO 639 code, used when the person's own language
+  is unclear. `transcript`: at most 400 lines (`speaker` 1 to 40 characters, `text` 1 to 2000),
+  the latest 60 000 characters are used. `actions`: the command names the app can carry out now
+  (unknown names are ignored). Anything else, or an unknown field, gets `422`.
+- `200` gives `{"answer": "...", "actions": [{"name": "mute", "arguments": {}}], "sources":
+  [{"title": "...", "url": "https://..."}]}`. `answer` may be empty when only actions were taken.
+  Every action is checked on the server: only names that were offered, with allowed arguments.
+- Commands: `open_app` and `close_app` (`app`: `translator`, `assistant`, `help`, `privacy`,
+  `terms`), `start_conversation` (`where`: `here`, `remote`, `meeting`; the person still presses
+  the start button and says hello), `mute`, `unmute`, `voice_on`, `captions_only`,
+  `connect_meeting_sound` (the person then presses Connect meeting, because the browser asks for
+  the tab only after a click), `disconnect_meeting_sound`, `show_transcript`, `hide_transcript`,
+  `open_settings`, `download_transcript` (`format`: `text` or `subtitles`), `set_my_language`
+  (`language`: an ISO 639 code) and `end_conversation`.
+- One Gemini request decides between answering, taking actions and searching. A question that
+  needs the web gets a second request with Google Search grounding, and its web sources come back
+  in `sources` (https links only, at most 6). Instructions spoken in the meeting are never
+  followed.
+- `503` with a `detail` when no `GEMINI_API_KEY` and model are set, the free limit is reached, or
+  Gemini cannot be reached. The model is `GEMINI_ASSISTANT_MODEL`, or `GEMINI_MODEL` when that is
+  empty; each request is tried once more like the other Gemini requests.
 
 ### Language codes
 

@@ -85,7 +85,11 @@ npm run typecheck
 npm run dev
 ```
 
-With the backend running, open <http://localhost:5173> in Edge or Chrome and press "I agree, let's start". The assistant asks whether you are talking to someone next to you, someone on another device, or people in an online meeting; then you say hello and it finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed) and show the transcript, which you can download as text or subtitles. Use headphones or keep the volume low so the app does not hear its own voice.
+With the backend running, open <http://localhost:5173> in Edge or Chrome. The app looks like a desktop: icons on the left (Translator, Meeting captions, Call another device, Talk next to me, Assistant, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
+
+### The assistant
+
+Type into the taskbar's ask box, or open **Assistant**. It works like a chat: ask anything and it searches the web when the answer needs current information (sources are shown under the answer). During a call it also knows what has been said ("Summarise so far", "What are the action items?"). It can do things for you: "start meeting captions", "mute me", "show the transcript", "download the subtitles", "change my language to Hindi", "open help", "end the call". Nothing is saved; the chat is gone when the page closes. It uses `GEMINI_MODEL`, or `GEMINI_ASSISTANT_MODEL` in `backend/.env` when set. Web search uses Google Search through Gemini, which has its own daily free limit.
 
 If the connection drops, the screen says "Reconnecting" and comes back by itself with the transcript kept, for up to five minutes.
 
@@ -93,7 +97,7 @@ If the connection drops, the screen says "Reconnecting" and comes back by itself
 
 Join your meeting as usual (Google Meet, Teams or Zoom, in a tab or in the app). In the translator choose "In an online meeting", say hello in the language you want the captions in, then press **Connect meeting** and pick the meeting's browser tab with **Share tab audio** turned on (for the Teams or Zoom app, pick **Entire screen** with **Share system audio**). From then on every sentence said in the meeting appears as a caption in your language, and your own words appear as you said them; the transcript panel keeps both and can be downloaded. Nothing is sent into the meeting, so tell the others that captions are on. Wear headphones so your microphone does not hear the meeting too (the app drops such doubles, but headphones are cleaner).
 
-Press **Ask** during the call to open the assistant. It answers questions about what has been said so far ("Summarise so far", "What are the action items?", "What did they say about the budget?") in your language, from the transcript on your screen; nothing is saved. A meeting has no invite link: the captions are only for you. To talk with someone on another device, choose the two-device option instead (below).
+Press **Ask** during the call (or use the taskbar's ask box) to ask about what has been said so far ("Summarise so far", "What are the action items?", "What did they say about the budget?"). A meeting has no invite link: the captions are only for you. To talk with someone on another device, choose the two-device option instead (below).
 
 Each sentence is sent to Gemini with the last few sentences as context, so names and topic words are heard more reliably. If words are still wrong in your language, compare models with the benchmark above and set the best one as `GEMINI_MODEL`.
 
@@ -106,7 +110,7 @@ The other person can be on any phone or computer with Edge or Chrome. Your lapto
 1. Install the tunnel program once: `winget install --id Cloudflare.cloudflared`
 2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
 3. Start the backend as above (`uvicorn ... --port 8000`).
-4. Open <http://localhost:8000>, press "I agree, let's start", choose "On another device" and say hello. The backend opens the tunnel (a few seconds the first time) and the invite link it shows is the public `https://...trycloudflare.com` link.
+4. Open <http://localhost:8000>, double-click **Call another device**, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and the invite link it shows is the public `https://...trycloudflare.com` link.
 5. Send the invite link to the other person. They need no key. When they open it and say hello, the conversation starts on both devices: each of you talks into your own device, sees both sides of the chat and hears the other person in your language.
 
 If the app says there is no public link, it also says why: cloudflared is not installed, the frontend is not built, or the tunnel did not start (the backend window has the details). The backend looks for cloudflared on the PATH and where winget puts it; `CLOUDFLARED_PATH` in `backend/.env` names it directly, and `PUBLIC_URL` replaces the tunnel with an address of your own when the app is hosted somewhere. You can also open the app yourself through the public link (for example to be the host from your phone); then the app asks for the host key printed in the backend window, once per browser.
@@ -120,16 +124,16 @@ Ai-translator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          FastAPI app, CORS, /health, host key, log redaction
-│   │   ├── api/             access, sessions, rooms, languages, voices, WebSocket streams
+│   │   ├── api/             access, sessions, rooms, languages, voices, assistant, WebSocket streams
 │   │   ├── core/            settings, access (host key), language codes, text matching, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session and room stores, speech detection, Gemini speech, translation and voice, retry
+│   │   └── services/        session and room stores, speech detection, Gemini speech, translation, voice and assistant, retry
 │   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app
+│   ├── src/                 React app: desktop (windows, taskbar), assistant, setup, call screens
 │   ├── package.json
 │   └── vite.config.ts
 ├── docs/                    protocol, decisions, developer handbook

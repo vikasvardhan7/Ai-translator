@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import CallTiles, { type Tile } from '../call/CallTiles';
 import CaptionStrip from '../call/CaptionStrip';
-import AssistantPanel from '../call/AssistantPanel';
 import ControlBar from '../call/ControlBar';
 import SettingsPanel, { type ListenerSettings } from '../call/SettingsPanel';
 import TranscriptPanel from '../call/TranscriptPanel';
+import { CallBridgeContext, type CallAction } from '../desktop/bridge';
 import { leaveRoom } from '../../services/api';
 import { languageLabel, languageName } from '../../services/languageNames';
 import {
@@ -18,7 +18,9 @@ import type { Conversation } from '../../services/conversations';
 import type { Participant, ServerMessage, SpeakerId } from '../../services/protocol';
 import { SessionSocket } from '../../services/sessionSocket';
 import { abandonPending, applyServerMessage, MAX_TURNS, speakerName, speakerNames, type Turn } from './conversation';
+import { downloadSubtitles, downloadText } from './download';
 import { tagFrame } from './pcm';
+import { assistantTranscript } from './transcript';
 import { createBrowserVoicePlayer, unlockBrowserAudio } from './voicePlayer';
 import { VoiceQueue } from './voiceQueue';
 
@@ -27,6 +29,7 @@ interface SessionScreenProps {
   initialTurns: Turn[];
   onReturnToStart: () => void;
   onRestart: ((participants: Participant[], turns: Turn[]) => Promise<void>) | null;
+  onAsk: () => void;
 }
 
 type SessionPhase = 'connecting' | 'live' | 'reconnecting' | 'ending' | 'closed';
@@ -83,9 +86,11 @@ function badge(language: string): string {
 
 const DEFAULT_SETTINGS: ListenerSettings = { mode: 'fast', naturalVoice: null, browserVoice: null, rate: 1 };
 
-export default function SessionScreen({ conversation, initialTurns, onReturnToStart, onRestart }: SessionScreenProps) {
+export default function SessionScreen({ conversation, initialTurns, onReturnToStart, onRestart, onAsk }: SessionScreenProps) {
   const { you } = conversation;
   const meeting = conversation.mode === 'call';
+  const bridge = useContext(CallBridgeContext);
+  const bridgeOwnerRef = useRef({});
   const socketRef = useRef<SessionSocket | null>(null);
   const captureRef = useRef<AudioCapture | null>(null);
   const meetingRef = useRef<AudioCapture | null>(null);
@@ -122,7 +127,6 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   const [serverVoice, setServerVoice] = useState(false);
   const [settings, setSettings] = useState<Record<SpeakerId, ListenerSettings>>(settingsRef.current);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(() => window.matchMedia?.(WIDE_SCREEN).matches ?? false);
   const [liveSince, setLiveSince] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -509,6 +513,92 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
     changeSettings(id, { ...settingsRef.current[id], browserVoice: null });
   }
 
+  function runCommand(name: CallAction, args: Record<string, string>): void {
+    const reader = listeners[0] ?? participants[0];
+    switch (name) {
+      case 'mute':
+      case 'unmute':
+        if (mutedRef.current !== (name === 'mute')) {
+          toggleMute();
+        }
+        break;
+      case 'voice_on':
+      case 'captions_only':
+        if (voiceOnRef.current !== (name === 'voice_on')) {
+          toggleVoice();
+        }
+        break;
+      case 'disconnect_meeting_sound':
+        if (meetingRef.current) {
+          void toggleMeetingSound();
+        }
+        break;
+      case 'show_transcript':
+      case 'hide_transcript':
+        setTranscriptOpen(name === 'show_transcript');
+        break;
+      case 'open_settings':
+        setSettingsOpen(true);
+        break;
+      case 'download_transcript':
+        if (args.format === 'subtitles' && reader) {
+          downloadSubtitles(turns, reader, names);
+        } else {
+          downloadText(turns, participants, names);
+        }
+        break;
+      case 'set_my_language':
+        if (listeners.length === 1 && args.language) {
+          changeLanguage(listeners[0].id, args.language);
+        }
+        break;
+      case 'end_conversation':
+        endSession();
+        break;
+      case 'connect_meeting_sound':
+        break;
+    }
+  }
+
+  function commands(): CallAction[] {
+    const ready: CallAction[] = [];
+    if (phase === 'live' || phase === 'reconnecting' || phase === 'connecting') {
+      if (listening) {
+        ready.push(muted ? 'unmute' : 'mute');
+      }
+      if (meeting) {
+        ready.push(meetingSound === 'on' ? 'disconnect_meeting_sound' : 'connect_meeting_sound');
+      } else {
+        ready.push(voiceOn ? 'captions_only' : 'voice_on');
+      }
+      ready.push('open_settings');
+      if (listeners.length === 1) {
+        ready.push('set_my_language');
+      }
+    }
+    ready.push(transcriptOpen ? 'hide_transcript' : 'show_transcript');
+    if (turns.some((turn) => turn.original)) {
+      ready.push('download_transcript');
+    }
+    ready.push('end_conversation');
+    return ready;
+  }
+
+  useEffect(() => {
+    bridge?.set(bridgeOwnerRef.current, {
+      actions: commands(),
+      run: runCommand,
+      transcript: () => assistantTranscript(turns, names),
+      language: (listeners[0] ?? participants[0])?.preferred_language ?? 'en',
+      room: conversation.room ?? undefined,
+    });
+  });
+
+  useEffect(() => {
+    const owner = bridgeOwnerRef.current;
+    return () => bridge?.clear(owner);
+  }, [bridge]);
+
   const shownTurns = turns.length > MAX_TURNS ? turns.slice(-MAX_TURNS) : turns;
   const latest = [...shownTurns].reverse().find((turn) => turn.original);
   const announcement = latest?.original ? `${speakerName(names, latest.speakerId)}: ${latest.original.text}` : '';
@@ -658,15 +748,6 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         onClose={() => setSettingsOpen(false)}
       />
 
-      <AssistantPanel
-        open={assistantOpen}
-        turns={turns}
-        names={names}
-        language={listeners[0]?.preferred_language ?? participants[0].preferred_language}
-        room={conversation.room ?? undefined}
-        onClose={() => setAssistantOpen(false)}
-      />
-
       <ControlBar
         meeting={meeting ? { connected: meetingSound === 'on', busy: meetingSound === 'connecting' } : null}
         muted={muted}
@@ -675,20 +756,13 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         voiceOn={voiceOn}
         settingsOpen={settingsOpen}
         transcriptOpen={transcriptOpen}
-        assistantOpen={assistantOpen}
         ended={ended}
         onMute={toggleMute}
         onMeeting={() => void toggleMeetingSound()}
         onVoice={toggleVoice}
-        onSettings={() => {
-          setAssistantOpen(false);
-          setSettingsOpen((open) => !open);
-        }}
+        onSettings={() => setSettingsOpen((open) => !open)}
         onTranscript={() => setTranscriptOpen((open) => !open)}
-        onAssistant={() => {
-          setSettingsOpen(false);
-          setAssistantOpen((open) => !open);
-        }}
+        onAsk={onAsk}
         onEnd={endSession}
       />
     </main>

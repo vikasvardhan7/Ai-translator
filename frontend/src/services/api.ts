@@ -263,19 +263,61 @@ export interface SaidLine {
   text: string;
 }
 
-export async function askAssistant(
-  question: string,
-  language: string,
-  transcript: SaidLine[],
-  room?: RoomAccess,
-): Promise<string> {
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface AgentAction {
+  name: string;
+  arguments: Record<string, string>;
+}
+
+export interface Source {
+  title: string;
+  url: string;
+}
+
+export interface AssistantReply {
+  answer: string;
+  actions: AgentAction[];
+  sources: Source[];
+}
+
+export interface AssistantRequest {
+  messages: ChatTurn[];
+  language: string;
+  transcript: SaidLine[];
+  actions: string[];
+}
+
+function readAction(value: unknown): AgentAction | null {
+  if (!isRecord(value) || typeof value.name !== 'string' || !isRecord(value.arguments)) {
+    return null;
+  }
+  const entries = Object.entries(value.arguments).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  return { name: value.name, arguments: Object.fromEntries(entries) };
+}
+
+function readSource(value: unknown): Source | null {
+  if (!isRecord(value) || typeof value.title !== 'string' || typeof value.url !== 'string' || !value.url.startsWith('https://')) {
+    return null;
+  }
+  return { title: value.title, url: value.url };
+}
+
+export async function askAssistant(request: AssistantRequest, room?: RoomAccess): Promise<AssistantReply> {
   const body = await requestJson<unknown>('/api/assistant', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...roomHeaders(room) },
-    body: JSON.stringify({ question, language, transcript }),
+    body: JSON.stringify(request),
   });
-  if (!isRecord(body) || typeof body.answer !== 'string' || !body.answer.trim()) {
+  if (!isRecord(body) || typeof body.answer !== 'string' || !Array.isArray(body.actions) || !Array.isArray(body.sources)) {
     throw new Error('The assistant gave no answer. Please ask again.');
   }
-  return body.answer.trim();
+  return {
+    answer: body.answer.trim(),
+    actions: body.actions.map(readAction).filter((action): action is AgentAction => action !== null),
+    sources: body.sources.map(readSource).filter((source): source is Source => source !== null),
+  };
 }

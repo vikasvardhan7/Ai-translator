@@ -5,10 +5,9 @@ from app.services.assistant.gemini import GeminiMeetingAssistant
 
 def build_meeting_assistant(settings: Settings) -> MeetingAssistant | None:
     key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
-    if not key or not settings.gemini_model:
+    model = settings.gemini_assistant_model or settings.gemini_model
+    if not key or not model:
         return None
     return GeminiMeetingAssistant(
-        api_key=key,
-        model=settings.gemini_model,
-        timeout_seconds=settings.speech_timeout_seconds,
+        api_key=key, model=model, timeout_seconds=settings.speech_timeout_seconds
     )

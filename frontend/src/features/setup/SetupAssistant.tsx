@@ -22,10 +22,12 @@ import {
 import { languageLabel, languageName } from '../../services/languageNames';
 import { openMicrophoneCapture, type AudioCapture } from '../../services/microphoneCapture';
 import type { Participant, SpeakerId } from '../../services/protocol';
+import type { Where as Start } from '../assistant/agent';
 import { PhraseDetector } from './phrase';
 
 interface SetupAssistantProps {
   invite: Invite | null;
+  start: Start | null;
   onConversation: (conversation: Conversation) => void;
   onChooseManually: () => void;
   onLeaveInvite: () => void;
@@ -44,6 +46,11 @@ interface Message {
 const PEOPLE: Record<SpeakerId, string> = { A: 'Person 1', B: 'Person 2' };
 const ROOM_CHECK_MS = 2_000;
 const WHERE_QUESTION = 'Who are you talking to: someone next to you, someone on another phone or computer, or people in an online meeting?';
+const STARTS: Record<Start, string> = {
+  here: 'Ready for a conversation with someone next to you.',
+  remote: 'Ready for a call with someone on another device. I will make an invite link for them.',
+  meeting: 'Ready for meeting captions.',
+};
 const DISCLOSURE = "What you say is sent to Google's Gemini to be understood and translated. Nothing is saved here, but on Google's free tier what is sent may be used to improve Google's products.";
 
 function problemText(error: unknown): string {
@@ -56,11 +63,13 @@ function problemText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Try again.';
 }
 
-export default function SetupAssistant({ invite, onConversation, onChooseManually, onLeaveInvite }: SetupAssistantProps) {
+export default function SetupAssistant({ invite, start, onConversation, onChooseManually, onLeaveInvite }: SetupAssistantProps) {
   const [messages, setMessages] = useState<Message[]>(() => (invite ? [] : [{
     id: 0,
     from: 'assistant',
-    text: `Hi! I translate conversations: with someone next to you, with someone on another device, or in an online meeting. Just say hello in your own language and I'll work out the rest. ${DISCLOSURE}`,
+    text: start
+      ? `${STARTS[start]} Press the button below, then say hello in your own language. ${DISCLOSURE}`
+      : `Hi! I translate conversations: with someone next to you, with someone on another device, or in an online meeting. Just say hello in your own language and I'll work out the rest. ${DISCLOSURE}`,
   }]));
   const [phase, setPhase] = useState<Phase>(invite ? 'loading' : 'intro');
   const [listeningTo, setListeningTo] = useState<SpeakerId>('A');
@@ -391,14 +400,21 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       void listen('B');
       return;
     }
+    if (start) {
+      begin(start);
+      return;
+    }
     add('assistant', WHERE_QUESTION);
     setPhase('where');
   }
 
-  function choose(where: 'here' | 'remote' | 'meeting'): void {
-    if (phase !== 'where') {
-      return;
+  function choose(where: Start): void {
+    if (phase === 'where') {
+      begin(where);
     }
+  }
+
+  function begin(where: Start): void {
     whereRef.current = where;
     const prompts = {
       here: `${PEOPLE.A}, say hello in your language.`,

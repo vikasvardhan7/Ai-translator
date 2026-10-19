@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
     gemini_tts_model: str | None = None
+    gemini_assistant_model: str | None = None
     host_key_everywhere: bool = False
     cloudflared_path: str | None = None
     public_url: str | None = None
