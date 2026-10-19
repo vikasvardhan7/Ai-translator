@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     cloudflared_path: str | None = None
     public_url: str | None = None
     speech_timeout_seconds: float = Field(default=30.0, gt=0)
+    meetings_file: Path = BACKEND_DIR / "data" / "meetings.db"
 
 
 def get_settings() -> Settings:

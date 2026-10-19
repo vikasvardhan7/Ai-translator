@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Scheduled meetings kept on this computer
+backend/data/
+
 # Python
 __pycache__/
 *.py[cod]

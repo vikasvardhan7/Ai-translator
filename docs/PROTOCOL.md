@@ -36,6 +36,8 @@ app can ask for the key only when it is needed.
 | `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
 | `POST /api/rooms` | live | Start a call that up to 6 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
+| `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list upcoming ones (host key); see "Scheduled meetings" |
+| `GET`/`DELETE /api/meetings/{id}`, `POST .../start`, `POST .../join` | live | Look at, cancel, start or join a scheduled meeting (token in `X-Meeting-Token` or the body) |
 | `GET /api/rooms/{room_id}` | live | See who is in a room (token in the `X-Room-Token` header) |
 | `DELETE /api/rooms/{room_id}` | live | Leave a room from outside its live channel (own token in `X-Room-Token`): the host ends it for everyone, a guest leaves alone; the others get `peer.left`. `204`, `403` wrong token, `404` |
 | `POST /api/rooms/{room_id}/join` | live | The invited person joins with the guest token |
@@ -70,17 +72,19 @@ language, the transcript it shows and the commands possible right now; the serve
   the last one is the person's. `language`: an ISO 639 code, used when the person's own language
   is unclear. `transcript`: at most 400 lines (`speaker` 1 to 40 characters, `text` 1 to 2000),
   the latest 60 000 characters are used. `actions`: the command names the app can carry out now
-  (unknown names are ignored). Anything else, or an unknown field, gets `422`.
+  (unknown names are ignored). `now`: the person's local date and time with its offset, so
+  "tomorrow at 5" is understood. Anything else, or an unknown field, gets `422`.
 - `200` gives `{"answer": "...", "actions": [{"name": "mute", "arguments": {}}], "sources":
   [{"title": "...", "url": "https://..."}]}`. `answer` may be empty when only actions were taken.
   Every action is checked on the server: only names that were offered, with allowed arguments.
-- Commands: `open_app` and `close_app` (`app`: `translator`, `assistant`, `personalize`, `help`,
-  `privacy`, `terms`), `start_conversation` (`where`: `here`, `remote`, `meeting`; the person still presses
+- Commands: `open_app` and `close_app` (`app`: `translator`, `meetings`, `assistant`, `personalize`,
+  `help`, `privacy`, `terms`), `start_conversation` (`where`: `here`, `remote`, `meeting`; the person still presses
   the start button and says hello), `mute`, `unmute`, `voice_on`, `captions_only`,
   `connect_meeting_sound` (the person then presses Connect meeting, because the browser asks for
   the tab only after a click), `disconnect_meeting_sound`, `show_transcript`, `hide_transcript`,
   `open_settings`, `show_people` (in a room: who is there and the invite link), `set_theme`
-  (`theme`: `ocean`, `sunset`, `mint`, `blossom`, `aurora`), `download_transcript` (`format`: `text` or `subtitles`), `set_my_language`
+  (`theme`: `ocean`, `sunset`, `mint`, `blossom`, `aurora`), `schedule_meeting` (`title`, `starts_at`
+  with a time zone, `duration_minutes` 15 to 120, optional `agenda`), `download_transcript` (`format`: `text` or `subtitles`), `set_my_language`
   (`language`: an ISO 639 code) and `end_conversation`.
 - One Gemini request decides between answering, taking actions and searching. A question that
   needs the web gets a second request with Google Search grounding, and its web sources come back
@@ -203,6 +207,30 @@ with the same token for as long as the room lasts. At most 100 rooms can wait at
 - `voice.settings` sets whether, and in which voice, the server makes voices for this device's own person.
 - `language.set` changes this device's person's language; every device gets `participants.updated`.
 - When someone leaves with `session.stop`, the others get `{"type": "peer.left", "participant_id": "B"}`; for a guest they also get `participants.updated`, and for the host (`A`) the call has ended. When a device's connection drops or goes quiet, the others get `peer.disconnected`, and `peer.connected` when it is back (or when it connects for the first time), with the same field.
+
+### Scheduled meetings
+
+A host plans a meeting ahead: a title, a start time, how long it lasts (5 to 480 minutes) and an
+optional agenda. The backend keeps only these, the host's name and two tokens in a small SQLite
+file on its own computer (`backend/data/meetings.db`, or `MEETINGS_FILE`), never audio, captions
+or transcripts. A meeting is dropped 7 days after it ended; at most 500 are kept. The join link is
+`<public address>/#meet/<id>/<invite_token>`; send it any way (copy, share, email, calendar).
+When the host starts the meeting it becomes a room (section above) for up to 6 people; anyone who
+opened the link early waits in a lobby and joins as soon as it is live.
+
+| Request | Body | Answers |
+| --- | --- | --- |
+| `POST /api/meetings` (host key) | `{"title", "starts_at" (with a time zone), "duration_minutes", "agenda", "host_name"}` | `201` the meeting with `host_token`, `invite_token`, `public_url`, `public_url_problem`; `422` bad body (no time zone, more than 12 hours in the past or a year ahead, too long); `503` too many |
+| `GET /api/meetings` (host key) | none | `200` `{meetings: [...], public_url, public_url_problem}`: those not yet over, soonest first, with their tokens |
+| `GET /api/meetings/{id}` with `X-Meeting-Token` (invite or host) | none | `200` `{id, title, starts_at, duration_minutes, agenda, host_name, status, people}` (`status` is `upcoming`, `live` or `ended`; no tokens); `403`; `404` |
+| `DELETE /api/meetings/{id}` with the host token | none | `204`; a live meeting ends for everyone (`peer.left` for `A`); `403`; `404` |
+| `POST /api/meetings/{id}/start` with the host token | `{"consent": true, "host": {"name", "preferred_language"}}` | `200` as `POST /api/rooms` (the host's room token and the room); starting again while it is live gives the same room. `410` more than 2 hours after it ended |
+| `POST /api/meetings/{id}/join` | `{"consent": true, "token": invite_token, "guest": {"name", "preferred_language"}}` | `200` as `POST /api/rooms/{room_id}/join`; `409` not started yet (wait and try again) or full; `410` over; `403`; `404` |
+
+Before joining, an invited guest finds their language with `POST /api/languages/detect` and the
+headers `X-Meeting-Id` and `X-Meeting-Token`. With a quick tunnel the public address changes each
+time the backend starts, so a link sent earlier stops working after a restart; the Meetings app
+always shows the current link to send again, and `PUBLIC_URL` gives a fixed address.
 
 When the backend serves the built frontend (`frontend/dist`, at `/`), the app and the API share one
 address, so a free tunnel such as `cloudflared tunnel --url http://localhost:8000` gives both

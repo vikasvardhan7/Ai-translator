@@ -6,6 +6,7 @@ import { APPS, type AppId, type WindowState } from './windows';
 
 export const APP_ICONS: Record<AppId, IconName> = {
   translator: 'translator',
+  meetings: 'schedule',
   assistant: 'assistant',
   personalize: 'personalize',
   help: 'help',
@@ -13,11 +14,11 @@ export const APP_ICONS: Record<AppId, IconName> = {
   terms: 'terms',
 };
 
-const PINNED: AppId[] = ['translator', 'assistant', 'help'];
+const PINNED: AppId[] = ['translator', 'meetings', 'assistant', 'help'];
 const SHORTCUTS: Array<{ where: Where; icon: IconName; label: string }> = [
-  { where: 'meeting', icon: 'meeting', label: 'Meeting captions' },
-  { where: 'remote', icon: 'remote', label: 'Call another device' },
-  { where: 'here', icon: 'here', label: 'Talk next to me' },
+  { where: 'remote', icon: 'remote', label: 'Meet now' },
+  { where: 'meeting', icon: 'meeting', label: 'Live captions' },
+  { where: 'here', icon: 'here', label: 'Talk here' },
 ];
 
 interface TaskbarProps {
@@ -60,7 +61,7 @@ function AskBox({ id, onAsk, autoFocus }: { id: string; onAsk: (text: string) =>
         maxLength={4000}
         autoComplete="off"
         autoFocus={autoFocus}
-        placeholder="Ask anything or give a command"
+        placeholder="Ask anything or say “schedule a meeting”"
         onChange={(event) => setText(event.target.value)}
       />
     </form>

@@ -1,9 +1,16 @@
 from fastapi import HTTPException, status
 from starlette.requests import HTTPConnection
 
-from app.core.access import ROOM_ID_HEADER, ROOM_TOKEN_HEADER, is_host
+from app.core.access import (
+    MEETING_ID_HEADER,
+    MEETING_TOKEN_HEADER,
+    ROOM_ID_HEADER,
+    ROOM_TOKEN_HEADER,
+    is_host,
+)
 from app.core.config import Settings
 from app.services.assistant.base import MeetingAssistant
+from app.services.meeting_store import MeetingStore
 from app.services.public_address import PublicAddress
 from app.services.room_store import RoomStore
 from app.services.session_store import SessionStore
@@ -21,6 +28,10 @@ def get_session_store(connection: HTTPConnection) -> SessionStore:
 
 def get_room_store(connection: HTTPConnection) -> RoomStore:
     return connection.app.state.rooms
+
+
+def get_meeting_store(connection: HTTPConnection) -> MeetingStore:
+    return connection.app.state.meetings
 
 
 def get_app_settings(connection: HTTPConnection) -> Settings:
@@ -51,7 +62,11 @@ def is_host_request(connection: HTTPConnection) -> bool:
 def _is_invited(connection: HTTPConnection) -> bool:
     room = get_room_store(connection).get(connection.headers.get(ROOM_ID_HEADER, ""))
     token = connection.headers.get(ROOM_TOKEN_HEADER, "")
-    return room is not None and bool(token) and room.allows(token)
+    if room is not None and bool(token) and room.allows(token):
+        return True
+    meeting = get_meeting_store(connection).get(connection.headers.get(MEETING_ID_HEADER, ""))
+    meeting_token = connection.headers.get(MEETING_TOKEN_HEADER, "")
+    return meeting is not None and meeting.allows(meeting_token)
 
 
 def require_host(connection: HTTPConnection) -> None:

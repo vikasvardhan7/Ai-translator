@@ -10,8 +10,8 @@ function stamp(): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
 }
 
-function save(name: string, text: string, type: string): void {
-  const url = URL.createObjectURL(new Blob(['﻿', text], { type }));
+export function saveFile(name: string, text: string, type: string, byteOrderMark = true): void {
+  const url = URL.createObjectURL(new Blob(byteOrderMark ? ['\uFEFF', text] : [text], { type }));
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
@@ -22,11 +22,11 @@ function save(name: string, text: string, type: string): void {
 }
 
 export function downloadText(turns: readonly Turn[], participants: readonly Participant[], names: Names): void {
-  save(`conversation-${stamp()}.txt`, transcriptText(turns, participants, names), 'text/plain;charset=utf-8');
+  saveFile(`conversation-${stamp()}.txt`, transcriptText(turns, participants, names), 'text/plain;charset=utf-8');
 }
 
 export function downloadSubtitles(turns: readonly Turn[], reader: Participant, names: Names): void {
-  save(
+  saveFile(
     `conversation-${stamp()}-${reader.preferred_language}.srt`,
     transcriptSubtitles(turns, reader.id, names),
     'application/x-subrip;charset=utf-8',

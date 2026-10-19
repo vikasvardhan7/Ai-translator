@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, createSession, getHealth, isHost } from '../../services/api';
-import { sessionConversation, type Conversation, type Invite } from '../../services/conversations';
+import { sessionConversation, type Conversation, type Invite, type MeetingFlow } from '../../services/conversations';
 import type { Where } from '../assistant/agent';
 import type { Participant } from '../../services/protocol';
 import SetupAssistant from '../setup/SetupAssistant';
@@ -13,6 +13,7 @@ import { canStartSession } from './validation';
 interface ConsentScreenProps {
   invite: Invite | null;
   start: Where | null;
+  flow: MeetingFlow | null;
   onConversation: (conversation: Conversation) => void;
   onLeaveInvite: () => void;
 }
@@ -42,7 +43,7 @@ function messageFor(error: unknown): string {
   return 'The request could not be completed.';
 }
 
-export default function ConsentScreen({ invite, start, onConversation, onLeaveInvite }: ConsentScreenProps) {
+export default function ConsentScreen({ invite, start, flow, onConversation, onLeaveInvite }: ConsentScreenProps) {
   const consentHeadingRef = useRef<HTMLHeadingElement>(null);
   const [participants, setParticipants] = useState<[Participant, Participant]>(initialParticipants);
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
@@ -62,7 +63,7 @@ export default function ConsentScreen({ invite, start, onConversation, onLeaveIn
     try {
       await getHealth();
       setBackendAvailable(true);
-      setHost(invite ? true : await isHost());
+      setHost(invite || flow?.kind === 'guest' ? true : await isHost());
     } catch {
       setBackendAvailable(false);
     } finally {
@@ -137,9 +138,9 @@ export default function ConsentScreen({ invite, start, onConversation, onLeaveIn
       <main>
         <section className="hero hero-entrance" aria-labelledby="page-title">
           <div className="hero-arc" aria-hidden="true" />
-          <p className="hero-kicker">A shared conversation</p>
+          <p className="hero-kicker">Live translation</p>
           <h1 id="page-title" tabIndex={-1}>Voice Translator</h1>
-          <p className="hero-subtitle">Two people, any two languages, one conversation.</p>
+          <p className="hero-subtitle">Talk, meet and caption in any language, live.</p>
           <p className="hero-note">
             Works best in Edge or Chrome. Use headphones or keep the volume low so the app does not hear its own voice.
           </p>
@@ -161,9 +162,10 @@ export default function ConsentScreen({ invite, start, onConversation, onLeaveIn
           <HostKeyPrompt onReady={() => setHost(true)} />
         ) : !manual ? (
           <SetupAssistant
-            key={invite ? `${invite.roomId}/${invite.token}` : 'own'}
+            key={invite ? `${invite.roomId}/${invite.token}` : flow?.kind === 'guest' ? `meet/${flow.invite.meetingId}` : 'own'}
             invite={invite}
             start={start}
+            flow={flow}
             onConversation={onConversation}
             onChooseManually={chooseManually}
             onLeaveInvite={onLeaveInvite}

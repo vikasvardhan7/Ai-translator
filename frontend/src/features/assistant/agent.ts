@@ -4,13 +4,14 @@ import { isCallAction, type CallAction } from '../desktop/bridge';
 import { isTheme, themeOf, type ThemeId } from '../desktop/themes';
 import { isApp, type AppId } from '../desktop/windows';
 
-export const DESKTOP_ACTIONS = ['open_app', 'close_app', 'start_conversation', 'set_theme'] as const;
+export const DESKTOP_ACTIONS = ['open_app', 'close_app', 'start_conversation', 'set_theme', 'schedule_meeting'] as const;
 export type Where = 'here' | 'remote' | 'meeting';
 export const MAX_HISTORY = 30;
 export const MAX_MESSAGE_LENGTH = 4000;
 
 export const APP_NAMES: Record<AppId, string> = {
   translator: 'Translator',
+  meetings: 'Meetings',
   assistant: 'Assistant',
   personalize: 'Personalize',
   help: 'Help',
@@ -20,9 +21,16 @@ export const APP_NAMES: Record<AppId, string> = {
 
 const WHERE_NAMES: Record<Where, string> = {
   here: 'a conversation next to you',
-  remote: 'a call with someone on another device',
-  meeting: 'meeting captions',
+  remote: 'a meeting others join with a link',
+  meeting: 'live captions',
 };
+
+export interface MeetingRequest {
+  title: string;
+  starts_at: string;
+  duration_minutes: number;
+  agenda: string;
+}
 
 const CALL_NOTES: Record<CallAction, string> = {
   mute: 'Muted your microphone',
@@ -45,6 +53,7 @@ export interface DesktopHandlers {
   close: (app: AppId) => void;
   start: (where: Where) => void;
   theme: (theme: ThemeId) => void;
+  schedule: (meeting: MeetingRequest) => void;
 }
 
 export interface CallRunner {
@@ -66,6 +75,10 @@ export function note(action: AgentAction): string {
   }
   if (name === 'start_conversation' && isWhere(args.where)) {
     return `Ready to start ${WHERE_NAMES[args.where]}: press I agree, let's start`;
+  }
+  if (name === 'schedule_meeting' && args.title && args.starts_at) {
+    const when = new Date(args.starts_at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    return `Scheduled “${args.title}” for ${when}. The link is in Meetings`;
   }
   if (name === 'set_theme' && isTheme(args.theme)) {
     return `Changed the look to ${themeOf(args.theme).name}`;
@@ -91,6 +104,13 @@ export function runActions(actions: AgentAction[], desktop: DesktopHandlers, cal
       desktop.start(args.where);
     } else if (name === 'set_theme' && isTheme(args.theme)) {
       desktop.theme(args.theme);
+    } else if (name === 'schedule_meeting' && args.title && args.starts_at && !Number.isNaN(Date.parse(args.starts_at))) {
+      desktop.schedule({
+        title: args.title,
+        starts_at: args.starts_at,
+        duration_minutes: Number(args.duration_minutes) || 30,
+        agenda: args.agenda ?? '',
+      });
     } else if (isCallAction(name) && call?.available.includes(name)) {
       call.run(name, args);
     } else {

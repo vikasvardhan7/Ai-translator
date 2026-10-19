@@ -10,11 +10,12 @@ from app.api.dependencies import (
     get_speech_translator,
     require_host,
 )
+from app.api.links import public_link
 from app.api.stream import announce_people, handle_room_stream, tell_others
-from app.core.access import is_local_page, own_origin
 from app.core.config import Settings
 from app.models.room import RoomCreate, RoomCreated, RoomJoin, RoomJoined, RoomOut
-from app.services.public_address import DID_NOT_START, PublicAddress
+from app.models.session import Person
+from app.services.public_address import PublicAddress
 from app.services.room_store import (
     HOST_ID,
     MAX_PEOPLE,
@@ -48,6 +49,16 @@ def _find(rooms: RoomStore, room_id: str) -> Room:
 NOT_VALID = "This link is not valid for this conversation."
 
 
+def created(room: Room, public_url: str | None, problem: str | None) -> RoomCreated:
+    return RoomCreated(
+        **_out(room).model_dump(),
+        host_token=room.host_token,
+        invite_token=room.invite_token,
+        public_url=public_url,
+        public_url_problem=problem,
+    )
+
+
 def _out(room: Room) -> RoomOut:
     return RoomOut(room_id=room.id, host=room.host, guests=room.guests, max_people=MAX_PEOPLE)
 
@@ -68,28 +79,8 @@ async def create_room(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Too many conversations are waiting to start. Try again in a few minutes.",
         ) from exc
-    public_url, problem = await _public_link(request, settings, public)
-    return RoomCreated(
-        **_out(room).model_dump(),
-        host_token=room.host_token,
-        invite_token=room.invite_token,
-        public_url=public_url,
-        public_url_problem=problem,
-    )
-
-
-async def _public_link(
-    request: Request, settings: Settings, public: PublicAddress
-) -> tuple[str | None, str | None]:
-    if settings.public_url:
-        return settings.public_url.rstrip("/"), None
-    if not is_local_page(request):
-        return own_origin(request), None
-    if public.problem is not None:
-        return None, public.problem
-    port = request.url.port or (443 if request.url.scheme == "https" else 80)
-    address = await public.get(f"http://localhost:{port}")
-    return address, None if address else DID_NOT_START
+    public_url, problem = await public_link(request, settings, public)
+    return created(room, public_url, problem)
 
 
 @router.get("/{room_id}", response_model=RoomOut)
@@ -119,14 +110,18 @@ async def leave_room(
 @router.post("/{room_id}/join", response_model=RoomJoined)
 async def join_room(room_id: str, body: RoomJoin, rooms: Rooms) -> RoomJoined:
     room = _find(rooms, room_id)
-    if room.ended:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "This conversation has ended.")
     if not room.is_invite(body.token):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only the invite link can be used to join this conversation."
         )
+    return join_as_guest(rooms, room, body.guest)
+
+
+def join_as_guest(rooms: RoomStore, room: Room, guest: Person) -> RoomJoined:
+    if room.ended:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This conversation has ended.")
     try:
-        you, token = rooms.join(room, body.guest)
+        you, token = rooms.join(room, guest)
     except RoomFull as exc:
         message = (
             "No more people can join this conversation. Ask the host to start a new one."

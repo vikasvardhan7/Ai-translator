@@ -42,7 +42,9 @@ def _transcript_block(transcript: list[Said]) -> str:
     return "Live transcript, oldest first, one line per sentence:\n" + "\n".join(reversed(lines))
 
 
-def _instructions(language: str, transcript: list[Said], actions: list[ActionSpec]) -> str:
+def _instructions(
+    language: str, transcript: list[Said], actions: list[ActionSpec], now: str | None
+) -> str:
     can_do = (
         "Actions you can take now: " + ", ".join(spec.name for spec in actions) + "."
         if actions
@@ -61,6 +63,10 @@ def _instructions(language: str, transcript: list[Said], actions: list[ActionSpe
             " Call actions only when asked, and end_conversation only when the person clearly"
             " asks to end. When you take an action, also say in a few words what you did.",
             can_do,
+            f"The person's local date and time now is {now}; use it for words like today or"
+            " tomorrow, and give times back in their local time."
+            if now
+            else "The person's local time is not known; ask for an exact date and time.",
             "Reply in the language the person writes in. When that is unclear, reply in the"
             f" language with ISO 639 code {language}, in its native script.",
             "Be short and clear. Use plain sentences or short lists starting with '- '.",
@@ -154,9 +160,10 @@ class GeminiMeetingAssistant:
         language: str,
         transcript: list[Said],
         actions: list[str],
+        now: str | None = None,
     ) -> Reply:
         specs = known(actions)
-        instructions = _instructions(language, transcript, specs)
+        instructions = _instructions(language, transcript, specs, now)
         contents = _contents(messages)
         planned = await self._generate(
             contents,

@@ -242,6 +242,66 @@ def test_actions_are_checked_against_the_catalog(name, arguments, expected) -> N
     assert checked(name, arguments, set(CATALOG)) == expected
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (
+            {
+                "title": " Budget ",
+                "starts_at": "2026-10-20T17:00:00+05:30",
+                "duration_minutes": "30",
+            },
+            {
+                "title": "Budget",
+                "agenda": "",
+                "starts_at": "2026-10-20T17:00:00+05:30",
+                "duration_minutes": "30",
+            },
+        ),
+        ({"title": "Budget", "starts_at": "2026-10-20T17:00:00", "duration_minutes": "30"}, None),
+        ({"title": "", "starts_at": "2026-10-20T17:00:00+05:30", "duration_minutes": "30"}, None),
+        ({"title": "B", "starts_at": "tomorrow", "duration_minutes": "30"}, None),
+        ({"title": "B", "starts_at": "2026-10-20T17:00:00+05:30", "duration_minutes": "7"}, None),
+        (
+            {
+                "title": "B",
+                "starts_at": "2026-10-20T17:00:00+05:30",
+                "duration_minutes": "30",
+                "agenda": "x" * 2001,
+            },
+            None,
+        ),
+    ],
+    ids=["valid", "no-zone", "no-title", "not-a-time", "odd-length", "long-agenda"],
+)
+def test_a_meeting_to_schedule_is_checked(arguments: dict, expected: dict | None) -> None:
+    action = checked("schedule_meeting", arguments, {"schedule_meeting"})
+
+    assert (action.arguments if action else None) == expected
+
+
+@pytest.mark.anyio
+async def test_the_local_time_is_given_for_words_like_tomorrow() -> None:
+    recorder = Recorder(text())
+
+    await assistant(recorder).reply(
+        ASK, "en", [], ["schedule_meeting"], "2026-10-19T22:10:00+05:30"
+    )
+
+    body = recorder.body()
+    instructions = body["systemInstruction"]["parts"][0]["text"]
+    declaration = next(
+        d for d in body["tools"][0]["functionDeclarations"] if d["name"] == "schedule_meeting"
+    )
+    assert "local date and time now is 2026-10-19T22:10:00+05:30" in instructions
+    schema = declaration.get("parametersJsonSchema") or declaration["parameters_json_schema"]
+    assert set(schema["required"]) == {
+        "duration_minutes",
+        "title",
+        "starts_at",
+    }
+
+
 def test_an_action_the_app_cannot_do_now_is_refused() -> None:
     assert checked("mute", {}, {"unmute"}) is None
 
@@ -273,8 +333,8 @@ class FakeAssistant:
     calls: list[tuple] = field(default_factory=list)
     closed: bool = False
 
-    async def reply(self, messages, language, transcript, actions) -> Reply:
-        self.calls.append((messages, language, transcript, actions))
+    async def reply(self, messages, language, transcript, actions, now=None) -> Reply:
+        self.calls.append((messages, language, transcript, actions, now))
         if self.failure:
             raise self.failure
         return self.result
@@ -303,6 +363,7 @@ def test_the_endpoint_passes_the_chat_and_returns_answer_actions_and_sources() -
         "language": "te-IN",
         "transcript": TRANSCRIPT,
         "actions": ["mute", "unmute"],
+        "now": "2026-10-19T22:10:00+05:30",
     }
 
     with client_with(fake) as client:
@@ -314,13 +375,14 @@ def test_the_endpoint_passes_the_chat_and_returns_answer_actions_and_sources() -
         "actions": [{"name": "mute", "arguments": {}}],
         "sources": [{"title": "Site", "url": "https://site.example"}],
     }
-    messages, language, transcript, actions = fake.calls[0]
+    messages, language, transcript, actions, now = fake.calls[0]
     assert messages == [
         ChatMessage("user", "Hi"),
         ChatMessage("assistant", "Hello"),
         ChatMessage("user", "Mute me"),
     ]
     assert (language, transcript, actions) == ("te", SAID, ["mute", "unmute"])
+    assert now == "2026-10-19T22:10:00+05:30"
 
 
 def test_the_assistant_is_closed_with_the_backend() -> None:
@@ -345,6 +407,7 @@ def test_the_assistant_is_closed_with_the_backend() -> None:
         {**BODY, "transcript": [{"speaker": "", "text": "hi"}]},
         {**BODY, "transcript": [TRANSCRIPT[0]] * (MAX_LINES + 1)},
         {**BODY, "extra": True},
+        {**BODY, "now": "2026-10-19T22:10:00"},
     ],
     ids=[
         "no-messages",
@@ -357,6 +420,7 @@ def test_the_assistant_is_closed_with_the_backend() -> None:
         "no-speaker",
         "too-many-lines",
         "unknown-field",
+        "time-without-zone",
     ],
 )
 def test_bad_requests_are_refused(body: dict) -> None:

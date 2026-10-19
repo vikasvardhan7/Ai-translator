@@ -7,6 +7,8 @@ from starlette.requests import HTTPConnection
 HOST_KEY_HEADER = "x-host-key"
 ROOM_ID_HEADER = "x-room-id"
 ROOM_TOKEN_HEADER = "x-room-token"
+MEETING_ID_HEADER = "x-meeting-id"
+MEETING_TOKEN_HEADER = "x-meeting-token"
 FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip", "cf-connecting-ip")
 HOST_KEY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 HOST_KEY_GROUPS = 3

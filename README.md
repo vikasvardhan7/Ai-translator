@@ -85,7 +85,7 @@ npm run typecheck
 npm run dev
 ```
 
-With the backend running, open <http://localhost:5173> in Edge or Chrome. The app looks like a desktop: icons on the left (Translator, Meeting captions, Call another device, Talk next to me, Assistant, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
+With the backend running, open <http://localhost:5173> in Edge or Chrome. The app looks like a desktop: icons on the left (Meet now, Schedule, Live captions, Talk here, Assistant, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
 
 ### Looks
 
@@ -107,17 +107,23 @@ Each sentence is sent to Gemini with the last few sentences as context, so names
 
 The backend log prints one line per sentence with how long each step took, so you can see where time goes.
 
-## Calls with people on other devices (up to 6)
+## Meetings with people on other devices (up to 6)
 
 The others can be on any phone or computer with Edge or Chrome, each speaking their own language. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed). The backend starts the tunnel for you.
 
 1. Install the tunnel program once: `winget install --id Cloudflare.cloudflared`
 2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
 3. Start the backend as above (`uvicorn ... --port 8000`).
-4. Open <http://localhost:8000>, double-click **Call another device**, type your name, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and your call opens straight away, showing the invite link (the public `https://...trycloudflare.com` link).
+4. Open <http://localhost:8000>, double-click **Meet now**, type your name, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and your call opens straight away, showing the invite link (the public `https://...trycloudflare.com` link).
 5. Send that one link to up to 5 people. They need no key. Each opens it, types their name and says hello, and joins the running call. Everyone talks into their own device, sees the whole conversation and hears everyone else in their own language. **People** in the call shows who is there, who is connected, and the link again; you can also ask the assistant "who is in the call?".
 
 A guest who presses End leaves alone and the call goes on; when the host presses End, the call ends for everyone.
+
+### Scheduling a meeting
+
+Double-click **Schedule** (or tell the assistant "schedule a meeting tomorrow at 5 pm for 30 minutes about the budget"). Give it a name, a date and time, how long it lasts and what it is about, then press **Schedule and get the link**. Each meeting card has **Copy link**, **Copy invitation** (the text with time, length, agenda and link), **Email** (opens your mail app with it ready), **Share** and **Add to calendar** (a calendar file Outlook or Google Calendar opens). People who open the link early see the meeting details and wait in a lobby; when you press **Start meeting** and say hello, they are brought in automatically. Only the title, time, length, agenda and your name are kept, in `backend/data/meetings.db` on your laptop (Git ignores it).
+
+The link works while your laptop runs the app. A quick tunnel gets a new address every time the backend starts, so after a restart send the link again from the meeting card (it always shows the current one), or set `PUBLIC_URL` to a fixed address.
 
 If the app says there is no public link, it also says why: cloudflared is not installed, the frontend is not built, or the tunnel did not start (the backend window has the details). The backend looks for cloudflared on the PATH and where winget puts it; `CLOUDFLARED_PATH` in `backend/.env` names it directly, and `PUBLIC_URL` replaces the tunnel with an address of your own when the app is hosted somewhere. You can also open the app yourself through the public link (for example to be the host from your phone); then the app asks for the host key printed in the backend window, once per browser.
 
@@ -130,16 +136,16 @@ Ai-translator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          FastAPI app, CORS, /health, host key, log redaction
-│   │   ├── api/             access, sessions, rooms, languages, voices, assistant, WebSocket streams
+│   │   ├── api/             access, sessions, rooms, meetings, languages, voices, assistant, WebSocket streams
 │   │   ├── core/            settings, access (host key), language codes, text matching, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session and room stores, speech detection, Gemini speech, translation, voice and assistant, retry
+│   │   └── services/        session, room and meeting stores, speech detection, Gemini speech, translation, voice and assistant, retry
 │   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app: desktop (windows, taskbar), assistant, setup, call screens
+│   ├── src/                 React app: desktop (windows, taskbar, themes), meetings, assistant, setup, call screens
 │   ├── package.json
 │   └── vite.config.ts
 ├── docs/                    protocol, decisions, developer handbook

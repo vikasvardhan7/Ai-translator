@@ -45,8 +45,20 @@ export interface RoomAccess {
   token: string;
 }
 
+export interface MeetingAccess {
+  meetingId: string;
+  token: string;
+}
+
 function roomHeaders(room: RoomAccess | undefined): Record<string, string> {
   return room ? { 'X-Room-Id': room.roomId, 'X-Room-Token': room.token } : {};
+}
+
+function accessHeaders(access: RoomAccess | MeetingAccess | undefined): Record<string, string> {
+  if (access && 'meetingId' in access) {
+    return { 'X-Meeting-Id': access.meetingId, 'X-Meeting-Token': access.token };
+  }
+  return roomHeaders(access);
 }
 
 async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = savedHostKey()): Promise<T> {
@@ -89,10 +101,10 @@ export interface DetectedLanguage {
   language: string;
 }
 
-export async function detectLanguage(wav: ArrayBuffer, room?: RoomAccess): Promise<DetectedLanguage> {
+export async function detectLanguage(wav: ArrayBuffer, access?: RoomAccess | MeetingAccess): Promise<DetectedLanguage> {
   const body = await requestJson<unknown>('/api/languages/detect', {
     method: 'POST',
-    headers: { 'Content-Type': 'audio/wav', ...roomHeaders(room) },
+    headers: { 'Content-Type': 'audio/wav', ...accessHeaders(access) },
     body: wav,
   });
 
@@ -178,11 +190,14 @@ function readRoom(body: unknown): RoomInfo {
 }
 
 export async function createRoom(host: PersonDetails): Promise<CreatedRoom> {
-  const body = await requestJson<unknown>('/api/rooms', {
+  return readCreatedRoom(await requestJson<unknown>('/api/rooms', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ consent: true, host }),
-  });
+  }));
+}
+
+function readCreatedRoom(body: unknown): CreatedRoom {
   const room = readRoom(body);
   if (!isRecord(body) || typeof body.host_token !== 'string' || typeof body.invite_token !== 'string') {
     throw new Error('The backend returned an invalid conversation.');
@@ -217,11 +232,14 @@ export async function joinRoom(
   inviteToken: string,
   guest: PersonDetails,
 ): Promise<{ room: RoomInfo; token: string; you: SpeakerId }> {
-  const body = await requestJson<unknown>(`/api/rooms/${encodeURIComponent(roomId)}/join`, {
+  return readJoined(await requestJson<unknown>(`/api/rooms/${encodeURIComponent(roomId)}/join`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ consent: true, token: inviteToken, guest }),
-  });
+  }));
+}
+
+function readJoined(body: unknown): { room: RoomInfo; token: string; you: SpeakerId } {
   const room = readRoom(body);
   if (!isRecord(body) || typeof body.token !== 'string' || !isSpeakerId(body.you) || body.you === 'A') {
     throw new Error('The backend returned an invalid conversation.');
@@ -294,6 +312,7 @@ export interface AssistantRequest {
   language: string;
   transcript: SaidLine[];
   actions: string[];
+  now: string;
 }
 
 function readAction(value: unknown): AgentAction | null {
@@ -325,4 +344,131 @@ export async function askAssistant(request: AssistantRequest, room?: RoomAccess)
     actions: body.actions.map(readAction).filter((action): action is AgentAction => action !== null),
     sources: body.sources.map(readSource).filter((source): source is Source => source !== null),
   };
+}
+
+export type MeetingStatus = 'upcoming' | 'live' | 'ended';
+
+export interface MeetingInfo {
+  id: string;
+  title: string;
+  starts_at: string;
+  duration_minutes: number;
+  agenda: string;
+  host_name: string;
+  status: MeetingStatus;
+  people: number;
+}
+
+export interface HostedMeeting extends MeetingInfo {
+  host_token: string;
+  invite_token: string;
+}
+
+export interface MeetingPlan {
+  title: string;
+  starts_at: string;
+  duration_minutes: number;
+  agenda: string;
+  host_name: string;
+}
+
+export interface PublicLink {
+  public_url: string | null;
+  public_url_problem: string | null;
+}
+
+function isStatus(value: unknown): value is MeetingStatus {
+  return value === 'upcoming' || value === 'live' || value === 'ended';
+}
+
+function readMeeting(value: unknown): MeetingInfo {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.title !== 'string' ||
+    typeof value.starts_at !== 'string' ||
+    Number.isNaN(Date.parse(value.starts_at)) ||
+    typeof value.duration_minutes !== 'number' ||
+    typeof value.agenda !== 'string' ||
+    typeof value.host_name !== 'string' ||
+    !isStatus(value.status) ||
+    typeof value.people !== 'number'
+  ) {
+    throw new Error('The backend returned an invalid meeting.');
+  }
+  return {
+    id: value.id,
+    title: value.title,
+    starts_at: value.starts_at,
+    duration_minutes: value.duration_minutes,
+    agenda: value.agenda,
+    host_name: value.host_name,
+    status: value.status,
+    people: value.people,
+  };
+}
+
+function readHosted(value: unknown): HostedMeeting {
+  const meeting = readMeeting(value);
+  if (!isRecord(value) || typeof value.host_token !== 'string' || typeof value.invite_token !== 'string') {
+    throw new Error('The backend returned an invalid meeting.');
+  }
+  return { ...meeting, host_token: value.host_token, invite_token: value.invite_token };
+}
+
+function readLink(value: Record<string, unknown>): PublicLink {
+  return { public_url: textOrNull(value.public_url), public_url_problem: textOrNull(value.public_url_problem) };
+}
+
+export async function scheduleMeeting(plan: MeetingPlan): Promise<HostedMeeting & PublicLink> {
+  const body = await requestJson<unknown>('/api/meetings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(plan),
+  });
+  const meeting = readHosted(body);
+  return { ...meeting, ...readLink(body as Record<string, unknown>) };
+}
+
+export async function listMeetings(): Promise<{ meetings: HostedMeeting[] } & PublicLink> {
+  const body = await requestJson<unknown>('/api/meetings');
+  if (!isRecord(body) || !Array.isArray(body.meetings)) {
+    throw new Error('The backend returned an invalid meeting list.');
+  }
+  return { meetings: body.meetings.map(readHosted), ...readLink(body) };
+}
+
+export async function getMeeting(access: MeetingAccess): Promise<MeetingInfo> {
+  return readMeeting(await requestJson<unknown>(`/api/meetings/${encodeURIComponent(access.meetingId)}`, {
+    headers: { 'X-Meeting-Token': access.token },
+  }));
+}
+
+export async function cancelMeeting(access: MeetingAccess): Promise<void> {
+  const response = await fetch(`${getBackendUrl()}/api/meetings/${encodeURIComponent(access.meetingId)}`, {
+    method: 'DELETE',
+    headers: { 'X-Meeting-Token': access.token },
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new ApiError(response.status, 'The meeting could not be cancelled.');
+  }
+}
+
+export async function startMeeting(access: MeetingAccess, host: PersonDetails): Promise<CreatedRoom> {
+  return readCreatedRoom(await requestJson<unknown>(`/api/meetings/${encodeURIComponent(access.meetingId)}/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Meeting-Token': access.token },
+    body: JSON.stringify({ consent: true, host }),
+  }));
+}
+
+export async function joinMeeting(
+  access: MeetingAccess,
+  guest: PersonDetails,
+): Promise<{ room: RoomInfo; token: string; you: SpeakerId }> {
+  return readJoined(await requestJson<unknown>(`/api/meetings/${encodeURIComponent(access.meetingId)}/join`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ consent: true, token: access.token, guest }),
+  }));
 }

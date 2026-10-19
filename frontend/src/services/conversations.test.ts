@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { inviteFromHash, inviteLink, inviteProblem, roomConversation, sessionConversation } from './conversations';
+import { inviteFromHash, inviteLink, inviteProblem, linkProblem, meetingFromHash, meetingLink, roomConversation, sessionConversation } from './conversations';
 
 const host = { id: 'A' as const, name: 'Person 1', preferred_language: 'te' };
 const guest = { id: 'B' as const, name: 'Person 2', preferred_language: 'en' };
@@ -74,5 +74,21 @@ describe('conversations', () => {
     expect(inviteProblem({ ...room, public_url_problem: 'No public link: cloudflared is not installed.' }, '127.0.0.1'))
       .toBe('No public link: cloudflared is not installed.');
     expect(inviteProblem(room, 'quiet-river.trycloudflare.com')).toBeNull();
+  });
+
+  it('makes a meeting link that can be read back', () => {
+    const link = meetingLink('m 1', 'a/b', 'https://x.trycloudflare.com/', 'http://localhost:8000');
+
+    expect(link).toBe('https://x.trycloudflare.com/#meet/m%201/a%2Fb');
+    expect(meetingFromHash(new URL(link).hash)).toEqual({ meetingId: 'm 1', token: 'a/b' });
+    expect(meetingFromHash('#join/r1/t')).toBeNull();
+    expect(meetingLink('m1', 't', null, 'http://localhost:8000')).toBe('http://localhost:8000/#meet/m1/t');
+  });
+
+  it('warns when a meeting link only works on this computer', () => {
+    expect(linkProblem(null, null, 'localhost')).toBe('This link only works on this computer.');
+    expect(linkProblem(null, 'No public link: cloudflared is not installed.', 'localhost')).toBe('No public link: cloudflared is not installed.');
+    expect(linkProblem('https://x.example', null, 'localhost')).toBeNull();
+    expect(linkProblem(null, null, 'x.trycloudflare.com')).toBeNull();
   });
 });

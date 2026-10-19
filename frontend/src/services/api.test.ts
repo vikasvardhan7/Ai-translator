@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, askAssistant, createRoom, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
+import { ApiError, askAssistant, cancelMeeting, createRoom, getMeeting, joinMeeting, listMeetings, scheduleMeeting, startMeeting, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -240,6 +240,7 @@ describe('frontend API calls', () => {
       language: 'te',
       transcript: [{ speaker: 'Meeting', text: 'Budget next week.' }],
       actions: ['mute'],
+      now: '2026-10-19T22:10:00+05:30',
     };
 
     await expect(askAssistant(request, { roomId: 'room-1', token: 'secret' })).resolves.toEqual({
@@ -259,9 +260,80 @@ describe('frontend API calls', () => {
   it('passes on why the assistant could not answer and refuses a broken answer', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{"detail":"The free AI limit was reached."}', { status: 503 }));
     fetchMock.mockResolvedValueOnce(new Response('{"answer":"hi"}', { status: 200 }));
-    const request = { messages: [{ role: 'user' as const, text: 'Hi' }], language: 'en', transcript: [], actions: [] };
+    const request = { messages: [{ role: 'user' as const, text: 'Hi' }], language: 'en', transcript: [], actions: [], now: '2026-10-19T22:10:00+05:30' };
 
     await expect(askAssistant(request)).rejects.toThrow('The free AI limit was reached.');
     await expect(askAssistant(request)).rejects.toThrow('gave no answer');
+  });
+
+  const meeting = {
+    id: 'm1',
+    title: 'Budget',
+    starts_at: '2026-10-20T11:30:00+00:00',
+    duration_minutes: 30,
+    agenda: 'Q4',
+    host_name: 'Vikas',
+    status: 'upcoming',
+    people: 0,
+  };
+
+  it('schedules a meeting and keeps both tokens and the public link', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...meeting, host_token: 'h', invite_token: 'i', public_url: null, public_url_problem: 'No public link.',
+    }), { status: 201 }));
+    const plan = { title: 'Budget', starts_at: '2026-10-20T17:00:00+05:30', duration_minutes: 30, agenda: 'Q4', host_name: 'Vikas' };
+
+    await expect(scheduleMeeting(plan)).resolves.toMatchObject({ id: 'm1', host_token: 'h', invite_token: 'i', public_url_problem: 'No public link.' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('http://localhost:8000/api/meetings');
+    expect(JSON.parse(String(init!.body))).toEqual(plan);
+  });
+
+  it('lists upcoming meetings and refuses a broken one', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      meetings: [{ ...meeting, host_token: 'h', invite_token: 'i' }], public_url: 'https://x.example', public_url_problem: null,
+    }), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      meetings: [{ ...meeting, starts_at: 'not a time', host_token: 'h', invite_token: 'i' }],
+    }), { status: 200 }));
+
+    await expect(listMeetings()).resolves.toMatchObject({ meetings: [{ id: 'm1' }], public_url: 'https://x.example' });
+    await expect(listMeetings()).rejects.toThrow('invalid meeting');
+  });
+
+  it('looks at, starts, joins and cancels a meeting with the token in a header', async () => {
+    const room = { room_id: 'r1', host: { id: 'A', name: 'Vikas', preferred_language: 'en' }, guests: [], max_people: 6 };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(meeting), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...room, host_token: 'rh', invite_token: 'ri', public_url: null, public_url_problem: null }), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...room, guests: [{ id: 'B', name: 'Priya', preferred_language: 'hi' }], token: 'device', you: 'B' }), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const access = { meetingId: 'm1', token: 'secret' };
+
+    await expect(getMeeting(access)).resolves.toMatchObject({ title: 'Budget', status: 'upcoming' });
+    await expect(startMeeting(access, { name: 'Vikas', preferred_language: 'en' })).resolves.toMatchObject({ host_token: 'rh' });
+    await expect(joinMeeting(access, { name: 'Priya', preferred_language: 'hi' })).resolves.toMatchObject({ token: 'device', you: 'B' });
+    await expect(cancelMeeting(access)).resolves.toBeUndefined();
+    const calls = fetchMock.mock.calls;
+    expect(calls.map(([url]) => url)).toEqual([
+      'http://localhost:8000/api/meetings/m1',
+      'http://localhost:8000/api/meetings/m1/start',
+      'http://localhost:8000/api/meetings/m1/join',
+      'http://localhost:8000/api/meetings/m1',
+    ]);
+    expect(new Headers(calls[0]![1]!.headers).get('X-Meeting-Token')).toBe('secret');
+    expect(new Headers(calls[1]![1]!.headers).get('X-Meeting-Token')).toBe('secret');
+    expect(JSON.parse(String(calls[2]![1]!.body))).toEqual({ consent: true, token: 'secret', guest: { name: 'Priya', preferred_language: 'hi' } });
+    expect(calls[3]![1]!.method).toBe('DELETE');
+  });
+
+  it('lets a meeting guest find their language with the meeting link', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"language":"hi"}', { status: 200 }));
+
+    await detectLanguage(new ArrayBuffer(4), { meetingId: 'm1', token: 'secret' });
+
+    const headers = new Headers(fetchMock.mock.calls[0]![1]!.headers);
+    expect(headers.get('X-Meeting-Token')).toBe('secret');
+    expect(headers.get('X-Meeting-Id')).toBe('m1');
+    expect(headers.get('X-Room-Id')).toBeNull();
   });
 });

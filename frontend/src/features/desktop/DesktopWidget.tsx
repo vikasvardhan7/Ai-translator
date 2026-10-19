@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 
 const TIPS = [
-  'Say “start meeting captions” in the ask box to begin.',
-  'Double-click Call another device to invite up to 5 people.',
+  'Say “schedule a meeting tomorrow at 5” in the ask box.',
+  'Double-click Meet now and send the link to up to 5 people.',
+  'Schedule a meeting, then email or share its link.',
   'Ask “summarise so far” during any call.',
   'Minimize a call: it keeps running in the taskbar.',
   'Open Personalize to change the colours.',

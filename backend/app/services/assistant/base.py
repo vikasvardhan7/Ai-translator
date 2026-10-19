@@ -49,6 +49,7 @@ class MeetingAssistant(Protocol):
         language: str,
         transcript: list[Said],
         actions: list[str],
+        now: str | None = None,
     ) -> Reply: ...
 
     async def aclose(self) -> None: ...

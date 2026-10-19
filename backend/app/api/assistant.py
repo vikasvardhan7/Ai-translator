@@ -23,6 +23,7 @@ async def ask(body: AssistantRequest, assistant: Assistant) -> AssistantReply:
             body.language,
             [Said(line.speaker, line.text) for line in body.transcript],
             body.actions,
+            body.now.isoformat() if body.now else None,
         )
     except AssistantFailed as failure:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, failure.message) from failure

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.languages import invalid_language_message, language_code
 
@@ -33,6 +33,7 @@ class AssistantRequest(BaseModel):
     language: str
     transcript: list[SaidIn] = Field(default_factory=list, max_length=MAX_LINES)
     actions: list[str] = Field(default_factory=list, max_length=MAX_ACTIONS)
+    now: AwareDatetime | None = None
 
     @field_validator("language")
     @classmethod

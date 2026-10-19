@@ -5,33 +5,43 @@ import {
   createRoom,
   createSession,
   detectLanguage,
+  getMeeting,
   getRoom,
+  joinMeeting,
   joinRoom,
+  startMeeting as openScheduledMeeting,
   type DetectedLanguage,
+  type MeetingAccess,
+  type MeetingInfo,
 } from '../../services/api';
 import {
   inviteLink,
   inviteProblem,
+  meetingLink,
   roomConversation,
   sessionConversation,
   type Conversation,
   type Invite,
+  type MeetingFlow,
 } from '../../services/conversations';
+import { lengthText, whenText } from '../meetings/invite';
 import { languageLabel, languageName } from '../../services/languageNames';
 import { openMicrophoneCapture, type AudioCapture } from '../../services/microphoneCapture';
 import type { SpeakerId } from '../../services/protocol';
 import type { Where as Start } from '../assistant/agent';
+import { savedName, saveName } from './name';
 import { PhraseDetector } from './phrase';
 
 interface SetupAssistantProps {
   invite: Invite | null;
   start: Start | null;
+  flow: MeetingFlow | null;
   onConversation: (conversation: Conversation) => void;
   onChooseManually: () => void;
   onLeaveInvite: () => void;
 }
 
-type Phase = 'loading' | 'intro' | 'where' | 'opening' | 'listening' | 'checking' | 'retry' | 'starting' | 'dead';
+type Phase = 'loading' | 'intro' | 'where' | 'opening' | 'listening' | 'checking' | 'retry' | 'starting' | 'lobby' | 'dead';
 type Where = 'here' | 'remote' | 'meeting' | 'guest';
 type Retry = { kind: 'listen'; person: SpeakerId } | { kind: 'start' };
 
@@ -42,34 +52,23 @@ interface Message {
 }
 
 const PEOPLE: Partial<Record<SpeakerId, string>> = { A: 'Person 1', B: 'Person 2' };
-const NAME_KEY = 'voice-translator-name';
 const MAX_NAME_LENGTH = 40;
-
-function savedName(): string {
-  try {
-    return window.localStorage.getItem(NAME_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function saveName(name: string): void {
-  try {
-    window.localStorage.setItem(NAME_KEY, name);
-  } catch {
-    return;
-  }
-}
 
 function personLabel(id: SpeakerId): string {
   return PEOPLE[id] ?? 'You';
 }
-const WHERE_QUESTION = 'Who are you talking to: someone next to you, someone on another phone or computer, or people in an online meeting?';
+const WHERE_QUESTION = 'What would you like: talk with someone next to you, start a meeting that others join with a link, or live captions for a Zoom, Teams or Meet call?';
 const STARTS: Record<Start, string> = {
-  here: 'Ready for a conversation with someone next to you.',
-  remote: 'Ready for a call with people on other devices. You get one invite link that up to 5 people can use.',
-  meeting: 'Ready for meeting captions.',
+  here: 'Ready to talk with someone next to you.',
+  remote: 'Ready to start a meeting. You get one link that up to 5 people can use to join.',
+  meeting: 'Ready for live captions.',
 };
+const LOBBY_CHECK_MS = 4_000;
+
+function meetingSummary(meeting: MeetingInfo): string {
+  const agenda = meeting.agenda.trim() ? ` Agenda: ${meeting.agenda.trim().replace(/\s*\n\s*/g, '; ')}.` : '';
+  return `“${meeting.title}”, ${whenText(meeting)} (${lengthText(meeting.duration_minutes)}).${agenda}`;
+}
 const DISCLOSURE = "What you say is sent to Google's Gemini to be understood and translated. Nothing is saved here, but on Google's free tier what is sent may be used to improve Google's products.";
 
 function problemText(error: unknown): string {
@@ -82,21 +81,38 @@ function problemText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Try again.';
 }
 
-export default function SetupAssistant({ invite, start, onConversation, onChooseManually, onLeaveInvite }: SetupAssistantProps) {
-  const [messages, setMessages] = useState<Message[]>(() => (invite ? [] : [{
+function firstMessage(start: Start | null, flow: MeetingFlow | null): string {
+  if (flow?.kind === 'host') {
+    return `Ready to start ${meetingSummary(flow.meeting)} Press the button below, then say hello in your own language. Everyone with the link joins as soon as you are in. ${DISCLOSURE}`;
+  }
+  if (start) {
+    return `${STARTS[start]} Press the button below, then say hello in your own language. ${DISCLOSURE}`;
+  }
+  return `Hi! I translate conversations: with someone next to you, in a meeting that others join with a link, or as live captions for a Zoom, Teams or Meet call. Just say hello in your own language and I'll work out the rest. ${DISCLOSURE}`;
+}
+
+export default function SetupAssistant({ invite, start, flow, onConversation, onChooseManually, onLeaveInvite }: SetupAssistantProps) {
+  const guestFlow = flow?.kind === 'guest' ? flow : null;
+  const hostFlow = flow?.kind === 'host' ? flow : null;
+  const meetingAccess: MeetingAccess | null = guestFlow
+    ? guestFlow.invite
+    : hostFlow
+      ? { meetingId: hostFlow.meeting.id, token: hostFlow.meeting.host_token }
+      : null;
+  const [messages, setMessages] = useState<Message[]>(() => (invite || guestFlow ? [] : [{
     id: 0,
     from: 'assistant',
-    text: start
-      ? `${STARTS[start]} Press the button below, then say hello in your own language. ${DISCLOSURE}`
-      : `Hi! I translate conversations: with someone next to you, with someone on another device, or in an online meeting. Just say hello in your own language and I'll work out the rest. ${DISCLOSURE}`,
+    text: firstMessage(hostFlow ? 'remote' : start, flow),
   }]));
-  const [phase, setPhase] = useState<Phase>(invite ? 'loading' : 'intro');
+  const [phase, setPhase] = useState<Phase>(invite || guestFlow ? 'loading' : 'intro');
   const [listeningTo, setListeningTo] = useState<SpeakerId>('A');
   const [level, setLevel] = useState(0);
   const [retry, setRetry] = useState<Retry>({ kind: 'listen', person: 'A' });
-  const [name, setName] = useState(savedName);
-  const [askName, setAskName] = useState(start === 'remote');
-  const whereRef = useRef<Where>(invite ? 'guest' : 'here');
+  const [name, setName] = useState(() => savedName() || (hostFlow?.meeting.host_name ?? ''));
+  const [askName, setAskName] = useState(start === 'remote' || hostFlow !== null);
+  const whereRef = useRef<Where>(invite || guestFlow ? 'guest' : hostFlow ? 'remote' : 'here');
+  const meetingRef = useRef<MeetingInfo | null>(hostFlow?.meeting ?? null);
+  const lobbyRef = useRef<number | null>(null);
   const nameRef = useRef(name);
   const foundRef = useRef<Partial<Record<SpeakerId, DetectedLanguage>>>({});
   const captureRef = useRef<AudioCapture | null>(null);
@@ -120,10 +136,52 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
     setLevel(0);
   }, []);
 
+  const stopLobby = useCallback(() => {
+    if (lobbyRef.current !== null) {
+      window.clearTimeout(lobbyRef.current);
+      lobbyRef.current = null;
+    }
+  }, []);
+
   useEffect(() => () => {
     runRef.current += 1;
     captureRef.current?.stop();
+    if (lobbyRef.current !== null) {
+      window.clearTimeout(lobbyRef.current);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!guestFlow) {
+      return undefined;
+    }
+    let cancelled = false;
+    getMeeting(guestFlow.invite).then((meeting) => {
+      if (cancelled) {
+        return;
+      }
+      meetingRef.current = meeting;
+      if (meeting.status === 'ended') {
+        add('assistant', `${meetingSummary(meeting)} This meeting is over. Ask ${meeting.host_name} for a new link.`);
+        setPhase('dead');
+        return;
+      }
+      const state = meeting.status === 'live'
+        ? `It is live now with ${meeting.people} ${meeting.people === 1 ? 'person' : 'people'}.`
+        : `It has not started yet; you can get ready now and you join the moment ${meeting.host_name} starts it.`;
+      add('assistant', `Hi! ${meeting.host_name} invites you to ${meetingSummary(meeting)} ${state} Type your name, then say hello in your own language. ${DISCLOSURE}`);
+      setAskName(true);
+      setPhase('intro');
+    }, (error: unknown) => {
+      if (!cancelled) {
+        add('assistant', problemText(error));
+        setPhase('dead');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [add, guestFlow]);
 
   useEffect(() => {
     nameRef.current = name;
@@ -226,6 +284,56 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
       return;
     }
     const myName = nameRef.current.trim().slice(0, MAX_NAME_LENGTH);
+    if (where === 'guest' && guestFlow) {
+      saveName(myName);
+      const access = guestFlow.invite;
+      const guest = { name: myName || 'Guest', preferred_language: found.language };
+      const link = { link: meetingLink(access.meetingId, access.token, null, window.location.origin), problem: null };
+      const tryJoin = async (): Promise<void> => {
+        lobbyRef.current = null;
+        try {
+          const joined = await joinMeeting(access, guest);
+          if (run === runRef.current) {
+            add('assistant', 'The meeting is live. Bringing you in.');
+            onConversation({ ...roomConversation(joined.room, joined.token, joined.you, link), title: meetingRef.current?.title });
+          }
+        } catch (error) {
+          if (run !== runRef.current) {
+            return;
+          }
+          if (error instanceof ApiError && error.status === 409 && /not started/.test(error.detail)) {
+            setPhase('lobby');
+            lobbyRef.current = window.setTimeout(() => void tryJoin(), LOBBY_CHECK_MS);
+            return;
+          }
+          if (error instanceof ApiError && [403, 404, 409, 410].includes(error.status)) {
+            add('assistant', error.detail);
+            setPhase('dead');
+            return;
+          }
+          lobbyRef.current = window.setTimeout(() => void tryJoin(), LOBBY_CHECK_MS);
+        }
+      };
+      setPhase('starting');
+      await tryJoin();
+      if (run === runRef.current && lobbyRef.current !== null) {
+        add('assistant', `Waiting for ${meetingRef.current?.host_name ?? 'the host'} to start the meeting. Keep this window open; you join automatically.`);
+      }
+      return;
+    }
+    if (where === 'remote' && hostFlow) {
+      setPhase('starting');
+      saveName(myName);
+      const room = await openScheduledMeeting(
+        { meetingId: hostFlow.meeting.id, token: hostFlow.meeting.host_token },
+        { name: myName || hostFlow.meeting.host_name, preferred_language: found.language },
+      );
+      if (run === runRef.current) {
+        add('assistant', 'Your meeting is live. Everyone with the link can join now.');
+        onConversation({ ...roomConversation(room, room.host_token, 'A', hostFlow.invite), title: hostFlow.meeting.title });
+      }
+      return;
+    }
     if (where === 'guest' && invite) {
       setPhase('starting');
       try {
@@ -279,7 +387,7 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
     }
     add('assistant', `${languageName(foundRef.current.A!.language)} and ${languageName(foundRef.current.B!.language)}. Starting now.`);
     void startTogether();
-  }, [add, fail, invite, onConversation, startMeeting, startTogether]);
+  }, [add, fail, guestFlow, hostFlow, invite, onConversation, startMeeting, startTogether]);
 
   const listen = useCallback(async (person: SpeakerId) => {
     runRef.current += 1;
@@ -301,7 +409,10 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
       }
       setPhase('checking');
       try {
-        const found = await detectLanguage(detector.wav(), invite ? { roomId: invite.roomId, token: invite.token } : undefined);
+        const found = await detectLanguage(
+          detector.wav(),
+          invite ? { roomId: invite.roomId, token: invite.token } : meetingAccess ?? undefined,
+        );
         if (run !== runRef.current) {
           return;
         }
@@ -348,7 +459,7 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
         fail(problemText(error), { kind: 'listen', person });
       }
     }
-  }, [add, afterDetecting, fail, invite, stopCapture]);
+  }, [add, afterDetecting, fail, invite, meetingAccess, stopCapture]);
 
   listenRef.current = listen;
 
@@ -359,6 +470,10 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
     if (whereRef.current === 'guest') {
       add('assistant', 'Say hello in your language.');
       void listen('B');
+      return;
+    }
+    if (hostFlow) {
+      begin('remote');
       return;
     }
     if (start) {
@@ -399,7 +514,13 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
   function startOver(): void {
     runRef.current += 1;
     stopCapture();
+    stopLobby();
     foundRef.current = {};
+    if (hostFlow) {
+      add('assistant', 'Starting over. Say hello in your language.');
+      void listen('A');
+      return;
+    }
     if (whereRef.current === 'guest') {
       add('assistant', 'Starting over. Say hello in your language.');
       void listen('B');
@@ -410,7 +531,7 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
   }
 
   const meter = Math.round(Math.max(0, Math.min(1, level)) * 100);
-  const listName = whereRef.current === 'guest' ? null : onChooseManually;
+  const listName = whereRef.current === 'guest' || hostFlow ? null : onChooseManually;
 
   return (
     <section className="assistant" aria-label="Setup assistant">
@@ -465,13 +586,13 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
         {phase === 'where' && (
           <>
             <button className="button button-primary" type="button" onClick={() => choose('here')}>
-              Next to me
+              Talk here
             </button>
             <button className="button button-secondary" type="button" onClick={() => choose('remote')}>
-              On another device
+              Meet now (send a link)
             </button>
             <button className="button button-secondary" type="button" onClick={() => choose('meeting')}>
-              In an online meeting
+              Live captions for Zoom, Teams or Meet
             </button>
           </>
         )}
@@ -511,6 +632,17 @@ export default function SetupAssistant({ invite, start, onConversation, onChoose
                 Choose from a list
               </button>
             )}
+          </>
+        )}
+        {phase === 'lobby' && (
+          <>
+            <p className="assistant-busy lobby-wait" role="status">
+              <span className="lobby-pulse" aria-hidden="true" />
+              In the lobby: waiting for {meetingRef.current?.host_name ?? 'the host'} to start
+            </p>
+            <button className="button button-link" type="button" onClick={startOver}>
+              Start over
+            </button>
           </>
         )}
         {phase === 'dead' && (

@@ -1,4 +1,4 @@
-import type { CreatedRoom, RoomAccess, RoomInfo } from './api';
+import type { CreatedRoom, HostedMeeting, RoomAccess, RoomInfo } from './api';
 import type { ConversationMode, CreateSessionResponse, Participant, SpeakerId } from './protocol';
 
 export interface InviteDetails {
@@ -8,6 +8,7 @@ export interface InviteDetails {
 
 export interface Conversation {
   id: string;
+  title?: string;
   mode: ConversationMode;
   participants: Participant[];
   streamPath: string;
@@ -57,6 +58,39 @@ export function roomConversation(
 export function inviteLink(room: CreatedRoom, origin: string): string {
   const base = (room.public_url ?? origin).replace(/\/+$/, '');
   return `${base}/#join/${encodeURIComponent(room.room_id)}/${encodeURIComponent(room.invite_token)}`;
+}
+
+export interface MeetingInvite {
+  meetingId: string;
+  token: string;
+}
+
+export type MeetingFlow =
+  | { kind: 'host'; meeting: HostedMeeting; invite: InviteDetails }
+  | { kind: 'guest'; invite: MeetingInvite };
+
+export function meetingLink(meetingId: string, inviteToken: string, publicUrl: string | null, origin: string): string {
+  const base = (publicUrl ?? origin).replace(/\/+$/, '');
+  return `${base}/#meet/${encodeURIComponent(meetingId)}/${encodeURIComponent(inviteToken)}`;
+}
+
+export function meetingFromHash(hash: string): MeetingInvite | null {
+  const match = /^#meet\/([^/]+)\/([^/]+)$/.exec(hash);
+  if (!match) {
+    return null;
+  }
+  try {
+    return { meetingId: decodeURIComponent(match[1]!), token: decodeURIComponent(match[2]!) };
+  } catch {
+    return null;
+  }
+}
+
+export function linkProblem(publicUrl: string | null, problem: string | null, hostname: string): string | null {
+  if (publicUrl || !isLocalOnly(hostname)) {
+    return null;
+  }
+  return problem ?? 'This link only works on this computer.';
 }
 
 export function inviteProblem(room: CreatedRoom, hostname: string): string | null {

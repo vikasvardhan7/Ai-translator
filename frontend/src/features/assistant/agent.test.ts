@@ -4,7 +4,7 @@ import { history, MAX_HISTORY, note, possibleActions, runActions } from './agent
 import { blocks, inline } from './markdown';
 
 function handlers() {
-  return { open: vi.fn(), close: vi.fn(), start: vi.fn(), theme: vi.fn() };
+  return { open: vi.fn(), close: vi.fn(), start: vi.fn(), theme: vi.fn(), schedule: vi.fn() };
 }
 
 describe('assistant actions', () => {
@@ -30,7 +30,7 @@ describe('assistant actions', () => {
     expect(done).toEqual([
       'Opened Help',
       'Muted your microphone',
-      "Ready to start meeting captions: press I agree, let's start",
+      "Ready to start live captions: press I agree, let's start",
       'Changed the look to Sunset',
     ]);
   });
@@ -43,8 +43,26 @@ describe('assistant actions', () => {
 
   it('offers starting a conversation only when none is running', () => {
     const call = { available: ['mute' as const], run: vi.fn() };
-    expect(possibleActions(false, null)).toEqual(['open_app', 'close_app', 'start_conversation', 'set_theme']);
-    expect(possibleActions(true, call)).toEqual(['open_app', 'close_app', 'set_theme', 'mute']);
+    expect(possibleActions(false, null)).toEqual(['open_app', 'close_app', 'start_conversation', 'set_theme', 'schedule_meeting']);
+    expect(possibleActions(true, call)).toEqual(['open_app', 'close_app', 'set_theme', 'schedule_meeting', 'mute']);
+  });
+
+  it('schedules a meeting the person asked for', () => {
+    const desktop = handlers();
+
+    const done = runActions([
+      { name: 'schedule_meeting', arguments: { title: 'Budget', starts_at: '2026-10-20T17:00:00+05:30', duration_minutes: '45', agenda: 'Q4' } },
+      { name: 'schedule_meeting', arguments: { title: 'Broken', starts_at: 'soon', duration_minutes: '30' } },
+    ], desktop, null);
+
+    expect(desktop.schedule).toHaveBeenCalledExactlyOnceWith({
+      title: 'Budget',
+      starts_at: '2026-10-20T17:00:00+05:30',
+      duration_minutes: 45,
+      agenda: 'Q4',
+    });
+    expect(done).toHaveLength(1);
+    expect(done[0]).toMatch(/^Scheduled “Budget” for .+\. The link is in Meetings$/);
   });
 
   it('sends only the latest trimmed chat turns', () => {

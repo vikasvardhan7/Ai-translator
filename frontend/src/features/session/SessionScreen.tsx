@@ -642,9 +642,10 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   }
   let title = participants.map((person) => languageName(person.preferred_language)).join(' and ');
   if (meeting && participants[0]) {
-    title = `Meeting captions in ${languageName(participants[0].preferred_language)}`;
+    title = `Live captions in ${languageName(participants[0].preferred_language)}`;
   } else if (remote) {
-    title = `${participants.length} ${participants.length === 1 ? 'person' : 'people'} · ${languages.join(', ')}`;
+    const count = `${participants.length} ${participants.length === 1 ? 'person' : 'people'}`;
+    title = [conversation.title, count, languages.join(', ')].filter(Boolean).join(' · ');
   }
 
   return (

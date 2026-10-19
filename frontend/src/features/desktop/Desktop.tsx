@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
-import { createSession } from '../../services/api';
-import { inviteFromHash, sessionConversation, type Conversation, type Invite } from '../../services/conversations';
+import { createSession, type HostedMeeting } from '../../services/api';
+import {
+  inviteFromHash,
+  meetingFromHash,
+  sessionConversation,
+  type Conversation,
+  type Invite,
+  type InviteDetails,
+  type MeetingFlow,
+} from '../../services/conversations';
 import type { Participant } from '../../services/protocol';
 import AssistantApp, { type ChatEntry, type Prompt } from '../assistant/AssistantApp';
-import { APP_NAMES, type DesktopHandlers, type Where } from '../assistant/agent';
+import { APP_NAMES, type DesktopHandlers, type MeetingRequest, type Where } from '../assistant/agent';
 import ConsentScreen from '../consent/ConsentScreen';
 import { PrivacyPolicy, TermsAndConditions } from '../legal/LegalPages';
+import MeetingsApp, { type PlanRequest } from '../meetings/MeetingsApp';
 import type { Turn } from '../session/conversation';
 import SessionScreen from '../session/SessionScreen';
 import AppIcon, { type IconName } from './AppIcon';
@@ -39,6 +48,12 @@ const PARTICLES = particles();
 interface Launch {
   where: Where | null;
   key: number;
+  flow: MeetingFlow | null;
+}
+
+function flowFromHash(): MeetingFlow | null {
+  const invite = meetingFromHash(window.location.hash);
+  return invite ? { kind: 'guest', invite } : null;
 }
 
 interface Shortcut {
@@ -53,17 +68,29 @@ function currentArea(): Area {
 
 function firstApp(): AppId {
   const hash = window.location.hash.slice(1);
-  return hash === 'privacy' || hash === 'terms' ? hash : 'translator';
+  if (hash === 'privacy' || hash === 'terms') {
+    return hash;
+  }
+  return hash === 'meetings' ? 'meetings' : 'translator';
 }
 
 function conversationTitle(conversation: Conversation | null): string {
   if (!conversation) {
     return APP_NAMES.translator;
   }
-  if (conversation.mode === 'call') {
-    return 'Meeting captions';
+  if (conversation.title) {
+    return conversation.title;
   }
-  return conversation.mode === 'remote' ? 'Call' : 'Conversation';
+  if (conversation.mode === 'call') {
+    return 'Live captions';
+  }
+  return conversation.mode === 'remote' ? 'Meeting' : 'Conversation';
+}
+
+function clearLinkHash(): void {
+  if (window.location.hash.startsWith('#join') || window.location.hash.startsWith('#meet')) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }
 }
 
 export default function Desktop() {
@@ -72,7 +99,8 @@ export default function Desktop() {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [carriedTurns, setCarriedTurns] = useState<Turn[]>([]);
   const [invite, setInvite] = useState<Invite | null>(() => inviteFromHash(window.location.hash));
-  const [launch, setLaunch] = useState<Launch>({ where: null, key: 0 });
+  const [launch, setLaunch] = useState<Launch>(() => ({ where: null, key: 0, flow: flowFromHash() }));
+  const [planRequest, setPlanRequest] = useState<PlanRequest | null>(null);
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -102,8 +130,13 @@ export default function Desktop() {
     function syncFromHash(): void {
       const hash = window.location.hash.slice(1);
       const found = inviteFromHash(window.location.hash);
+      const meeting = meetingFromHash(window.location.hash);
       if (found) {
         setInvite(found);
+        setDesk((current) => open(current, 'translator', currentArea()));
+      } else if (meeting && !sessionIdRef.current) {
+        setInvite(null);
+        setLaunch((current) => ({ where: null, key: current.key + 1, flow: { kind: 'guest', invite: meeting } }));
         setDesk((current) => open(current, 'translator', currentArea()));
       } else if (hash === 'privacy' || hash === 'terms') {
         setDesk((current) => open(current, hash, currentArea()));
@@ -129,15 +162,12 @@ export default function Desktop() {
     setConversation(null);
     setCarriedTurns([]);
     setInvite(null);
-    if (window.location.hash.startsWith('#join')) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-    }
+    setLaunch((current) => ({ where: null, key: current.key + 1, flow: null }));
+    clearLinkHash();
   }, []);
 
   const startConversation = useCallback((next: Conversation, turns: Turn[] = []) => {
-    if (window.location.hash.startsWith('#join')) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-    }
+    clearLinkHash();
     sessionIdRef.current = next.id;
     setCarriedTurns(turns);
     setConversation(next);
@@ -158,9 +188,26 @@ export default function Desktop() {
   const start = useCallback((where: Where) => {
     if (!sessionIdRef.current) {
       setInvite(null);
-      setLaunch((current) => ({ where, key: current.key + 1 }));
+      setLaunch((current) => ({ where, key: current.key + 1, flow: null }));
     }
     setDesk((current) => open(current, 'translator', currentArea()));
+  }, []);
+
+  const hostMeeting = useCallback((meeting: HostedMeeting, details: InviteDetails) => {
+    if (!sessionIdRef.current) {
+      setInvite(null);
+      setLaunch((current) => ({
+        where: 'remote',
+        key: current.key + 1,
+        flow: { kind: 'host', meeting, invite: details },
+      }));
+    }
+    setDesk((current) => open(current, 'translator', currentArea()));
+  }, []);
+
+  const schedule = useCallback((meeting: MeetingRequest) => {
+    setPlanRequest((current) => ({ id: (current?.id ?? 0) + 1, plan: meeting }));
+    setDesk((current) => open(current, 'meetings', currentArea()));
   }, []);
 
   const closeApp = useCallback((app: AppId) => {
@@ -180,15 +227,15 @@ export default function Desktop() {
   }, []);
 
   const handlers: DesktopHandlers = useMemo(
-    () => ({ open: openApp, close: closeApp, start, theme: setTheme }),
-    [closeApp, openApp, start],
+    () => ({ open: openApp, close: closeApp, start, theme: setTheme, schedule }),
+    [closeApp, openApp, schedule, start],
   );
 
   const shortcuts: Shortcut[] = [
-    { label: 'Translator', icon: 'translator', run: () => openApp('translator') },
-    { label: 'Meeting captions', icon: 'meeting', run: () => start('meeting') },
-    { label: 'Call another device', icon: 'remote', run: () => start('remote') },
-    { label: 'Talk next to me', icon: 'here', run: () => start('here') },
+    { label: 'Meet now', icon: 'remote', run: () => start('remote') },
+    { label: 'Schedule', icon: 'schedule', run: () => openApp('meetings') },
+    { label: 'Live captions', icon: 'meeting', run: () => start('meeting') },
+    { label: 'Talk here', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
     { label: 'Personalize', icon: 'personalize', run: () => openApp('personalize') },
     { label: 'Help', icon: 'help', run: () => openApp('help') },
@@ -219,11 +266,14 @@ export default function Desktop() {
           <ConsentScreen
             key={invite ? `invite/${invite.roomId}` : `start/${launch.key}`}
             invite={invite}
+            flow={invite ? null : launch.flow}
             start={launch.where}
             onConversation={startConversation}
             onLeaveInvite={returnToStart}
           />
         );
+      case 'meetings':
+        return <MeetingsApp request={planRequest} onRequestTaken={() => setPlanRequest(null)} onStart={hostMeeting} />;
       case 'assistant':
         return (
           <AssistantApp

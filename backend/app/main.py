@@ -9,11 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import access, assistant, languages, rooms, sessions, voices
+from app.api import access, assistant, languages, meetings, rooms, sessions, voices
 from app.core.access import new_host_key
 from app.core.config import BACKEND_DIR, Settings, get_settings
 from app.core.errors import install_error_handlers
 from app.services.assistant.factory import build_meeting_assistant
+from app.services.meeting_store import MeetingStore
 from app.services.public_address import PublicAddress, find_cloudflared
 from app.services.room_store import RoomStore
 from app.services.session_store import SessionStore
@@ -58,6 +59,7 @@ def create_app(
     settings: Settings | None = None,
     frontend_dist: Path | None = None,
     host_key: str | None = None,
+    meeting_store: MeetingStore | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -70,6 +72,7 @@ def create_app(
         yield
         async with AsyncExitStack() as services:
             services.push_async_callback(app.state.public_address.aclose)
+            services.callback(app.state.meetings.close)
             for service in (
                 app.state.speech_translator,
                 app.state.speech_synthesizer,
@@ -83,6 +86,7 @@ def create_app(
     app.state.host_key = host_key or new_host_key()
     app.state.sessions = SessionStore()
     app.state.rooms = RoomStore()
+    app.state.meetings = meeting_store or MeetingStore(settings.meetings_file)
     app.state.speech_translator = build_speech_translator(settings)
     app.state.speech_synthesizer = build_speech_synthesizer(settings)
     app.state.meeting_assistant = build_meeting_assistant(settings)
@@ -108,6 +112,7 @@ def create_app(
     app.include_router(sessions.router)
     app.include_router(languages.router)
     app.include_router(rooms.router)
+    app.include_router(meetings.router)
     app.include_router(voices.router)
     app.include_router(assistant.router)
     if frontend_dist is not None and frontend_dist.is_dir():
