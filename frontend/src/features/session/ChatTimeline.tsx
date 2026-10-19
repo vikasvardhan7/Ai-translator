@@ -1,10 +1,11 @@
 import { memo, useEffect, useRef } from 'react';
 
 import type { Participant, SpeakerId } from '../../services/protocol';
-import { bubbleFor, type Bubble, type Turn } from './conversation';
+import { bubbleFor, speakerName, type Bubble, type Names, type Turn } from './conversation';
 
 interface ChatTimelineProps {
   participants: Participant[];
+  names: Names;
   turns: Turn[];
   you: SpeakerId | null;
 }
@@ -18,15 +19,10 @@ function sideClass(side: SpeakerId | null, right: SpeakerId): string {
   return side === right ? 'bubble-right' : 'bubble-left';
 }
 
-function ChatTimeline({ participants, turns, you }: ChatTimelineProps) {
+function ChatTimeline({ participants, names, turns, you }: ChatTimelineProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const stickyRef = useRef(true);
-  const nameOf = (id: SpeakerId | null): string => {
-    if (you && id) {
-      return id === you ? 'You' : 'Them';
-    }
-    return participants.find((person) => person.id === id)?.name ?? 'Someone';
-  };
+  const nameOf = (id: SpeakerId | null): string => speakerName(names, id);
 
   useEffect(() => {
     const list = listRef.current;
@@ -41,7 +37,7 @@ function ChatTimeline({ participants, turns, you }: ChatTimelineProps) {
       case 'pending':
         return (
           <article className={className} key={turn.utteranceId}>
-            <p className="bubble-meta">{bubble.side ? nameOf(bubble.side) : 'Someone'} spoke</p>
+            <p className="bubble-meta">{nameOf(bubble.side)} spoke</p>
             <p className="bubble-dots">
               <span aria-hidden="true" />
               <span aria-hidden="true" />

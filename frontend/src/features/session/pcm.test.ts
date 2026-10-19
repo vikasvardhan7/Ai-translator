@@ -5,6 +5,7 @@ import {
   PcmFrameBuilder,
   rmsLevel,
   StreamingPcmResampler,
+  tagFrame,
 } from './pcm';
 
 describe('PCM helpers', () => {
@@ -47,5 +48,12 @@ describe('PCM helpers', () => {
     expect(rmsLevel(new Float32Array(0))).toBe(0);
     expect(rmsLevel(Float32Array.of(0.5, -0.5))).toBeCloseTo(0.5);
     expect(rmsLevel(Float32Array.of(2))).toBe(1);
+  });
+
+  it('puts the source letter in front of a frame for a meeting', () => {
+    const frame = new Uint8Array([1, 2, 3, 4]).buffer;
+
+    expect([...new Uint8Array(tagFrame('B', frame))]).toEqual([66, 1, 2, 3, 4]);
+    expect([...new Uint8Array(tagFrame('A', frame))]).toEqual([65, 1, 2, 3, 4]);
   });
 });

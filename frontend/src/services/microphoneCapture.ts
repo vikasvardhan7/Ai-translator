@@ -4,7 +4,7 @@ import {
   StreamingPcmResampler,
 } from '../features/session/pcm';
 
-export interface MicrophoneCapture {
+export interface AudioCapture {
   start(onAudioFrame: (frame: ArrayBuffer) => void, onLevel: (level: number) => void, onLost: () => void): void;
   pause(): void;
   resume(): void;
@@ -31,6 +31,13 @@ function resumeOrGiveUp(context: AudioContext): Promise<void> {
   ]);
 }
 
+function meetingError(error: unknown): Error {
+  if (error instanceof DOMException && error.name === 'NotAllowedError') {
+    return new Error("Sharing was cancelled. Select Connect meeting and choose the meeting's tab or screen.");
+  }
+  return error instanceof Error ? error : new Error("The meeting's sound could not be shared.");
+}
+
 function microphoneError(error: unknown): Error {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
     return new Error('Microphone blocked. Click the lock icon in the address bar and allow the microphone.');
@@ -44,23 +51,13 @@ function microphoneError(error: unknown): Error {
   return error instanceof Error ? error : new Error('The microphone could not be opened.');
 }
 
-export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
+export async function openMicrophoneCapture(): Promise<AudioCapture> {
   if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') {
     throw new Error('Microphone capture requires Chrome or Edge on a secure page or localhost.');
   }
 
-  let context: AudioContext;
-  try {
-    context = new AudioContext();
-  } catch {
-    throw new Error('This browser could not open audio capture. Try the latest version of Chrome or Edge.');
-  }
-
+  const context = newContext();
   let stream: MediaStream | null = null;
-  let source: MediaStreamAudioSourceNode;
-  let processor: AudioWorkletNode;
-  let mutedOutput: GainNode;
-
   try {
     const streamPromise = navigator.mediaDevices.getUserMedia({
       audio: {
@@ -79,31 +76,74 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
     if (resumeResult.status === 'rejected') {
       throw new Error('Audio capture could not start. Check the browser audio settings.');
     }
-    if (context.state !== 'running') {
-      await resumeOrGiveUp(context);
-    }
-    if (context.state !== 'running') {
-      throw new MicrophoneNeedsTap();
-    }
-    if (!context.audioWorklet) {
-      throw new Error('This browser does not support the audio capture worklet. Use the latest Chrome or Edge.');
-    }
-    await context.audioWorklet.addModule(`${import.meta.env.BASE_URL}pcm-worklet.js`);
-    source = context.createMediaStreamSource(stream);
-    processor = new AudioWorkletNode(context, 'pcm-capture', {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      channelCount: 1,
-    });
-    mutedOutput = context.createGain();
-    mutedOutput.gain.value = 0;
+    return await captureFrom(stream, context);
   } catch (error) {
     stream?.getTracks().forEach((track) => track.stop());
     await context.close().catch(() => undefined);
     throw error instanceof MicrophoneNeedsTap ? error : microphoneError(error);
   }
+}
 
-  const microphoneStream = stream;
+export async function openMeetingCapture(): Promise<AudioCapture> {
+  if (!navigator.mediaDevices?.getDisplayMedia || typeof AudioContext === 'undefined') {
+    throw new Error("This browser cannot share a meeting's sound. Use Chrome or Edge on a computer.");
+  }
+
+  const context = newContext();
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
+    } as DisplayMediaStreamOptions);
+    if (stream.getAudioTracks().length === 0) {
+      throw new Error(
+        "No sound was shared. Choose the meeting's tab and turn on Share tab audio, or for the Teams or Zoom app choose Entire screen and turn on Share system audio.",
+      );
+    }
+    for (const track of stream.getVideoTracks()) {
+      track.enabled = false;
+    }
+    await resumeOrGiveUp(context);
+    return await captureFrom(stream, context);
+  } catch (error) {
+    stream?.getTracks().forEach((track) => track.stop());
+    await context.close().catch(() => undefined);
+    throw error instanceof MicrophoneNeedsTap ? error : meetingError(error);
+  }
+}
+
+function newContext(): AudioContext {
+  try {
+    return new AudioContext();
+  } catch {
+    throw new Error('This browser could not open audio capture. Try the latest version of Chrome or Edge.');
+  }
+}
+
+async function captureFrom(stream: MediaStream, context: AudioContext): Promise<AudioCapture> {
+  if (context.state !== 'running') {
+    await resumeOrGiveUp(context);
+  }
+  if (context.state !== 'running') {
+    throw new MicrophoneNeedsTap();
+  }
+  if (!context.audioWorklet) {
+    throw new Error('This browser does not support the audio capture worklet. Use the latest Chrome or Edge.');
+  }
+  await context.audioWorklet.addModule(`${import.meta.env.BASE_URL}pcm-worklet.js`);
+  const source = context.createMediaStreamSource(stream);
+  const processor = new AudioWorkletNode(context, 'pcm-capture', {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    channelCount: 1,
+  });
+  const mutedOutput = context.createGain();
+  mutedOutput.gain.value = 0;
+
   let resampler = new StreamingPcmResampler(context.sampleRate);
   let frameBuilder = new PcmFrameBuilder();
   let listening = false;
@@ -148,7 +188,7 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
       }
       sendFrame = onAudioFrame;
       reportLevel = onLevel;
-      for (const track of microphoneStream.getAudioTracks()) {
+      for (const track of stream.getAudioTracks()) {
         track.onended = () => {
           if (!stopped) {
             onLost();
@@ -179,7 +219,7 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
     },
 
     mute(muted) {
-      for (const track of microphoneStream.getAudioTracks()) {
+      for (const track of stream.getAudioTracks()) {
         track.enabled = !muted;
       }
     },
@@ -208,7 +248,7 @@ export async function openMicrophoneCapture(): Promise<MicrophoneCapture> {
         processor.disconnect();
         mutedOutput.disconnect();
       }
-      microphoneStream.getTracks().forEach((track) => {
+      stream.getTracks().forEach((track) => {
         track.onended = null;
         track.stop();
       });

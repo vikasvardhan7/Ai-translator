@@ -10,38 +10,40 @@ export interface Participant {
 
 export type BrowserMessage =
   | { type: 'ping' }
-  | { type: 'audio.pause' }
+  | { type: 'audio.pause'; participant_id?: SpeakerId }
   | { type: 'voice.settings'; listener_id: SpeakerId; server_voice: boolean; voice: string | null }
   | { type: 'language.set'; participant_id: SpeakerId; language: string }
+  | { type: 'voice.played'; utterance_id: string; listener_id: SpeakerId; seconds: number }
   | { type: 'session.stop' };
 
-export interface SessionReadyMessage {
+interface SessionReadyMessage {
   type: 'session.ready';
   seq: number;
   session_id: string;
   participants: Participant[];
   server_voice: boolean;
   mode: ConversationMode;
+  connected: SpeakerId[] | null;
 }
 
-export interface ParticipantsUpdatedMessage {
+interface ParticipantsUpdatedMessage {
   type: 'participants.updated';
   seq: number;
   participants: Participant[];
 }
 
-export interface PeerLeftMessage {
-  type: 'peer.left';
+interface PeerMessage {
+  type: 'peer.connected' | 'peer.disconnected' | 'peer.left';
   seq: number;
   participant_id: SpeakerId;
 }
 
-export interface PongMessage {
+interface PongMessage {
   type: 'pong';
   seq: number;
 }
 
-export interface ServerErrorMessage {
+interface ServerErrorMessage {
   type: 'error';
   seq: number;
   code: string;
@@ -51,7 +53,7 @@ export interface ServerErrorMessage {
   listener_id: SpeakerId | null;
 }
 
-export interface UtteranceReceivedMessage {
+interface UtteranceReceivedMessage {
   type: 'utterance.received';
   seq: number;
   utterance_id: string;
@@ -59,20 +61,20 @@ export interface UtteranceReceivedMessage {
   duration_ms: number;
 }
 
-export interface SpeechActivityMessage {
+interface SpeechActivityMessage {
   type: 'speech.activity';
   seq: number;
   speaker_id: SpeakerId | null;
   active: boolean;
 }
 
-export interface UtteranceIgnoredMessage {
+interface UtteranceIgnoredMessage {
   type: 'utterance.ignored';
   seq: number;
   utterance_id: string;
 }
 
-export interface TranscriptFinalMessage {
+interface TranscriptFinalMessage {
   type: 'transcript.final';
   seq: number;
   utterance_id: string;
@@ -82,7 +84,7 @@ export interface TranscriptFinalMessage {
   language_name: string;
 }
 
-export interface TranslationFinalMessage {
+interface TranslationFinalMessage {
   type: 'translation.final';
   seq: number;
   utterance_id: string;
@@ -92,7 +94,7 @@ export interface TranslationFinalMessage {
   text: string;
 }
 
-export interface TtsAudioMessage {
+interface TtsAudioMessage {
   type: 'tts.audio';
   seq: number;
   utterance_id: string;
@@ -104,7 +106,7 @@ export interface TtsAudioMessage {
 export type ServerMessage =
   | SessionReadyMessage
   | PongMessage
-  | PeerLeftMessage
+  | PeerMessage
   | ParticipantsUpdatedMessage
   | ServerErrorMessage
   | UtteranceReceivedMessage
@@ -182,6 +184,7 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           participants: parsed.participants,
           server_voice: parsed.server_voice,
           mode: parsed.mode,
+          connected: Array.isArray(parsed.connected) && parsed.connected.every(isSpeakerId) ? parsed.connected : null,
         };
       }
       return null;
@@ -190,9 +193,11 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
         return { type: 'participants.updated', seq, participants: parsed.participants };
       }
       return null;
+    case 'peer.connected':
+    case 'peer.disconnected':
     case 'peer.left':
       if (isSpeakerId(parsed.participant_id)) {
-        return { type: 'peer.left', seq, participant_id: parsed.participant_id };
+        return { type: parsed.type, seq, participant_id: parsed.participant_id };
       }
       return null;
     case 'pong':

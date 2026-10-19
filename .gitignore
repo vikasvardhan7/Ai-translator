@@ -20,6 +20,10 @@ dist/
 *.tsbuildinfo
 npm-debug.log*
 
+# Word lock files and coverage reports
+~$*
+coverage/
+
 # Editors and OS
 .vscode/*
 !.vscode/extensions.json

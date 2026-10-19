@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { ApiError, createSession, getHealth } from '../../services/api';
+import { ApiError, createSession, getHealth, isHost } from '../../services/api';
 import { sessionConversation, type Conversation, type Invite } from '../../services/conversations';
 import type { Participant } from '../../services/protocol';
 import SetupAssistant from '../setup/SetupAssistant';
+import HostKeyPrompt from './HostKeyPrompt';
 import ParticipantCard from './ParticipantCard';
 import { loadLanguageOptions, type LanguageOption } from './languageOptions';
 import { canStartSession } from './validation';
@@ -48,6 +49,7 @@ export default function ConsentScreen({ invite, onConversation, onLeaveInvite }:
   const [languagesFailed, setLanguagesFailed] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState<boolean | null>(null);
   const [backendChecking, setBackendChecking] = useState(true);
+  const [host, setHost] = useState<boolean | null>(null);
   const [consent, setConsent] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState('');
@@ -58,6 +60,7 @@ export default function ConsentScreen({ invite, onConversation, onLeaveInvite }:
     try {
       await getHealth();
       setBackendAvailable(true);
+      setHost(invite ? true : await isHost());
     } catch {
       setBackendAvailable(false);
     } finally {
@@ -152,7 +155,9 @@ export default function ConsentScreen({ invite, onConversation, onLeaveInvite }:
           <p className="backend-note" aria-live="polite">Backend connected</p>
         )}
 
-        {!manual ? (
+        {host === false ? (
+          <HostKeyPrompt onReady={() => setHost(true)} />
+        ) : !manual ? (
           <SetupAssistant
             key={invite ? `${invite.roomId}/${invite.token}` : 'own'}
             invite={invite}

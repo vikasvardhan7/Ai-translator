@@ -1,8 +1,9 @@
-import type { Participant, ServerMessage, SpeakerId } from '../../services/protocol';
+import type { ConversationMode, Participant, ServerMessage, SpeakerId } from '../../services/protocol';
 
 export const MAX_TURNS = 100;
 
-export type TurnStatus = 'processing' | 'done' | 'failed';
+type TurnStatus = 'processing' | 'done' | 'failed';
+export type Names = Record<SpeakerId, string>;
 
 export interface Turn {
   utteranceId: string;
@@ -84,7 +85,29 @@ export function applyServerMessage(
   }
 }
 
-export interface BubbleTranslation {
+export function abandonPending(turns: Turn[], reason: string, affected: (turn: Turn) => boolean = () => true): Turn[] {
+  return turns.map((turn) =>
+    turn.status === 'processing' && affected(turn) ? { ...turn, status: 'failed', error: reason } : turn,
+  );
+}
+
+export function speakerNames(mode: ConversationMode, participants: readonly Participant[], you: SpeakerId | null): Names {
+  if (mode === 'call') {
+    return { A: 'You', B: 'Meeting' };
+  }
+  if (you) {
+    return { A: you === 'A' ? 'You' : 'Them', B: you === 'B' ? 'You' : 'Them' };
+  }
+  const nameOf = (id: SpeakerId, fallback: string): string =>
+    participants.find((person) => person.id === id)?.name ?? fallback;
+  return { A: nameOf('A', 'Person 1'), B: nameOf('B', 'Person 2') };
+}
+
+export function speakerName(names: Names, id: SpeakerId | null): string {
+  return id ? names[id] : 'Someone';
+}
+
+interface BubbleTranslation {
   listenerId: SpeakerId;
   text: string;
 }

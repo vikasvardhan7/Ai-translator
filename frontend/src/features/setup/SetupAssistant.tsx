@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ApiError,
+  leaveRoom,
   createRoom,
   createSession,
   detectLanguage,
@@ -19,7 +20,7 @@ import {
   type Invite,
 } from '../../services/conversations';
 import { languageLabel, languageName } from '../../services/languageNames';
-import { openMicrophoneCapture, type MicrophoneCapture } from '../../services/microphoneCapture';
+import { openMicrophoneCapture, type AudioCapture } from '../../services/microphoneCapture';
 import type { Participant, SpeakerId } from '../../services/protocol';
 import { PhraseDetector } from './phrase';
 
@@ -31,7 +32,7 @@ interface SetupAssistantProps {
 }
 
 type Phase = 'loading' | 'intro' | 'where' | 'opening' | 'listening' | 'checking' | 'retry' | 'starting' | 'waiting' | 'dead';
-type Where = 'here' | 'remote' | 'guest';
+type Where = 'here' | 'remote' | 'meeting' | 'guest';
 type Retry = { kind: 'listen'; person: SpeakerId } | { kind: 'start' };
 
 interface Message {
@@ -42,6 +43,7 @@ interface Message {
 
 const PEOPLE: Record<SpeakerId, string> = { A: 'Person 1', B: 'Person 2' };
 const ROOM_CHECK_MS = 2_000;
+const WHERE_QUESTION = 'Who are you talking to: someone next to you, someone on another phone or computer, or people in an online meeting?';
 const DISCLOSURE = "What you say is sent to Google's Gemini to be understood and translated. Nothing is saved here, but on Google's free tier what is sent may be used to improve Google's products.";
 
 function problemText(error: unknown): string {
@@ -58,7 +60,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
   const [messages, setMessages] = useState<Message[]>(() => (invite ? [] : [{
     id: 0,
     from: 'assistant',
-    text: `Hi! I'll translate between two people. Each of you just says hello in your own language and I'll work out the rest. ${DISCLOSURE}`,
+    text: `Hi! I translate conversations: with someone next to you, with someone on another device, or in an online meeting. Just say hello in your own language and I'll work out the rest. ${DISCLOSURE}`,
   }]));
   const [phase, setPhase] = useState<Phase>(invite ? 'loading' : 'intro');
   const [listeningTo, setListeningTo] = useState<SpeakerId>('A');
@@ -68,8 +70,9 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
   const [copied, setCopied] = useState(false);
   const whereRef = useRef<Where>(invite ? 'guest' : 'here');
   const hostRef = useRef<Participant | null>(null);
+  const roomRef = useRef<CreatedRoom | null>(null);
   const foundRef = useRef<Partial<Record<SpeakerId, DetectedLanguage>>>({});
-  const captureRef = useRef<MicrophoneCapture | null>(null);
+  const captureRef = useRef<AudioCapture | null>(null);
   const detectorRef = useRef<PhraseDetector | null>(null);
   const finishRef = useRef<(() => void) | null>(null);
   const roomTimerRef = useRef<number | null>(null);
@@ -96,6 +99,11 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       window.clearTimeout(roomTimerRef.current);
       roomTimerRef.current = null;
     }
+    const room = roomRef.current;
+    roomRef.current = null;
+    if (room) {
+      void leaveRoom(room.room_id, room.host_token).catch(() => undefined);
+    }
   }, []);
 
   useEffect(() => () => {
@@ -103,6 +111,10 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
     captureRef.current?.stop();
     if (roomTimerRef.current !== null) {
       window.clearTimeout(roomTimerRef.current);
+    }
+    const room = roomRef.current;
+    if (room) {
+      void leaveRoom(room.room_id, room.host_token).catch(() => undefined);
     }
   }, []);
 
@@ -161,6 +173,15 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
     setPhase('retry');
   }, [add]);
 
+  const startMeeting = useCallback(async (found: DetectedLanguage, run: number) => {
+    setPhase('starting');
+    const session = await createSession([{ id: 'A', name: 'You', preferred_language: found.language }], true, 'call');
+    if (run === runRef.current) {
+      add('assistant', `Captions will be in ${languageName(found.language)}. Next, connect your meeting.`);
+      onConversation(sessionConversation(session));
+    }
+  }, [add, onConversation]);
+
   const startTogether = useCallback(async () => {
     const run = runRef.current;
     const first = foundRef.current.A;
@@ -193,6 +214,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
           return;
         }
         if (latest.guest) {
+          roomRef.current = null;
           add('assistant', `They joined, speaking ${languageName(latest.guest.preferred_language)}. Starting now.`);
           setPhase('starting');
           onConversation(roomConversation(latest, room.host_token, 'A'));
@@ -215,7 +237,19 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
 
   const afterDetecting = useCallback(async (person: SpeakerId, found: DetectedLanguage, run: number) => {
     const where = whereRef.current;
+    if (where === 'meeting') {
+      await startMeeting(found, run);
+      return;
+    }
     if (where === 'guest' && invite) {
+      const host = hostRef.current;
+      if (host && host.preferred_language === found.language) {
+        fail(
+          `You both speak ${languageName(found.language)}, so there is nothing to translate. Say hello in a different language.`,
+          { kind: 'listen', person },
+        );
+        return;
+      }
       setPhase('starting');
       try {
         const joined = await joinRoom(invite.roomId, invite.token, { name: PEOPLE.B, preferred_language: found.language });
@@ -240,8 +274,10 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       setPhase('starting');
       const room = await createRoom({ name: PEOPLE.A, preferred_language: found.language });
       if (run !== runRef.current) {
+        void leaveRoom(room.room_id, room.host_token).catch(() => undefined);
         return;
       }
+      roomRef.current = room;
       setLink(inviteLink(room, window.location.origin));
       setCopied(false);
       add('assistant', 'Send this link to the other person. I will start as soon as they open it and say hello.');
@@ -265,7 +301,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
     }
     add('assistant', `${languageName(foundRef.current.A!.language)} and ${languageName(foundRef.current.B!.language)}. Starting now.`);
     void startTogether();
-  }, [add, fail, invite, onConversation, startTogether, waitForGuest]);
+  }, [add, fail, invite, onConversation, startMeeting, startTogether, waitForGuest]);
 
   const listen = useCallback(async (person: SpeakerId) => {
     runRef.current += 1;
@@ -288,7 +324,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       }
       setPhase('checking');
       try {
-        const found = await detectLanguage(detector.wav());
+        const found = await detectLanguage(detector.wav(), invite ? { roomId: invite.roomId, token: invite.token } : undefined);
         if (run !== runRef.current) {
           return;
         }
@@ -335,7 +371,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
         fail(problemText(error), { kind: 'listen', person });
       }
     }
-  }, [add, afterDetecting, fail, stopCapture, stopWaiting]);
+  }, [add, afterDetecting, fail, invite, stopCapture, stopWaiting]);
 
   listenRef.current = listen;
 
@@ -348,16 +384,21 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       void listen('B');
       return;
     }
-    add('assistant', 'Is the other person next to you, or on another phone or computer?');
+    add('assistant', WHERE_QUESTION);
     setPhase('where');
   }
 
-  function choose(where: 'here' | 'remote'): void {
+  function choose(where: 'here' | 'remote' | 'meeting'): void {
     if (phase !== 'where') {
       return;
     }
     whereRef.current = where;
-    add('assistant', where === 'here' ? `${PEOPLE.A}, say hello in your language.` : 'Say hello in your language.');
+    const prompts = {
+      here: `${PEOPLE.A}, say hello in your language.`,
+      remote: 'Say hello in your language.',
+      meeting: 'Say hello in the language you want the captions in.',
+    };
+    add('assistant', prompts[where]);
     void listen('A');
   }
 
@@ -381,7 +422,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
       void listen('B');
       return;
     }
-    add('assistant', 'Starting over. Is the other person next to you, or on another phone or computer?');
+    add('assistant', `Starting over. ${WHERE_QUESTION}`);
     setPhase('where');
   }
 
@@ -440,7 +481,7 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
         {phase === 'intro' && (
           <>
             <button className="button button-primary" type="button" onClick={agree}>
-              {whereRef.current === 'guest' ? "I agree, let's start" : "We both agree, let's start"}
+              I agree, let&apos;s start
             </button>
             {listName && (
               <button className="button button-link" type="button" onClick={listName}>
@@ -456,6 +497,9 @@ export default function SetupAssistant({ invite, onConversation, onChooseManuall
             </button>
             <button className="button button-secondary" type="button" onClick={() => choose('remote')}>
               On another device
+            </button>
+            <button className="button button-secondary" type="button" onClick={() => choose('meeting')}>
+              In an online meeting
             </button>
           </>
         )}

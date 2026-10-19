@@ -43,6 +43,7 @@ describe('SessionSocket', () => {
   let created: FakeWebSocket[];
   let messages: ServerMessage[];
   let codes: number[];
+  let reconnecting: boolean[];
   let socket: SessionSocket;
 
   beforeEach(() => {
@@ -51,9 +52,11 @@ describe('SessionSocket', () => {
     created = [];
     messages = [];
     codes = [];
+    reconnecting = [];
     socket = new SessionSocket(
       (message) => messages.push(message),
       (code) => codes.push(code),
+      (state) => reconnecting.push(state),
       (url) => {
         const fake = new FakeWebSocket(url);
         created.push(fake);
@@ -67,11 +70,11 @@ describe('SessionSocket', () => {
     vi.useRealTimers();
   });
 
-  it('connects to the session stream and pings every 20 seconds', () => {
+  it('connects to the session stream and pings every 5 seconds', () => {
     socket.connect('/api/sessions/s%201/stream');
     const fake = created[0]!;
     fake.open();
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(5_000);
 
     expect(fake.url).toBe('ws://localhost:8000/api/sessions/s%201/stream');
     expect(fake.sent).toEqual([JSON.stringify({ type: 'ping' })]);
@@ -89,15 +92,63 @@ describe('SessionSocket', () => {
     expect(messages.map((message) => message.seq)).toEqual([1, 2]);
   });
 
-  it('reports the close code and stops pinging', () => {
+  it.each([1000, 4401, 4403, 4404, 4409, 4410])('reports a final close %i without trying again', (code) => {
     socket.connect('s1');
     const fake = created[0]!;
     fake.open();
-    fake.closeWith(4404);
+    fake.closeWith(code);
     vi.advanceTimersByTime(60_000);
 
-    expect(codes).toEqual([4404]);
+    expect(codes).toEqual([code]);
+    expect(created).toHaveLength(1);
     expect(fake.sent).toEqual([]);
+  });
+
+  it('reconnects after a drop and says so until the conversation is ready again', () => {
+    socket.connect('s1');
+    created[0]!.open();
+    created[0]!.receive('{"type":"pong","seq":5}');
+    created[0]!.closeWith(1006);
+
+    vi.advanceTimersByTime(1_000);
+    const second = created[1]!;
+    second.open();
+    second.receive('{"type":"session.ready","seq":1,"session_id":"s1","participants":[],"server_voice":false,"mode":"together"}');
+
+    expect(reconnecting).toEqual([true, false]);
+    expect(codes).toEqual([]);
+    expect(messages.map((message) => message.type)).toEqual(['pong', 'session.ready']);
+  });
+
+  it('waits longer between attempts and gives up after five minutes', () => {
+    socket.connect('s1');
+    created[0]!.closeWith(1006);
+    for (let attempt = 1; created.length < 30 && codes.length === 0; attempt += 1) {
+      vi.advanceTimersByTime(15_000);
+      created.at(-1)!.closeWith(1006);
+    }
+
+    expect(reconnecting).toEqual([true]);
+    expect(codes).toEqual([1006]);
+    expect(created.length).toBeLessThan(30);
+  });
+
+  it('treats a connection that has gone quiet as dropped', () => {
+    socket.connect('s1');
+    created[0]!.open();
+    vi.advanceTimersByTime(35_000);
+
+    expect(reconnecting).toEqual([true]);
+    vi.advanceTimersByTime(1_000);
+    expect(created).toHaveLength(2);
+  });
+
+  it('tries again at once when asked while waiting', () => {
+    socket.connect('s1');
+    created[0]!.closeWith(1006);
+    socket.retryNow();
+
+    expect(created).toHaveLength(2);
   });
 
   it('sends audio only while open', () => {

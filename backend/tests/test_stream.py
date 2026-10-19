@@ -1,10 +1,12 @@
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from tests.conftest import FRONTEND, receive
+from app.api import stream
+from tests.conftest import FRONTEND, TEST_HOST, receive
 
 
 def test_ready_message_is_sent_first(client: TestClient, session_id: str) -> None:
@@ -81,22 +83,28 @@ def assert_session_released(client: TestClient, session_id: str) -> None:
         assert receive(ws)["code"] == "unknown_session"
 
 
-def test_a_session_opens_only_one_live_channel(client: TestClient, session_id: str) -> None:
+def test_a_new_connection_takes_over_and_the_old_one_is_closed(
+    client: TestClient, session_id: str
+) -> None:
     with client.websocket_connect(f"/api/sessions/{session_id}/stream") as first:
         assert receive(first)["type"] == "session.ready"
         with client.websocket_connect(f"/api/sessions/{session_id}/stream") as second:
-            assert receive(second)["code"] == "unknown_session"
-        first.send_json({"type": "ping"})
-        assert receive(first)["type"] == "pong"
+            assert receive(second)["type"] == "session.ready"
+            with pytest.raises(WebSocketDisconnect) as closed:
+                receive(first)
+            second.send_json({"type": "ping"})
+            assert receive(second)["type"] == "pong"
+
+    assert closed.value.code == 4410
 
 
-def test_session_is_released_when_the_browser_disconnects(
-    client: TestClient, session_id: str
-) -> None:
+def test_a_dropped_session_can_be_opened_again(client: TestClient, session_id: str) -> None:
     with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
         receive(ws)
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
+        ready = receive(ws)
 
-    assert_session_released(client, session_id)
+    assert (ready["type"], ready["session_id"]) == ("session.ready", session_id)
 
 
 def test_browser_from_other_origin_is_refused(client: TestClient, session_id: str) -> None:
@@ -119,13 +127,19 @@ def test_browser_from_frontend_origin_is_accepted(client: TestClient, session_id
 
 
 TUNNEL = "abc.trycloudflare.com"
+THROUGH_TUNNEL = {"X-Forwarded-For": "198.51.100.7", "Cf-Connecting-Ip": "198.51.100.7"}
 
 
 @pytest.mark.parametrize(
     "headers",
     [
-        {"Origin": f"https://{TUNNEL}", "Host": TUNNEL, "X-Forwarded-Proto": "https"},
-        {"Origin": f"http://{TUNNEL}", "Host": TUNNEL},
+        {
+            "Origin": f"https://{TUNNEL}",
+            "Host": TUNNEL,
+            "X-Forwarded-Proto": "https",
+            **THROUGH_TUNNEL,
+        },
+        {"Origin": f"http://{TEST_HOST}", "Host": TEST_HOST},
     ],
     ids=["https-tunnel", "plain-http"],
 )
@@ -144,10 +158,35 @@ def test_a_page_served_from_the_same_address_is_accepted(
 def test_a_foreign_page_through_the_tunnel_is_refused(
     client: TestClient, session_id: str, origin: str
 ) -> None:
-    headers = {"Origin": origin, "Host": TUNNEL, "X-Forwarded-Proto": "https"}
+    headers = {"Origin": origin, "Host": TUNNEL, "X-Forwarded-Proto": "https", **THROUGH_TUNNEL}
 
     with client.websocket_connect(f"/api/sessions/{session_id}/stream", headers=headers) as ws:
         with pytest.raises(WebSocketDisconnect) as closed:
             receive(ws)
 
     assert closed.value.code == 4403
+
+
+def test_a_page_that_renamed_this_computer_is_refused(client: TestClient, session_id: str) -> None:
+    rebound = "rebind.example.test:8000"
+    headers = {"Origin": f"http://{rebound}", "Host": rebound}
+
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream", headers=headers) as ws:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            receive(ws)
+
+    assert closed.value.code == 4403
+
+
+def test_a_connection_that_goes_quiet_is_treated_as_dropped(
+    client: TestClient, session_id: str, monkeypatch
+) -> None:
+    monkeypatch.setattr(stream, "QUIET_LIMIT_SECONDS", 0.3)
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
+        receive(ws)
+        time.sleep(0.5)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            receive(ws)
+    assert closed.value.code == 4408
+    with client.websocket_connect(f"/api/sessions/{session_id}/stream") as ws:
+        assert receive(ws)["type"] == "session.ready"

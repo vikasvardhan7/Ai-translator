@@ -18,5 +18,6 @@ export function canStartSession(
   consent: boolean,
   participants: readonly [Participant, Participant],
 ): boolean {
-  return consent && participants.every(isParticipantValid);
+  const [first, second] = participants.map((person) => person.preferred_language.trim().toLowerCase().split(/[-_]/)[0]);
+  return consent && participants.every(isParticipantValid) && first !== second;
 }

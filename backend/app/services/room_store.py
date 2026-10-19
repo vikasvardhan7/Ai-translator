@@ -3,11 +3,10 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
 
-from app.core.text import MAX_RECENT_TRANSLATIONS
+from app.core.text import MAX_REMEMBERED, PlayedVoice
 from app.models.session import Participant, ParticipantId, Person
-from app.services.session_store import Session
+from app.services.session_store import Device, Session
 
 IDLE_ROOM_LIFETIME = timedelta(minutes=30)
 UNJOINED_ROOM_LIFETIME = timedelta(minutes=10)
@@ -18,10 +17,6 @@ GUEST_ID: ParticipantId = "B"
 
 class RoomLimitReached(Exception):
     pass
-
-
-class Device(Protocol):
-    async def send(self, message_type: str, **fields: Any) -> None: ...
 
 
 def _now() -> datetime:
@@ -41,12 +36,11 @@ class Room:
     guest_token: str = field(default_factory=secrets.token_urlsafe)
     idle_since: datetime = field(default_factory=_now)
     devices: dict[str, Device] = field(default_factory=dict)
-    connected_once: set[str] = field(default_factory=set)
+    ended: bool = False
     server_voice_for: set[str] = field(default_factory=lambda: {HOST_ID, GUEST_ID})
     voice_for: dict[str, str] = field(default_factory=dict)
-    recent_translations: deque[tuple[float, str]] = field(
-        default_factory=lambda: deque(maxlen=MAX_RECENT_TRANSLATIONS)
-    )
+    recent_voices: deque[PlayedVoice] = field(default_factory=lambda: deque(maxlen=MAX_REMEMBERED))
+    translations: dict[tuple[str, str], str] = field(default_factory=dict)
 
     def participant_for(self, token: str) -> ParticipantId | None:
         if _same_token(token, self.host_token):
@@ -82,17 +76,24 @@ class RoomStore:
         room.idle_since = _now()
         return room.guest_token
 
-    def connect(self, room: Room, participant_id: str, device: Device) -> bool:
-        if participant_id in room.devices:
-            return False
+    def connect(self, room: Room, participant_id: str, device: Device) -> Device | None:
+        replaced = room.devices.get(participant_id)
         room.devices[participant_id] = device
-        room.connected_once.add(participant_id)
+        return replaced
+
+    def disconnect(self, room: Room, participant_id: str, device: Device, *, ended: bool) -> bool:
+        if room.devices.get(participant_id) is not device:
+            return False
+        del room.devices[participant_id]
+        room.idle_since = _now()
+        room.ended = room.ended or ended
+        if room.ended and not room.devices:
+            self._rooms.pop(room.id, None)
         return True
 
-    def disconnect(self, room: Room, participant_id: str) -> None:
-        room.devices.pop(participant_id, None)
-        room.idle_since = _now()
-        if not room.devices and room.connected_once == {HOST_ID, GUEST_ID}:
+    def end(self, room: Room) -> None:
+        room.ended = True
+        if not room.devices:
             self._rooms.pop(room.id, None)
 
     def _expired(self, room: Room) -> bool:

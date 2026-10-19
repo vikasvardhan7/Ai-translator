@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.languages import language_code
 from app.core.text import letters
 from app.models.protocol import ErrorCode
+from app.services.retry import with_one_retry
 from app.services.translation.base import (
     DetectedLanguage,
     NothingRecognised,
@@ -162,16 +163,18 @@ class GeminiSpeechTranslator:
         instructions: str,
         schema: type[BaseModel],
     ) -> str | None:
+        config = types.GenerateContentConfig(
+            system_instruction=instructions,
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema=schema,
+        )
+        contents = [types.Part.from_bytes(data=audio, mime_type=mime_type), request]
         try:
-            response = await self._client.aio.models.generate_content(
-                model=self._model,
-                contents=[types.Part.from_bytes(data=audio, mime_type=mime_type), request],
-                config=types.GenerateContentConfig(
-                    system_instruction=instructions,
-                    temperature=0,
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                ),
+            response = await with_one_retry(
+                lambda: self._client.aio.models.generate_content(
+                    model=self._model, contents=contents, config=config
+                )
             )
         except errors.APIError as exc:
             raise _api_failure(exc) from exc

@@ -4,6 +4,8 @@ import ConsentScreen from './features/consent/ConsentScreen';
 import { PrivacyPolicy, TermsAndConditions } from './features/legal/LegalPages';
 import { createSession } from './services/api';
 import { inviteFromHash, sessionConversation, type Conversation, type Invite } from './services/conversations';
+import type { Participant } from './services/protocol';
+import type { Turn } from './features/session/conversation';
 import SessionScreen from './features/session/SessionScreen';
 
 type Screen = 'start' | 'session' | 'privacy' | 'terms';
@@ -72,6 +74,7 @@ function AppNavigation({ screen, onNavigate }: AppNavigationProps) {
 export default function App() {
   const [screen, setScreen] = useState<Screen>(() => screenFromHash());
   const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [carriedTurns, setCarriedTurns] = useState<Turn[]>([]);
   const [invite, setInvite] = useState<Invite | null>(() => inviteFromHash(window.location.hash));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasChangedScreens, setHasChangedScreens] = useState(false);
@@ -135,6 +138,7 @@ export default function App() {
   const returnToStart = useCallback(() => {
     sessionIdRef.current = null;
     setConversation(null);
+    setCarriedTurns([]);
     setInvite(null);
     setScreen('start');
     if (window.location.hash !== '#start') {
@@ -142,23 +146,24 @@ export default function App() {
     }
   }, []);
 
-  const startConversation = useCallback((next: Conversation) => {
+  const startConversation = useCallback((next: Conversation, turns: Turn[] = []) => {
     if (window.location.hash.startsWith('#join')) {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
     sessionIdRef.current = next.id;
+    setCarriedTurns(turns);
     setConversation(next);
     setScreen('session');
   }, []);
 
-  async function restartSession(): Promise<void> {
+  async function restartSession(participants: Participant[], turns: Turn[]): Promise<void> {
     if (!conversation || conversation.mode === 'remote') {
       return;
     }
     const startedFrom = conversation.id;
-    const next = await createSession(conversation.participants, true, conversation.mode);
+    const next = await createSession(participants, true, conversation.mode);
     if (sessionIdRef.current === startedFrom) {
-      startConversation(sessionConversation(next));
+      startConversation(sessionConversation(next), turns);
     }
   }
 
@@ -173,6 +178,7 @@ export default function App() {
       <SessionScreen
         key={conversation.id}
         conversation={conversation}
+        initialTurns={carriedTurns}
         onReturnToStart={returnToStart}
         onRestart={conversation.mode === 'remote' ? null : restartSession}
       />

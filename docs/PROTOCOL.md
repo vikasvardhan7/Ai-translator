@@ -11,17 +11,38 @@ Base address in development: `http://localhost:8000`. Bodies are JSON.
 Every error response is `{"detail": "one readable sentence"}` with a 4xx or 5xx status, so the
 frontend can show `detail` directly.
 
+### Who may use the API (host key)
+
+The backend prints a host key when it starts (`Host key: ABCD-EF23-GH45`), new on every start and
+kept only in memory. Requests from the same computer (a loopback client address with a `localhost`
+host and no proxy headers) are the host automatically, unless `HOST_KEY_EVERYWHERE=true` is set in
+`backend/.env`. Set that whenever something other than cloudflared forwards requests from the same
+computer without adding `X-Forwarded-For` (a bare nginx `proxy_pass`, an SSH tunnel), because
+such requests look local. Through a tunnel or any other address, the requests that spend the
+Gemini quota need the key in an `X-Host-Key` header (case, spaces and dashes do not matter):
+`POST /api/sessions`, `POST /api/rooms`, `POST /api/languages/detect` and `GET /api/voices`.
+Without it they answer `401` with a `detail` that says so. An invited guest sends `X-Room-Id` and
+`X-Room-Token` (the invite token, or the device token after joining) instead on the last two, so
+joining needs no key. `GET /api/access` answers `{"host": true | false}` for the caller, so the
+app can ask for the key only when it is needed.
+
 | Method and path | Status | Purpose |
 | --- | --- | --- |
-| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.8.0"}` |
+| `GET /health` | live | Backend is running: `{"status":"ok","version":"0.9.0"}` |
+| `GET /api/access` | live | Whether this caller is the host: `{"host": true}` from the backend's own computer or with the right `X-Host-Key`, otherwise `{"host": false}` |
 | `GET /api/voices` | live | The natural (Gemini) voices a person can choose, listed live from Google: `{"voices": [{id, display_name, description, gender, language_code, pitch, accent}]}`. Empty when no voice model is set up; `503` when Google cannot be reached or the free limit is used up |
-| `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice |
-| `POST /api/sessions` | live | Start a conversation on one device; returns the session id |
-| `POST /api/rooms` | live | Start a conversation across two devices; returns the room id and two tokens |
+| `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
+| `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
+| `POST /api/rooms` | live | Start a conversation across two devices; returns the room id and two tokens (host key) |
 | `GET /api/rooms/{room_id}` | live | See who is in a room (token in the `X-Room-Token` header) |
+| `DELETE /api/rooms/{room_id}` | live | End a room from outside its live channel: the host cancels an invite, or a person whose connection is gone leaves (own token in `X-Room-Token`); the other device gets `peer.left`. `204`, `403` wrong token, `404` |
 | `POST /api/rooms/{room_id}/join` | live | The invited person joins with the guest token |
 | `WS /api/rooms/{room_id}/stream?token=` | live | One device's live channel in a two-device conversation |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
+
+Every voice request to Gemini (speech, translation, voice) is tried once more after a short wait
+when Gemini is busy (`429` with a suggested wait of at most 2 s, or none), has a server problem
+or cannot be reached; a longer suggested wait, a bad request or a slow answer is not retried.
 
 ### Language codes
 
@@ -76,14 +97,13 @@ Response `201 Created`:
 Rules (otherwise `422` with a readable `detail`):
 
 - `consent` must be `true`.
-- `mode`: `together` (default; two people share one microphone) or `call` (section 7). `call` needs
-  the server voice; without it the response is `503` with a readable `detail`.
-- Exactly two participants, ids `A` and `B`, one each.
+- `mode`: `together` (default; two people share one microphone) or `call` (a meeting, section 7).
+- `together`: exactly two participants, ids `A` and `B`, one each. `call`: exactly one, id `A`.
 - `name`: 1 to 40 characters after trimming spaces.
 - `preferred_language`: a language code (see Language codes). Both people may choose the same language.
 - No extra fields.
 
-Sessions are held in memory only until used. A session's live channel opens once: the session leaves memory as soon as its channel opens, so a second connection, or reconnecting after the channel closes, gets `unknown_session`; start a new session instead. A session that is never opened expires 10 minutes after it was created. At most 100 sessions can wait to be opened; beyond that `POST /api/sessions` returns `503` with a readable `detail`.
+Sessions are held in memory only. A session leaves memory when its live channel ends with `session.stop`, or 10 minutes after it was created or its channel dropped without a device coming back. At most 100 sessions can wait for a device at once; beyond that `POST /api/sessions` returns `503` with a readable `detail`.
 
 ### Conversations across two devices (rooms)
 
@@ -93,20 +113,27 @@ its own token, sends only its own microphone, and hears only the translations me
 The invite link works once: joining returns a new token for the guest's device and the invite
 token stops working, so a forwarded link cannot be used to listen in. Rooms live in memory only: a
 room nobody joined expires after 10 minutes, a joined room with no device connected after 30, and a
-room is removed once both devices have connected and left. At most 100 rooms can wait at once.
+room ends when either person leaves (`session.stop`) or the host cancels the invite; it is removed
+as soon as no device is connected to it. A device whose connection drops may come back with the
+same token for as long as the room lasts. At most 100 rooms can wait at once.
 
 | Request | Body | Answers |
 | --- | --- | --- |
 | `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, guest_token, host, guest: null}`; `422` bad body; `503` too many waiting rooms |
 | `GET /api/rooms/{room_id}` with header `X-Room-Token` | none | `200` `{room_id, host, guest}` (`guest` is `null` until someone joins); `403` wrong token; `404` unknown or expired |
-| `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": guest_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token`, the guest device's own token (the guest is participant `B`); `403` not the invite token; `404`; `409` someone already joined; `422` same language as the host or bad body |
+| `DELETE /api/rooms/{room_id}` with header `X-Room-Token` | none | `204` the room ends (an invite is cancelled, or this person leaves without a live channel) and any connected device gets `peer.left`; `403` wrong token; `404` |
+| `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": guest_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token`, the guest device's own token (the guest is participant `B`); `403` not the invite token; `404`; `409` someone already joined; `422` bad body |
 
 `WS /api/rooms/{room_id}/stream?token=` works like the session stream, with these differences:
 
 - Before the guest has joined it sends a `not_joined` error and closes with `4409`. A wrong or used
-  token closes with `4401`; a token whose device is already connected gets `unknown_session` and
-  `4404`. The token is part of the address, so share the app only over https (the tunnel does).
-- `session.ready` has `mode: "remote"` and `you`: `A` or `B`, the person on this device.
+  token closes with `4401`; an ended room gets `unknown_session` and `4404`. When a token's device
+  connects while an older connection with the same token is still open, the new one takes over and
+  the old one is closed with `4410`, so a page that lost its network can come straight back. The
+  token is part of the address, so share the app only over https (the tunnel does); the backend
+  hides tokens and session ids in its own request log.
+- `session.ready` has `mode: "remote"`, `you` (`A` or `B`, the person on this device) and
+  `connected`, the ids of the devices connected right now.
 - Audio frames are plain PCM (no source tag). Whatever this device hears is this person speaking;
   the translation, and its voice, are made for the other person.
 - Both devices get `utterance.received`, `transcript.final`, `translation.final`,
@@ -115,7 +142,7 @@ room is removed once both devices have connected and left. At most 100 rooms can
   only to the device it concerns.
 - `voice.settings` sets whether, and in which voice, the server makes voices for this device's own person.
 - `language.set` changes this device's person's language; both devices get `participants.updated`.
-- When one device leaves, the other gets `{"type": "peer.left", "participant_id": "A" | "B"}`.
+- When one device leaves with `session.stop`, the other gets `{"type": "peer.left", "participant_id": "A" | "B"}` and the room ends. When a device's connection drops or goes quiet, the other gets `peer.disconnected`, and `peer.connected` when it is back (or when it connects for the first time), with the same field.
 
 When the backend serves the built frontend (`frontend/dist`, at `/`), the app and the API share one
 address, so a free tunnel such as `cloudflared tunnel --url http://localhost:8000` gives both
@@ -128,7 +155,15 @@ address as the backend.
 - Text frames are JSON objects with a string `type`. Maximum 64 KB per text message.
 - The server is started with `--ws-max-size 65536`, so any single message over 64 KB closes the
   connection.
-- Binary frames are microphone audio (section 4); in call mode each starts with a one-byte source tag (section 7).
+- Binary frames are microphone audio (section 4); in a meeting each starts with a one-byte source tag (section 7).
+- The browser pings every 5 s and treats 30 s without any message as a dropped connection. A
+  connection that sends nothing for 45 s is closed with `4408`, so a device that silently lost its
+  network is noticed; the browser then reconnects by itself. Messages for the other device in a
+  room are queued (at most 200) and delivered by that device's own channel, so a slow or stalled
+  phone never holds up the person speaking.
+- Session channels can be reopened: a session stays for 10 minutes after its device drops, and a
+  new connection to the same session takes over from any older one (closed with `4410`). A session
+  ends with `session.stop`.
 - Every server message has `type` and `seq`. `seq` starts at 1 for each connection and goes
   up by one per message. Use it to keep order and ignore duplicates.
 - The first server message is always `session.ready`.
@@ -138,8 +173,12 @@ Close codes:
 | Code | Meaning |
 | --- | --- |
 | `1000` | Normal close after `session.stop` |
-| `4403` | The browser page's origin is not the configured frontend address (`FRONTEND_ORIGIN`). Connections that send no `Origin` header (not from a browser) are allowed |
-| `4404` | Unknown session id (an `unknown_session` error is sent first) |
+| `4401` | Wrong or used room token |
+| `4403` | The browser page's origin is neither the configured frontend address (`FRONTEND_ORIGIN`) nor the backend's own address (`localhost`, or the address a tunnel or proxy forwards to). To open the app from another address, such as a LAN address, set `FRONTEND_ORIGIN` to it. Connections that send no `Origin` header (not from a browser) are allowed |
+| `4404` | Unknown or ended session or room (an `unknown_session` error is sent first) |
+| `4408` | Nothing was received for 45 s; reconnect |
+| `4409` | The invited person has not joined yet (`not_joined` is sent first) |
+| `4410` | A newer connection with the same session or token took over |
 | `1011` | Unexpected failure of the live channel itself (an `internal_error` with `utterance_id: null` is sent first) |
 
 ## 3. Browser to server messages
@@ -147,10 +186,11 @@ Close codes:
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
 | binary audio frame | live | raw audio (section 4) | Microphone audio, sent continuously while listening |
-| `audio.pause` | live | `participant_id` (optional, call mode only) | The browser stopped sending audio (for example while a translation is being spoken). Any sentence in progress ends now; in call mode, only that side's sentence when `participant_id` is given (`A` or `B`; anything else gets `invalid_message`; absent or `null` ends both) |
-| `voice.settings` | live | `listener_id` (`A` or `B`), `server_voice` (`true` or `false`), `voice` (optional: a voice `id` from `GET /api/voices`, or `null` for automatic) | Whether the server should make voices for this listener, and in which voice. Send `false` when that person chose the browser's own voice or turned their voice off; the server then sends no `tts.audio` for them. Leaving `voice` out keeps the earlier choice. Every listener starts at `true` and automatic. A bad listener, a value that is not a boolean, or a voice that is not 1 to 64 letters, digits, `_` or `-` gets `invalid_message` |
-| `language.set` | live | `participant_id` (`A` or `B`; ignored across two devices, where it is always this device's person), `language` | Change that person's language during the conversation. The next sentence is translated into it, and every device gets `participants.updated`. A bad code, a missing person, or the other person's language gets `invalid_message` |
-| `ping` | live | none | Keep-alive; answered with `pong` |
+| `audio.pause` | live | `participant_id` (optional, meetings only) | The browser stopped sending audio (for example while a translation is being spoken). Any sentence in progress ends now; in a meeting, only that source's sentence when `participant_id` is given (`A` or `B`; anything else gets `invalid_message`; absent or `null` ends both) |
+| `voice.settings` | live | `listener_id` (a participant id), `server_voice` (`true` or `false`), `voice` (optional: a voice `id` from `GET /api/voices`, or `null` for automatic) | Whether the server should make voices for this listener, and in which voice. Send `false` when that person chose the browser's own voice or turned their voice off; the server then sends no `tts.audio` for them. Leaving `voice` out keeps the earlier choice. Every listener starts at `true` and automatic, except in a meeting, where voices are off until asked for. A bad listener, a value that is not a boolean, or a voice that is not 1 to 64 letters, digits, `_` or `-` gets `invalid_message` |
+| `language.set` | live | `participant_id` (a participant id; ignored across two devices, where it is always this device's person), `language` | Change that person's language during the conversation. The next sentence is translated into it, and every device gets `participants.updated`. A bad code or a missing person gets `invalid_message`. Both people may choose the same language; then nothing is translated between them |
+| `voice.played` | live | `utterance_id`, `listener_id` (ignored across two devices, where it is always this device's person), `seconds` (0 to 120) | A voice for that translation (the server's or the browser's own) just finished playing on this device after `seconds` of playback. The server uses it to recognise its own voice coming back through the microphone (section 5). Missing fields or bad `seconds` get `invalid_message`; a translation the server no longer remembers (it keeps the last 40) is ignored quietly |
+| `ping` | live | none | Keep-alive; answered with `pong`. Send one every 5 s |
 | `session.stop` | live | none | End the conversation. A sentence in progress is ended and translated; sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
 
 Listening is hands-free: there are no talk buttons. The browser streams the microphone and the
@@ -172,7 +212,7 @@ speaking: it waits until they stop (at most 15 s).
 | Encoding | PCM, signed 16-bit, little-endian |
 | Channels | 1 (mono) |
 | Sample rate | 16,000 Hz |
-| Frame size | About 100 ms: 1,600 samples = 3,200 bytes per binary message. Must be a non-empty even number of bytes and at most 32,000 bytes (1 s), otherwise `invalid_message` and that frame is dropped. In call mode the one-byte source tag comes first and is not counted |
+| Frame size | About 100 ms: 1,600 samples = 3,200 bytes per binary message. Must be a non-empty even number of bytes and at most 32,000 bytes (1 s), otherwise `invalid_message` and that frame is dropped. In a meeting the one-byte source tag comes first and is not counted |
 
 ## 5. Server to browser messages
 
@@ -180,11 +220,12 @@ All include `type` and `seq`.
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
-| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
+| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode`; across two devices also `you`, `connected` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
+| `peer.connected`, `peer.disconnected`, `peer.left` | live | `participant_id` | Across two devices: the other device connected, dropped, or ended the conversation |
 | `pong` | live | none | Answer to `ping` |
 | `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`); `voice_unavailable` also has `listener_id` | Show `message` to the user |
-| `utterance.received` | live | `utterance_id`, `speaker_id` (`A`, `B`, or `null` until known), `duration_ms` | The server heard a sentence and is processing it. `utterance_id` is made by the server. In call mode `speaker_id` is already known from the audio source |
-| `speech.activity` | live | `speaker_id` (`null` in together mode, the source in call mode), `active` | Someone started (`true`) or stopped (`false`) speaking. Sent only when it changes. `false` also follows `audio.pause` or `session.stop` when a sentence was in progress |
+| `utterance.received` | live | `utterance_id`, `speaker_id` (`A`, `B`, or `null` until known), `duration_ms` | The server heard a sentence and is processing it. `utterance_id` is made by the server. In a meeting `speaker_id` is already known from the audio source |
+| `speech.activity` | live | `speaker_id` (`null` in together mode, the source in a meeting), `active` | Someone started (`true`) or stopped (`false`) speaking. Sent only when it changes. `false` also follows `audio.pause` or `session.stop` when a sentence was in progress |
 | `participants.updated` | live | `participants` | Someone changed their language. Use these people from now on |
 | `utterance.ignored` | live | `utterance_id` | No words were recognised (noise, coughing). Remove the pending turn quietly and keep listening |
 | `transcript.final` | live | `utterance_id`, `speaker_id` (`A`, `B` or `null`), `text`, `language`, `language_name` | What was said, in the words and script spoken, its detected language code and English language name |
@@ -192,7 +233,7 @@ All include `type` and `seq`.
 | `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
 
-In together mode, who spoke is decided by the language heard (in call mode the speaker is the audio source, section 7). A person's language matches when its code is the same,
+In together mode, who spoke is decided by the language heard (in a meeting the speaker is the audio source, section 7). A person's language matches when its code is the same,
 or when a two-letter and a three-letter code have the same English name (`te` and `tel`). When no
 person matches that way, the model's own answer decides, which covers one language known by two
 names (`tl` Tagalog and `fil` Filipino):
@@ -204,15 +245,21 @@ names (`tl` Tagalog and `fil` Filipino):
 - It matches both people (both chose that language): `speaker_id` is `null` and nobody needs a
   translation, so only `transcript.final` is sent.
 
-When a sentence repeats a translation sent in the last 12 s (the app hearing its own voice through
-the speakers), it gets `utterance.ignored` instead of being translated again, so the voice never
-bounces back and forth. It counts as a repeat only when it is nearly all of that translation
-(80% or more of its letters, or of its words when it has at least three), so a short real reply
-such as "no" is still translated.
+When a sentence was heard while a voice was playing to this person (the app hearing its own voice
+through the speakers), and it repeats that voice's words, it gets `utterance.ignored` instead of
+being translated again, so the voice never bounces back and forth. The browser reports each voice
+it finished playing with `voice.played` (the server's voice or its own, however long it was held
+or queued first), and the server keeps the last 10 with their play window (plus a quarter second
+each side), so nothing is ignored when no voice was played or once it has finished; a reply that
+happens to repeat a caption is still translated. It counts as a repeat only when it is nearly all
+of that voice's words (80% or more of its letters, or of its words when it has at least three).
+
+The backend logs one line per sentence with how long it waited, how long Gemini took, and how long
+after the sentence ended its caption was sent, plus one per voice; the words are never logged.
 
 After `utterance.received`, each utterance gets exactly one of: `transcript.final` followed by its
 `translation.final` messages (if any), `utterance.ignored`, or one `error` carrying its
-`utterance_id`. Results arrive in the order the sentences end (in call mode, when one `audio.pause` or `session.stop` ends both sides at once, A's comes first). A translation that only repeats the words
+`utterance_id`. Results arrive in the order the sentences end (in a meeting, when one `audio.pause` or `session.stop` ends both sources at once, A's comes first). A translation that only repeats the words
 spoken (apart from a single short word such as a name or "No.") is refused as a retryable
 `provider_unavailable` error. At most 5 sentences can
 wait for translation at once; more get a retryable `provider_unavailable` error straight away, so
@@ -249,42 +296,45 @@ Show `text` fields as plain text, never as HTML: they contain whatever the speak
 | Code | Status | Retryable | When |
 | --- | --- | --- | --- |
 | `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, too large, malformed audio frame |
-| `unknown_session` | live | no | The session id does not exist, has expired or its channel is already open (then close 4404) |
+| `unknown_session` | live | no | The session or room does not exist, has expired or has ended (then close 4404) |
+| `not_joined` | live | no | The invited person has not joined this room yet (then close 4409) |
 | `provider_unavailable` | live | depends | Retryable: speech service unreachable, slow, erroring, returned an unreadable answer or did not translate the sentence, or 5 sentences are already waiting behind the one being translated. Not retryable: no key or model set up, key or model rejected, audio could not be processed, or the service refused the sentence |
 | `quota_exceeded` | live | yes, later | Free-tier limit reached; try again after a minute |
 | `voice_unavailable` | live | no | The server could not make the voice for this translation (free voice limit, service unreachable, too many waiting); use the browser voice or captions only |
 | `internal_error` | live | yes | Unexpected server error; details only in the backend log. With an `utterance_id`: only that sentence failed and the connection stays open. With `utterance_id: null`: the live channel failed and closes with 1011 |
 
-## 7. Call mode (live)
+## 7. Meetings (live)
 
-Call mode translates a call that runs in a browser tab: Google Meet, or Zoom and Teams on the web.
-Desktop call apps have no tab to capture and are not supported.
-Person A is the user of this device; Person B is the other person on the call. Both must agree to
-the call being translated by an online service before it starts.
+A meeting is an online call that runs on this computer: Google Meet, Teams or Zoom in a browser
+tab, or the Teams or Zoom app. The app listens to the meeting's sound and to this person's
+microphone, shows each sentence as a caption in this person's language and keeps the transcript.
+Nothing is sent into the meeting: the other people hear this person's own voice as usual, so it
+works without anything installed, and this person should tell the meeting that captions are on.
 
-- Create the session with `"mode": "call"`. `session.ready` then has `mode: "call"`. Call mode
-  needs the server voice: without `GEMINI_TTS_MODEL` the request gets `503` with a readable
-  `detail`.
-- The browser sends two audio sources on the same live channel: this device's microphone (A) and
-  the call's sound (B, captured from the call's browser tab). Every binary frame starts with one
-  byte naming its source, `A` (0x41) or `B` (0x42), followed by audio in the format of section 4.
-  A frame with any other first byte, or with no audio after it, gets `invalid_message`.
-- Each source is listened to separately, so both people can be heard at the same time.
-  `audio.pause` with `participant_id` ends that side's sentence; without it, both.
-- The speaker is the source, never guessed from the language: `speaker_id` is set from the first
-  `utterance.received`. The other person gets a `translation.final` and a voice for every
-  sentence, even when they chose the language spoken (then the text is the words spoken), because
-  they hear the user only through the voice. The speaker gets no translation of their own words.
-- Voices: a `tts.audio` for listener A plays on this device (headphones); a `tts.audio` for
-  listener B is played into a virtual microphone that the call app uses, so the other person
-  hears only the translation, in their language. The browser chooses the output device; the
-  server is not involved. The browser's own voice cannot be sent to a chosen device, so a
-  `voice_unavailable` for listener B means the other person did not hear that sentence: show it
-  on the turn. Free voice limits are low, so this can happen in long calls.
-- Wear headphones: otherwise the call's sound reaches the microphone and is translated twice.
-- Unlike together mode, do not send `audio.pause` while voices play: with headphones nothing
-  echoes, and pausing would cut off the other side. Both sources stream for the whole call.
-- The other person should also use headphones or echo cancellation, or the translated voice can
-  come back through the call and be translated again.
-- A sentence is ready after the pause that ends it (about 1 s) plus the translation (a median of
-  about 2.5 s in the benchmark), and its voice follows, so the call works turn by turn.
+- Create the session with `"mode": "call"` and one participant, `A`, the person using the app
+  (`422` with two). `session.ready` then has `mode: "call"`. No voice model is needed.
+- The browser sends two audio sources on the same live channel: this computer's microphone (`A`)
+  and the meeting's sound (`B`, captured from the meeting's tab or the whole screen with
+  `getDisplayMedia`). Every binary frame starts with one byte naming its source, `A` (0x41) or `B`
+  (0x42), followed by audio in the format of section 4. A frame with any other first byte, or with
+  no audio after it, gets `invalid_message`.
+- Each source is listened to separately, so both can be heard at the same time. `audio.pause` with
+  `participant_id` ends that source's sentence; without it, both.
+- The speaker is the source, never guessed from the language. A sentence from `B` gets a
+  `transcript.final` (the words spoken, in any language) and a `translation.final` for `A` in A's
+  language (the same words when it already is A's language). A sentence from `A` gets only a
+  `transcript.final`: this person's own words are shown, never translated.
+- Without headphones the microphone also hears the meeting. When the microphone's sentence
+  overlaps in time with a meeting sentence and repeats its words (at least three words, 80% of
+  them said in the meeting too; a sentence of one or two words only when it is nearly the whole
+  meeting sentence), the microphone's copy gets `utterance.ignored`, whichever of the two is
+  understood first, so the transcript shows it once, as the meeting's. Different words at the same
+  time are both kept, and a short reply such as "No" is never dropped for being part of a longer
+  word. A meeting sentence that failed to be understood cannot be matched, so its copy from the
+  microphone is then shown as this person's words.
+- Voices are off: `server_voice_for` starts empty and `tts.audio` is sent only after
+  `voice.settings` with `server_voice: true` for `A`. The app does not offer this yet; it is for
+  a person who wants to hear the meeting in their language through headphones. `voice.settings`
+  and `language.set` accept only `A`.
+- A sentence is ready after the pause that ends it (about 1 s) plus the translation, so captions
+  follow the meeting one sentence behind.

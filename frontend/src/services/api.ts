@@ -1,4 +1,5 @@
 import { getBackendUrl } from '../config';
+import { savedHostKey } from './hostKey';
 import {
   isParticipant,
   isSessionMode,
@@ -37,8 +38,21 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${getBackendUrl()}${path}`, init);
+export interface RoomAccess {
+  roomId: string;
+  token: string;
+}
+
+function roomHeaders(room: RoomAccess | undefined): Record<string, string> {
+  return room ? { 'X-Room-Id': room.roomId, 'X-Room-Token': room.token } : {};
+}
+
+async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = savedHostKey()): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (hostKey && !headers.has('X-Host-Key')) {
+    headers.set('X-Host-Key', hostKey);
+  }
+  const response = await fetch(`${getBackendUrl()}${path}`, { ...init, headers });
   const body = await readJson(response);
 
   if (!response.ok) {
@@ -61,14 +75,22 @@ export async function getHealth(): Promise<HealthResponse> {
   return { status: 'ok', version: body.version };
 }
 
+export async function isHost(hostKey?: string): Promise<boolean> {
+  const body = await requestJson<unknown>('/api/access', {}, hostKey);
+  if (!isRecord(body) || typeof body.host !== 'boolean') {
+    throw new Error('The backend returned an invalid access answer.');
+  }
+  return body.host;
+}
+
 export interface DetectedLanguage {
   language: string;
 }
 
-export async function detectLanguage(wav: ArrayBuffer): Promise<DetectedLanguage> {
+export async function detectLanguage(wav: ArrayBuffer, room?: RoomAccess): Promise<DetectedLanguage> {
   const body = await requestJson<unknown>('/api/languages/detect', {
     method: 'POST',
-    headers: { 'Content-Type': 'audio/wav' },
+    headers: { 'Content-Type': 'audio/wav', ...roomHeaders(room) },
     body: wav,
   });
 
@@ -101,10 +123,8 @@ export async function createSession(
     typeof body.created_at !== 'string' ||
     !isSessionMode(body.mode) ||
     !Array.isArray(body.participants) ||
-    body.participants.length !== 2 ||
     !body.participants.every(isParticipant) ||
-    body.participants[0]?.id !== 'A' ||
-    body.participants[1]?.id !== 'B'
+    body.participants.map((person) => person.id).join() !== (body.mode === 'call' ? 'A' : 'A,B')
   ) {
     throw new Error('The backend returned an invalid session response.');
   }
@@ -165,6 +185,16 @@ export async function getRoom(roomId: string, token: string): Promise<RoomInfo> 
   }));
 }
 
+export async function leaveRoom(roomId: string, token: string): Promise<void> {
+  const response = await fetch(`${getBackendUrl()}/api/rooms/${encodeURIComponent(roomId)}`, {
+    method: 'DELETE',
+    headers: { 'X-Room-Token': token },
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new ApiError(response.status, 'The conversation could not be ended.');
+  }
+}
+
 export async function joinRoom(
   roomId: string,
   inviteToken: string,
@@ -208,8 +238,8 @@ function readVoice(value: unknown): VoiceOption | null {
   };
 }
 
-export async function getVoices(): Promise<VoiceOption[]> {
-  const body = await requestJson<unknown>('/api/voices');
+export async function getVoices(room?: RoomAccess): Promise<VoiceOption[]> {
+  const body = await requestJson<unknown>('/api/voices', { headers: roomHeaders(room) });
   if (!isRecord(body) || !Array.isArray(body.voices)) {
     throw new Error('The backend returned an invalid voice list.');
   }

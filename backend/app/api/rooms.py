@@ -7,8 +7,9 @@ from app.api.dependencies import (
     get_room_store,
     get_speech_synthesizer,
     get_speech_translator,
+    require_host,
 )
-from app.api.stream import handle_room_stream
+from app.api.stream import handle_room_stream, tell_others
 from app.core.config import Settings
 from app.models.room import RoomCreate, RoomCreated, RoomJoin, RoomJoined, RoomOut
 from app.services.room_store import GUEST_ID, Room, RoomLimitReached, RoomStore
@@ -37,7 +38,12 @@ def _out(room: Room) -> RoomOut:
     return RoomOut(room_id=room.id, host=room.host, guest=room.guest)
 
 
-@router.post("", response_model=RoomCreated, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=RoomCreated,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_host)],
+)
 async def create_room(body: RoomCreate, rooms: Rooms) -> RoomCreated:
     try:
         room = rooms.create(body.host)
@@ -67,6 +73,20 @@ async def get_room(
     return _out(room)
 
 
+@router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_room(
+    room_id: str, rooms: Rooms, token: Annotated[str, Header(alias="X-Room-Token")]
+) -> None:
+    room = _find(rooms, room_id)
+    participant_id = room.participant_for(token)
+    if participant_id is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "This link is not valid for this conversation."
+        )
+    rooms.end(room)
+    tell_others(room, participant_id, "peer.left")
+
+
 @router.post("/{room_id}/join", response_model=RoomJoined)
 async def join_room(room_id: str, body: RoomJoin, rooms: Rooms) -> RoomJoined:
     room = _find(rooms, room_id)
@@ -77,12 +97,6 @@ async def join_room(room_id: str, body: RoomJoin, rooms: Rooms) -> RoomJoined:
     if room.participant_for(body.token) != GUEST_ID:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only the invite link can be used to join this conversation."
-        )
-    language = body.guest.preferred_language
-    if language == room.host.preferred_language:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            f"You both chose {language}. Pick a different language for one of you.",
         )
     token = rooms.join(room, body.guest)
     return RoomJoined(room_id=room.id, host=room.host, guest=room.guest, token=token)

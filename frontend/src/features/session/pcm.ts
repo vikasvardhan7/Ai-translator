@@ -116,3 +116,10 @@ export function rmsLevel(samples: Float32Array): number {
   }
   return Math.min(1, Math.sqrt(sumOfSquares / samples.length));
 }
+
+export function tagFrame(source: 'A' | 'B', frame: ArrayBuffer): ArrayBuffer {
+  const tagged = new Uint8Array(frame.byteLength + 1);
+  tagged[0] = source.charCodeAt(0);
+  tagged.set(new Uint8Array(frame), 1);
+  return tagged.buffer;
+}

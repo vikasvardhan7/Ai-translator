@@ -1,6 +1,12 @@
 import Icon from './icons';
 
+interface MeetingControl {
+  connected: boolean;
+  busy: boolean;
+}
+
 interface ControlBarProps {
+  meeting: MeetingControl | null;
   muted: boolean;
   micReady: boolean;
   level: number;
@@ -9,6 +15,7 @@ interface ControlBarProps {
   transcriptOpen: boolean;
   ended: boolean;
   onMute: () => void;
+  onMeeting: () => void;
   onVoice: () => void;
   onSettings: () => void;
   onTranscript: () => void;
@@ -16,6 +23,7 @@ interface ControlBarProps {
 }
 
 export default function ControlBar({
+  meeting,
   muted,
   micReady,
   level,
@@ -24,6 +32,7 @@ export default function ControlBar({
   transcriptOpen,
   ended,
   onMute,
+  onMeeting,
   onVoice,
   onSettings,
   onTranscript,
@@ -44,10 +53,25 @@ export default function ControlBar({
         <Icon name={muted ? 'mic-off' : 'mic'} />
         <span>Mute</span>
       </button>
-      <button className="control" type="button" data-off={!voiceOn} aria-pressed={!voiceOn} onClick={onVoice} disabled={ended}>
-        <Icon name={voiceOn ? 'voice' : 'voice-off'} />
-        <span>Captions only</span>
-      </button>
+      {meeting ? (
+        <button
+          className="control"
+          type="button"
+          data-off={!meeting.connected}
+          aria-pressed={meeting.connected}
+          aria-busy={meeting.busy}
+          onClick={onMeeting}
+          disabled={ended || meeting.busy}
+        >
+          <Icon name="meeting" />
+          <span>Meeting sound</span>
+        </button>
+      ) : (
+        <button className="control" type="button" data-off={!voiceOn} aria-pressed={!voiceOn} onClick={onVoice} disabled={ended}>
+          <Icon name={voiceOn ? 'voice' : 'voice-off'} />
+          <span>Captions only</span>
+        </button>
+      )}
       <button className="control" type="button" aria-expanded={settingsOpen} aria-controls="call-settings" onClick={onSettings}>
         <Icon name="settings" />
         <span>Settings</span>

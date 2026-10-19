@@ -7,6 +7,7 @@ from app.api.dependencies import (
     get_session_store,
     get_speech_synthesizer,
     get_speech_translator,
+    require_host,
 )
 from app.api.stream import handle_stream
 from app.core.config import Settings
@@ -23,14 +24,13 @@ Translator = Annotated[SpeechTranslator | None, Depends(get_speech_translator)]
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
 
 
-@router.post("", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
-async def create_session(body: SessionCreate, store: Store, synthesizer: Synthesizer) -> SessionOut:
-    if body.mode == "call" and synthesizer is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Call mode needs the server voice, because the other person hears only the"
-            " translation. Set GEMINI_TTS_MODEL in backend/.env.",
-        )
+@router.post(
+    "",
+    response_model=SessionOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_host)],
+)
+async def create_session(body: SessionCreate, store: Store) -> SessionOut:
     try:
         session = store.create(body.participants, body.mode)
     except SessionLimitReached as exc:
@@ -55,6 +55,4 @@ async def session_stream(
     translator: Translator,
     synthesizer: Synthesizer,
 ) -> None:
-    await handle_stream(
-        websocket, lambda: store.take(session_id), settings, translator, synthesizer
-    )
+    await handle_stream(websocket, store, session_id, settings, translator, synthesizer)

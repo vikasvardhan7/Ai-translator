@@ -2,6 +2,7 @@ import asyncio
 import copy
 import io
 import json
+import logging
 import re
 import wave
 
@@ -12,7 +13,7 @@ from app.api.stream import handle_stream
 from app.core.config import Settings
 from app.models.protocol import ErrorCode
 from app.models.session import Participant
-from app.services.session_store import Session
+from app.services.session_store import SessionStore
 from app.services.translation.base import NothingRecognised, TranslationFailed
 from tests.audio import frames, tone
 from tests.conftest import FRONTEND, VALID_BODY, make_client, receive
@@ -265,13 +266,40 @@ async def test_leaving_right_after_stop_is_not_a_server_failure(caplog) -> None:
         gone = sent[-1:] == ["utterance.received"]
 
     scope = {"type": "websocket", "path": "/", "headers": [], "query_string": b""}
-    session = Session("s1", [Participant(**p) for p in VALID_BODY["participants"]], "together")
+    sessions = SessionStore()
+    session = sessions.create([Participant(**p) for p in VALID_BODY["participants"]], "together")
     settings = Settings(_env_file=None, speech_timeout_seconds=1)
     translator = FakeTranslator(delays=[0.2])
 
     await handle_stream(
-        WebSocket(scope, inbox.get, send), lambda: session, settings, translator, FakeSynthesizer()
+        WebSocket(scope, inbox.get, send),
+        sessions,
+        session.id,
+        settings,
+        translator,
+        FakeSynthesizer(),
     )
 
     assert "Live channel failed" not in caplog.text
     assert sent == ["session.ready", "speech.activity", "utterance.received"]
+
+
+def test_each_sentence_logs_how_long_each_step_took_without_its_words(caplog) -> None:
+    caplog.set_level(logging.INFO)
+    client = make_client(translator=FakeTranslator(delays=[0.2]), synthesizer=FakeSynthesizer())
+
+    with open_stream(client) as ws:
+        receive(ws)
+        speak(ws)
+        [receive(ws) for _ in range(4)]
+
+    sentence = re.search(
+        r"Sentence \w{8}: [\d.]+ s of speech, waited [\d.]+ s, understood in ([\d.]+) s,"
+        r" shown ([\d.]+) s after it ended",
+        caplog.text,
+    )
+    assert sentence is not None
+    assert float(sentence.group(1)) >= 0.2
+    assert float(sentence.group(2)) >= float(sentence.group(1))
+    assert re.search(r"Voice \w{8}: made in [\d.]+ s, ready [\d.]+ s after", caplog.text)
+    assert "How are you" not in caplog.text
