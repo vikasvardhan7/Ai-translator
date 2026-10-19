@@ -1,4 +1,4 @@
-import type { CreatedRoom, RoomInfo } from './api';
+import type { CreatedRoom, RoomAccess, RoomInfo } from './api';
 import type { ConversationMode, CreateSessionResponse, Participant, SpeakerId } from './protocol';
 
 export interface Conversation {
@@ -7,6 +7,7 @@ export interface Conversation {
   participants: Participant[];
   streamPath: string;
   you: SpeakerId | null;
+  room: RoomAccess | null;
 }
 
 export interface Invite {
@@ -20,7 +21,8 @@ export function sessionConversation(session: CreateSessionResponse): Conversatio
     mode: session.mode,
     participants: session.participants,
     streamPath: `/api/sessions/${encodeURIComponent(session.session_id)}/stream`,
-    you: null,
+    you: session.mode === 'call' ? 'A' : null,
+    room: null,
   };
 }
 
@@ -32,6 +34,7 @@ export function roomConversation(room: RoomInfo, token: string, you: SpeakerId):
     participants: room.guest ? [room.host, room.guest] : [room.host],
     streamPath: `/api/rooms/${encodeURIComponent(room.room_id)}/stream?${query.toString()}`,
     you,
+    room: { roomId: room.room_id, token },
   };
 }
 

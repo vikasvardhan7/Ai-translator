@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Participant } from '../../services/protocol';
-import { applyServerMessage, type Turn } from './conversation';
+import { applyServerMessage, speakerNames, type Turn } from './conversation';
 import { transcriptSubtitles, transcriptText } from './transcript';
 
 const people: Participant[] = [
   { id: 'A', name: 'Person 1', preferred_language: 'en' },
   { id: 'B', name: 'Person 2', preferred_language: 'te' },
 ];
+const names = speakerNames('together', people, null);
 
 function sentence(turns: Turn[], id: string, at: number): Turn[] {
   let next = applyServerMessage(turns, { type: 'utterance.received', seq: 1, utterance_id: id, speaker_id: 'B', duration_ms: 2_000 }, at);
@@ -35,14 +36,14 @@ describe('transcript downloads', () => {
   const turns = sentence(sentence([], 'u1', 10_000), 'u2', 15_500);
 
   it('writes both languages as plain text', () => {
-    const text = transcriptText(turns, people);
+    const text = transcriptText(turns, people, names);
 
     expect(text).toContain('Person 2 (Telugu): మీరు ఎలా ఉన్నారు?');
     expect(text).toContain('Person 1 heard (English): How are you?');
   });
 
   it('writes subtitles in the viewer\'s language with times from the first sentence', () => {
-    expect(transcriptSubtitles(turns, people, 'A')).toBe([
+    expect(transcriptSubtitles(turns, 'A', names)).toBe([
       '1',
       '00:00:00,000 --> 00:00:02,000',
       'Person 2: How are you?',
@@ -52,7 +53,7 @@ describe('transcript downloads', () => {
       'Person 2: How are you?',
       '',
     ].join('\n'));
-    expect(transcriptSubtitles(turns, people, 'B')).toContain('Person 2: మీరు ఎలా ఉన్నారు?');
+    expect(transcriptSubtitles(turns, 'B', names)).toContain('Person 2: మీరు ఎలా ఉన్నారు?');
   });
 
   it('keeps each subtitle on one line so players do not cut it short', () => {
@@ -62,6 +63,14 @@ describe('transcript downloads', () => {
       1_000,
     );
 
-    expect(transcriptSubtitles(broken, people, 'A')).toContain('Person 1: One Two\n');
+    expect(transcriptSubtitles(broken, 'A', names)).toContain('Person 1: One Two\n');
+  });
+
+  it('names the meeting and the person using the app in a meeting transcript', () => {
+    const me = people.slice(0, 1);
+    const text = transcriptText(turns, me, speakerNames('call', me, 'A'));
+
+    expect(text).toContain('Meeting (Telugu): మీరు ఎలా ఉన్నారు?');
+    expect(text).toContain('You heard (English): How are you?');
   });
 });

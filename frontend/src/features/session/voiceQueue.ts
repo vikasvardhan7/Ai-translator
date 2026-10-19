@@ -50,6 +50,7 @@ export class VoiceQueue {
     private readonly player: VoicePlayer,
     private readonly onSpeakingChange: (listenerId: SpeakerId | null) => void,
     private readonly onNoVoice: (language: string) => void,
+    private readonly onPlayed: (utteranceId: string, listenerId: SpeakerId, seconds: number) => void = () => undefined,
     private readonly waitMs: number = VOICE_WAIT_MS,
     private readonly holdLimitMs: number = HOLD_LIMIT_MS,
   ) {}
@@ -198,8 +199,10 @@ export class VoiceQueue {
           if (!repeated) {
             this.current = slot;
             const listenerId = slot.listenerId;
+            let startedAt: number | null = null;
             await this.play(slot, () => {
               if (generation === this.generation) {
+                startedAt = Date.now();
                 this.setSpeaking(listenerId);
               }
             });
@@ -209,6 +212,9 @@ export class VoiceQueue {
             this.current = null;
             if (this.enabled[listenerId]) {
               this.lastPlayed = { utteranceId: slot.utteranceId, signature };
+            }
+            if (startedAt !== null) {
+              this.onPlayed(slot.utteranceId, listenerId, (Date.now() - startedAt) / 1_000);
             }
           }
         }

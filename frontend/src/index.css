@@ -2096,3 +2096,72 @@ html[data-page-visible='hidden'] .hero-arc {
 .transcript-panel:focus {
   outline: none;
 }
+
+.call-tile[data-state='away'] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
+  opacity: 0.68;
+}
+
+.call-tile[data-state='away'] .call-tile-status {
+  color: var(--muted);
+}
+
+.meeting-connect {
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 2px dashed var(--sky);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--background) 84%, transparent);
+  animation: caption-in 280ms var(--ease-out) both;
+}
+
+.meeting-connect h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.meeting-connect p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.host-key {
+  width: min(100% - 32px, 560px);
+  margin: 0 auto;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--surface-strong);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.host-key h2 {
+  margin: 0;
+}
+
+.host-key p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.host-key-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.host-key-form .text-input {
+  width: 100%;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

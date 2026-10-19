@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -187,16 +188,13 @@ def test_a_second_guest_is_refused(client: TestClient) -> None:
     assert "already joined" in response.json()["detail"]
 
 
-def test_the_guest_must_pick_a_different_language(client: TestClient) -> None:
+def test_the_guest_may_choose_the_hosts_language(client: TestClient) -> None:
     room = create(client)
 
     response = join(client, room, guest={"name": "Guest", "preferred_language": "EN"})
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == (
-        "You both chose en. Pick a different language for one of you."
-    )
-    assert look(client, room, room["host_token"]).json()["guest"] is None
+    assert response.status_code == 200
+    assert response.json()["guest"]["preferred_language"] == "en"
 
 
 def test_joining_needs_consent(client: TestClient) -> None:
@@ -265,26 +263,6 @@ def test_the_guest_is_heard_and_voiced_on_the_host_device() -> None:
     assert synthesizer.texts == ["How are you? [en]"]
 
 
-def test_a_device_hearing_the_voice_it_just_played_is_not_translated_back() -> None:
-    translator = FakeTranslator(language="en", text="How are you?", translation="Bagunnara?")
-    client = voiced(translator, FakeSynthesizer())
-
-    with client:
-        room = joined(client)
-        with connect(client, room, "A") as a, connect(client, room, "B") as b:
-            [receive(ws) for ws in (a, b)]
-            speak(a)
-            [receive(b) for _ in range(4)]
-            [receive(a) for _ in range(3)]
-            translator.transcripts.append("Bagunnara? [te]")
-            speak(b)
-            on_b = [receive(b) for _ in range(2)]
-            on_a = [receive(a) for _ in range(2)]
-
-    assert [m["type"] for m in on_b] == ["utterance.received", "utterance.ignored"]
-    assert [m["type"] for m in on_a] == ["utterance.received", "utterance.ignored"]
-
-
 def test_the_speaker_is_the_device_not_the_language_heard() -> None:
     translator = FakeTranslator(language="en", text="Hello there", language_name="English")
 
@@ -343,13 +321,75 @@ def test_the_other_device_is_told_when_a_device_leaves(how: str) -> None:
             b.send_json({"type": "ping"})
             pong = receive(b)
 
-    assert (left["type"], left["participant_id"]) == ("peer.left", "A")
+    expected = "peer.left" if how == "stop" else "peer.disconnected"
+    assert (left["type"], left["participant_id"]) == (expected, "A")
     assert pong["type"] == "pong"
 
 
 class GoneDevice:
     async def send(self, message_type: str, **fields) -> None:
         raise RuntimeError("Cannot call send once a close message has been sent.")
+
+    def post(self, message_type: str, **fields) -> None:
+        pass
+
+    async def close(self, code: int) -> None:
+        pass
+
+
+class StalledDevice:
+    def __init__(self) -> None:
+        self.posted: list[str] = []
+
+    async def send(self, message_type: str, **fields) -> None:
+        await asyncio.sleep(3600)
+
+    def post(self, message_type: str, **fields) -> None:
+        self.posted.append(message_type)
+
+    async def close(self, code: int) -> None:
+        pass
+
+
+def test_a_stalled_device_does_not_hold_up_the_speaker() -> None:
+    synthesizer = FakeSynthesizer()
+    translator = FakeTranslator(language="en", text="How are you?", translation="Bagunnara?")
+    client = voiced(translator, synthesizer)
+    stalled = StalledDevice()
+
+    with client:
+        room = joined(client)
+        with connect(client, room, "A") as a:
+            receive(a)
+            client.app.state.rooms.get(room["room_id"]).devices["B"] = stalled
+            speak(a)
+            on_a = [receive(a)["type"] for _ in range(3)]
+            a.send_json({"type": "ping"})
+            pong = receive(a)
+
+    assert on_a == ["utterance.received", "transcript.final", "translation.final"]
+    assert pong["type"] == "pong"
+    posted = [t for t in stalled.posted if t != "speech.activity"]
+    assert posted[:4] == [
+        "utterance.received",
+        "transcript.final",
+        "translation.final",
+        "tts.audio",
+    ]
+
+
+def test_messages_for_the_other_device_arrive_in_order_even_when_it_is_slow() -> None:
+    translator = FakeTranslator(language="en", text="How are you?", translation="Bagunnara?")
+    client = make_client(translator=translator)
+    with client:
+        room = joined(client)
+        with connect(client, room, "A") as a, connect(client, room, "B") as b:
+            [receive(ws) for ws in (a, b)]
+            for _ in range(3):
+                speak(a)
+            on_b = [receive(b)["type"] for _ in range(9)]
+
+    assert on_b == ["utterance.received", "transcript.final", "translation.final"] * 3
 
 
 def test_a_device_that_has_gone_away_does_not_break_the_speaker() -> None:
@@ -372,39 +412,85 @@ def test_a_device_that_has_gone_away_does_not_break_the_speaker() -> None:
     assert synthesizer.texts == ["Bagunnara? [te]"]
 
 
-def test_a_room_is_removed_once_both_devices_have_left() -> None:
+def test_a_room_waits_for_dropped_devices_and_is_removed_once_someone_leaves() -> None:
     client = voiced()
     with client:
         room = joined(client)
-        with connect(client, room, "A") as a:
-            receive(a)
-        still_there = look(client, room, room["host_token"]).status_code
         with connect(client, room, "A") as a, connect(client, room, "B") as b:
             [receive(ws) for ws in (a, b)]
+        kept = look(client, room, room["host_token"]).status_code
+        with connect(client, room, "A") as a, connect(client, room, "B") as b:
+            [receive(ws) for ws in (a, b)]
+            a.send_json({"type": "session.stop"})
+            closed_code(a)
+            left = receive(b)
         gone = look(client, room, room["host_token"]).status_code
         with connect(client, room, "B") as b:
             error = receive(b)
             code = closed_code(b)
 
-    assert (still_there, gone) == (200, 404)
+    assert (kept, left["type"], gone) == (200, "peer.left", 404)
     assert (error["code"], code) == ("unknown_session", 4404)
 
 
-def test_a_token_opens_only_one_live_channel() -> None:
+def test_a_room_that_someone_left_cannot_be_rejoined_by_the_other() -> None:
     client = voiced()
     with client:
         room = joined(client)
-        with connect(client, room, "A") as first:
-            receive(first)
-            with connect(client, room, "A") as second:
-                error = receive(second)
-                code = closed_code(second)
-            first.send_json({"type": "ping"})
-            pong = receive(first)
+        with connect(client, room, "B") as b:
+            receive(b)
+            with connect(client, room, "A") as a:
+                receive(a)
+                a.send_json({"type": "session.stop"})
+                closed_code(a)
+            receive(b)
+            with connect(client, room, "A") as again:
+                error = receive(again)
+                code = closed_code(again)
 
     assert (error["code"], code) == ("unknown_session", 4404)
-    assert "already open" in error["message"]
-    assert pong["type"] == "pong"
+    assert "has ended" in error["message"]
+
+
+def test_each_device_learns_who_is_connected() -> None:
+    client = voiced()
+    with client:
+        room = joined(client)
+        with connect(client, room, "B") as b:
+            alone = b.receive_json()
+            with connect(client, room, "A") as a:
+                both = a.receive_json()
+                arrived = b.receive_json()
+                a.close()
+                dropped = b.receive_json()
+            with connect(client, room, "A") as a:
+                a.receive_json()
+                back = b.receive_json()
+
+    assert (alone["connected"], both["connected"]) == (["B"], ["A", "B"])
+    assert [(m["type"], m["participant_id"]) for m in (arrived, dropped, back)] == [
+        ("peer.connected", "A"),
+        ("peer.disconnected", "A"),
+        ("peer.connected", "A"),
+    ]
+
+
+def test_a_device_that_comes_back_takes_over_its_place() -> None:
+    synthesizer = FakeSynthesizer()
+    translator = FakeTranslator(language="en", text="How are you?", translation="Bagunnara?")
+    client = voiced(translator, synthesizer)
+    with client:
+        room = joined(client)
+        with connect(client, room, "A") as a, connect(client, room, "B") as old:
+            [receive(ws) for ws in (a, old)]
+            with connect(client, room, "B") as new:
+                ready = receive(new)
+                replaced = closed_code(old)
+                speak(a)
+                on_new = [receive(new)["type"] for _ in range(4)]
+
+    assert (ready["type"], ready["connected"], replaced) == ("session.ready", ["A", "B"], 4410)
+    assert on_new == ["utterance.received", "transcript.final", "translation.final", "tts.audio"]
 
 
 def test_connecting_before_the_guest_joins_is_refused() -> None:
@@ -449,7 +535,12 @@ def test_an_unknown_room_stream_is_refused() -> None:
 
 
 def test_a_device_on_the_tunnel_address_is_accepted() -> None:
-    headers = {"Origin": f"https://{TUNNEL}", "Host": TUNNEL, "X-Forwarded-Proto": "https"}
+    headers = {
+        "Origin": f"https://{TUNNEL}",
+        "Host": TUNNEL,
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-For": "198.51.100.7",
+    }
 
     client = voiced()
     with client:
@@ -524,12 +615,11 @@ def test_a_device_changes_its_language_for_both_devices() -> None:
 @pytest.mark.parametrize(
     ("message", "detail"),
     [
-        ({"language": "te"}, "You both chose te. Pick a different language for one of you."),
         ({"language": "English"}, "'English' is not a language code."),
         ({"language": None}, "language.set needs a language code"),
         ({}, "language.set needs a language code"),
     ],
-    ids=["same-as-other", "not-a-code", "null", "missing"],
+    ids=["not-a-code", "null", "missing"],
 )
 def test_a_bad_language_change_in_a_room_is_refused(message: dict, detail: str) -> None:
     client = voiced()
@@ -548,3 +638,79 @@ def test_a_bad_language_change_in_a_room_is_refused(message: dict, detail: str) 
     assert error["message"].startswith(detail)
     assert on_b["type"] == "pong"
     assert looked["host"]["preferred_language"] == "en"
+
+
+def test_the_host_can_cancel_an_invite_before_anyone_joins(client: TestClient) -> None:
+    room = create(client)
+
+    by_host = client.delete(
+        f"/api/rooms/{room['room_id']}", headers={"X-Room-Token": room["host_token"]}
+    )
+    again = client.delete(
+        f"/api/rooms/{room['room_id']}", headers={"X-Room-Token": room["host_token"]}
+    )
+
+    assert (by_host.status_code, again.status_code) == (204, 404)
+    assert join(client, room).status_code == 404
+
+
+def test_a_person_who_cannot_reconnect_can_still_leave_and_the_other_is_told() -> None:
+    client = voiced()
+    with client:
+        room = joined(client)
+        with connect(client, room, "A") as a:
+            receive(a)
+            with connect(client, room, "B") as b:
+                receive(b)
+            receive(a)
+            left = client.delete(
+                f"/api/rooms/{room['room_id']}",
+                headers={"X-Room-Token": room["guest_device_token"]},
+            )
+            told = receive(a)
+            a.send_json({"type": "ping"})
+            pong = receive(a)
+        with connect(client, room, "B") as again:
+            error = receive(again)
+            code = closed_code(again)
+
+    assert left.status_code == 204
+    assert (told["type"], told["participant_id"], pong["type"]) == ("peer.left", "B", "pong")
+    assert (error["code"], code) == ("unknown_session", 4404)
+
+
+def test_a_wrong_token_cannot_end_a_room(client: TestClient) -> None:
+    room = create(client)
+
+    response = client.delete(f"/api/rooms/{room['room_id']}", headers={"X-Room-Token": "x"})
+
+    assert response.status_code == 403
+    assert look(client, room, room["host_token"]).status_code == 200
+
+
+def test_the_echo_of_a_voice_played_on_the_other_device_is_ignored() -> None:
+    translator = FakeTranslator(language="en", text="How are you?", translation="Bagunnara?")
+    client = voiced(translator, FakeSynthesizer())
+    with client:
+        room = joined(client)
+        with connect(client, room, "A") as a, connect(client, room, "B") as b:
+            [receive(ws) for ws in (a, b)]
+            speak(a)
+            on_b = [receive(b) for _ in range(4)]
+            [receive(a) for _ in range(3)]
+            b.send_json(
+                {
+                    "type": "voice.played",
+                    "utterance_id": on_b[0]["utterance_id"],
+                    "listener_id": "A",
+                    "seconds": 1.5,
+                }
+            )
+            translator.transcripts.append("Bagunnara? [te]")
+            speak(b)
+            on_b_after = [receive(b)["type"] for _ in range(2)]
+            on_a = [receive(a)["type"] for _ in range(2)]
+
+    assert on_b[-1]["type"] == "tts.audio"
+    assert on_b_after == ["utterance.received", "utterance.ignored"]
+    assert on_a[-1] == "utterance.ignored"

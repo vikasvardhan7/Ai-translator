@@ -53,7 +53,7 @@ def test_a_change_during_a_translation_applies_from_the_next_sentence() -> None:
     assert second[-1]["target_language"] == "hi"
 
 
-def test_a_call_changes_the_language_of_the_person_named() -> None:
+def test_a_meeting_changes_the_language_of_the_person_using_it() -> None:
     translator = english_speaker()
 
     with open_stream(call_client(translator), CALL_BODY) as ws:
@@ -64,8 +64,8 @@ def test_a_call_changes_the_language_of_the_person_named() -> None:
         ws.send_json({"type": "audio.pause", "participant_id": "B"})
         messages = [receive(ws) for _ in range(3)]
 
-    assert updated["participants"][0]["preferred_language"] == "hi"
-    assert translator.calls[-1].target_languages == ["hi", "te"]
+    assert updated["participants"] == [{"id": "A", "name": "Person A", "preferred_language": "hi"}]
+    assert translator.calls[-1].target_languages == ["hi"]
     translation = messages[2]
     assert (translation["speaker_id"], translation["listener_id"]) == ("B", "A")
     assert translation["target_language"] == "hi"
@@ -77,19 +77,14 @@ def test_a_call_changes_the_language_of_the_person_named() -> None:
         ({"language": "hi"}, "language.set needs participant_id 'A' or 'B'."),
         ({"participant_id": "C", "language": "hi"}, "language.set needs participant_id"),
         ({"participant_id": ["A"], "language": "hi"}, "language.set needs participant_id"),
-        (
-            {"participant_id": "A", "language": "TE"},
-            "You both chose te. Pick a different language for one of you.",
-        ),
         ({"participant_id": "A", "language": "Telugu"}, "'Telugu' is not a language code."),
         ({"participant_id": "A", "language": 7}, "language.set needs a language code"),
         ({"participant_id": "A"}, "language.set needs a language code"),
     ],
-    ids=["no-participant", "unknown", "list", "same-as-other", "not-a-code", "number", "missing"],
+    ids=["no-participant", "unknown", "list", "not-a-code", "number", "missing"],
 )
-@pytest.mark.parametrize("body", [VALID_BODY, CALL_BODY], ids=["together", "call"])
-def test_a_bad_language_change_is_refused(message: dict, detail: str, body: dict) -> None:
-    with open_stream(call_client(english_speaker()), body) as ws:
+def test_a_bad_language_change_is_refused(message: dict, detail: str) -> None:
+    with open_stream(call_client(english_speaker()), VALID_BODY) as ws:
         receive(ws)
         ws.send_json({"type": "language.set", **message})
         error = receive(ws)
@@ -99,3 +94,20 @@ def test_a_bad_language_change_is_refused(message: dict, detail: str, body: dict
     assert error["code"] == "invalid_message"
     assert error["message"].startswith(detail)
     assert pong["type"] == "pong"
+
+
+@pytest.mark.parametrize(
+    ("message", "detail"),
+    [
+        ({"participant_id": "B", "language": "hi"}, "language.set needs participant_id 'A'."),
+        ({"participant_id": "A", "language": "Telugu"}, "'Telugu' is not a language code."),
+    ],
+    ids=["the-meeting", "not-a-code"],
+)
+def test_a_bad_language_change_in_a_meeting_is_refused(message: dict, detail: str) -> None:
+    with open_stream(call_client(english_speaker()), CALL_BODY) as ws:
+        receive(ws)
+        ws.send_json({"type": "language.set", **message})
+        error = receive(ws)
+
+    assert (error["code"], error["message"].startswith(detail)) == ("invalid_message", True)

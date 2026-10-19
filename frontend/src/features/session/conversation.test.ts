@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Participant, ServerMessage } from '../../services/protocol';
-import { applyServerMessage, bubbleFor, MAX_TURNS, type Turn } from './conversation';
+import { abandonPending, applyServerMessage, bubbleFor, MAX_TURNS, speakerName, speakerNames, type Turn } from './conversation';
 
-const A: Participant = { id: 'A', name: 'Asha', preferred_language: 'en' };
-const B: Participant = { id: 'B', name: 'Bala', preferred_language: 'te' };
+const A: Participant = { id: 'A', name: 'Person 1', preferred_language: 'en' };
+const B: Participant = { id: 'B', name: 'Person 2', preferred_language: 'te' };
 const people = [A, B];
 
 function play(messages: ServerMessage[], start: Turn[] = []): Turn[] {
@@ -126,5 +126,29 @@ describe('conversation store', () => {
 
     expect(turns).toHaveLength(MAX_TURNS);
     expect(turns[0]!.utteranceId).toBe('u5');
+  });
+
+  it('marks sentences that were still being translated as failed when the connection drops', () => {
+    const turns = play([received('u1'), transcript('u1', 'A'), received('u2')]);
+
+    const after = abandonPending(turns, 'The connection dropped.');
+
+    expect(after.map((turn) => [turn.status, turn.error])).toEqual([['done', undefined], ['failed', 'The connection dropped.']]);
+  });
+
+  it('leaves the other person\'s pending sentences alone when asked', () => {
+    const theirs: ServerMessage = { type: 'utterance.received', seq: 1, utterance_id: 'u2', speaker_id: 'B', duration_ms: 900 };
+    const turns = play([received('u1'), theirs]);
+
+    const after = abandonPending(turns, 'Dropped.', (turn) => turn.speakerId !== 'B');
+
+    expect(after.map((turn) => turn.status)).toEqual(['failed', 'processing']);
+  });
+
+  it('names the speakers for each kind of conversation', () => {
+    expect(speakerNames('together', people, null)).toEqual({ A: 'Person 1', B: 'Person 2' });
+    expect(speakerNames('remote', people, 'B')).toEqual({ A: 'Them', B: 'You' });
+    expect(speakerNames('call', [A], 'A')).toEqual({ A: 'You', B: 'Meeting' });
+    expect(speakerName({ A: 'You', B: 'Meeting' }, null)).toBe('Someone');
   });
 });

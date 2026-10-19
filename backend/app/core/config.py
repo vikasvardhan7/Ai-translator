@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
     gemini_tts_model: str | None = None
+    host_key_everywhere: bool = False
     speech_timeout_seconds: float = Field(default=30.0, gt=0)
 
 

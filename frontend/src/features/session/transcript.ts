@@ -1,6 +1,6 @@
 import type { Participant, SpeakerId } from '../../services/protocol';
 import { languageName } from '../../services/languageNames';
-import type { Turn } from './conversation';
+import { speakerName, type Names, type Turn } from './conversation';
 
 function clock(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -16,10 +16,6 @@ function srtTime(ms: number): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)},${pad(millis, 3)}`;
 }
 
-function nameOf(participants: readonly Participant[], id: SpeakerId | null): string {
-  return participants.find((person) => person.id === id)?.name ?? 'Someone';
-}
-
 function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -28,14 +24,14 @@ function spoken(turns: readonly Turn[]): Turn[] {
   return turns.filter((turn) => turn.original);
 }
 
-export function transcriptText(turns: readonly Turn[], participants: readonly Participant[]): string {
+export function transcriptText(turns: readonly Turn[], participants: readonly Participant[], names: Names): string {
   const lines = spoken(turns).flatMap((turn) => {
     const original = turn.original!;
-    const header = `[${clock(turn.startedAt)}] ${nameOf(participants, turn.speakerId)} (${original.languageName}): ${original.text}`;
+    const header = `[${clock(turn.startedAt)}] ${speakerName(names, turn.speakerId)} (${original.languageName}): ${original.text}`;
     const translations = participants.flatMap((person) => {
       const translation = turn.translations[person.id];
       return translation
-        ? [`    ${nameOf(participants, person.id)} heard (${languageName(translation.targetLanguage)}): ${translation.text}`]
+        ? [`    ${names[person.id]} heard (${languageName(translation.targetLanguage)}): ${translation.text}`]
         : [];
     });
     return [header, ...translations, ''];
@@ -43,11 +39,7 @@ export function transcriptText(turns: readonly Turn[], participants: readonly Pa
   return lines.join('\n');
 }
 
-export function transcriptSubtitles(
-  turns: readonly Turn[],
-  participants: readonly Participant[],
-  viewer: SpeakerId,
-): string {
+export function transcriptSubtitles(turns: readonly Turn[], viewer: SpeakerId, names: Names): string {
   const kept = spoken(turns);
   const start = kept[0]?.startedAt ?? 0;
   return kept.map((turn, index) => {
@@ -57,7 +49,7 @@ export function transcriptSubtitles(
     return [
       String(index + 1),
       `${srtTime(turn.startedAt - start)} --> ${srtTime(turn.endedAt - start)}`,
-      `${nameOf(participants, turn.speakerId)}: ${oneLine(text)}`,
+      `${speakerName(names, turn.speakerId)}: ${oneLine(text)}`,
       '',
     ].join('\n');
   }).join('\n');

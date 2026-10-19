@@ -4,8 +4,8 @@ import pytest
 
 from app.models.session import Participant
 from app.services.session_store import (
-    MAX_UNOPENED_SESSIONS,
-    UNOPENED_SESSION_LIFETIME,
+    LIFETIME_WITHOUT_DEVICE,
+    MAX_WAITING_SESSIONS,
     SessionLimitReached,
     SessionStore,
 )
@@ -16,46 +16,67 @@ PEOPLE = [
 ]
 
 
-def test_participants_are_ordered_and_a_session_is_taken_once() -> None:
+class Device:
+    async def send(self, message_type: str, **fields) -> None:
+        pass
+
+    async def close(self, code: int) -> None:
+        pass
+
+
+def test_participants_are_ordered_and_a_session_can_be_found() -> None:
     store = SessionStore()
     session = store.create(PEOPLE, "together")
 
     assert [p.id for p in session.participants] == ["A", "B"]
-    assert store.take(session.id) is session
-    assert store.take(session.id) is None
+    assert store.get(session.id) is session
+    assert store.get("no-such-session") is None
 
 
-def test_unopened_sessions_expire_and_are_dropped() -> None:
-    store = SessionStore()
-    old = store.create(PEOPLE, "together")
-    old.created_at = datetime.now(UTC) - UNOPENED_SESSION_LIFETIME * 2
-    other = store.create(PEOPLE, "together")
-
-    assert old.id not in store._unopened
-    assert store.take(other.id) is other
-
-
-def test_an_expired_session_cannot_be_opened() -> None:
+def test_a_new_device_takes_over_and_the_old_one_is_returned() -> None:
     store = SessionStore()
     session = store.create(PEOPLE, "together")
-    session.created_at = datetime.now(UTC) - UNOPENED_SESSION_LIFETIME * 2
+    first, second = Device(), Device()
 
-    assert store.take(session.id) is None
+    assert store.connect(session, first) is None
+    assert store.connect(session, second) is first
+    store.disconnect(session, first, ended=True)
+
+    assert (session.device, store.get(session.id)) == (second, session)
 
 
-def test_opening_any_session_drops_expired_ones() -> None:
+def test_a_dropped_session_waits_for_its_device_and_an_ended_one_is_forgotten() -> None:
     store = SessionStore()
-    old = store.create(PEOPLE, "together")
-    fresh = store.create(PEOPLE, "together")
-    old.created_at = datetime.now(UTC) - UNOPENED_SESSION_LIFETIME * 2
+    dropped = store.create(PEOPLE, "together")
+    ended = store.create(PEOPLE, "together")
+    device = Device()
+    for session in (dropped, ended):
+        store.connect(session, device)
 
-    assert store.take(fresh.id) is fresh
-    assert old.id not in store._unopened
+    store.disconnect(dropped, device, ended=False)
+    store.disconnect(ended, device, ended=True)
+
+    assert (store.get(dropped.id), store.get(ended.id)) == (dropped, None)
+
+
+def test_a_session_without_a_device_is_forgotten_after_its_lifetime() -> None:
+    store = SessionStore()
+    unopened = store.create(PEOPLE, "together")
+    dropped = store.create(PEOPLE, "together")
+    live = store.create(PEOPLE, "together")
+    store.connect(dropped, Device())
+    store.connect(live, Device())
+    store.disconnect(dropped, dropped.device, ended=False)
+    long_ago = datetime.now(UTC) - LIFETIME_WITHOUT_DEVICE * 2
+    for session in (unopened, dropped, live):
+        session.idle_since = long_ago
+
+    assert [store.get(s.id) for s in (unopened, dropped, live)] == [None, None, live]
 
 
 def test_waiting_sessions_are_capped() -> None:
     store = SessionStore()
-    for _ in range(MAX_UNOPENED_SESSIONS):
+    for _ in range(MAX_WAITING_SESSIONS):
         store.create(PEOPLE, "together")
 
     with pytest.raises(SessionLimitReached):

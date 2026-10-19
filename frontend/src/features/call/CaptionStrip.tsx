@@ -1,32 +1,25 @@
 import { memo } from 'react';
 
-import type { Participant, SpeakerId } from '../../services/protocol';
-import type { Turn } from '../session/conversation';
+import type { SpeakerId } from '../../services/protocol';
+import { speakerName, type Names, type Turn } from '../session/conversation';
 
 interface CaptionStripProps {
   turns: Turn[];
-  participants: Participant[];
+  names: Names;
   readers: SpeakerId[];
-  you: SpeakerId | null;
+  emptyText: string;
 }
 
-function nameOf(participants: Participant[], id: SpeakerId | null, you: SpeakerId | null): string {
-  if (you && id) {
-    return id === you ? 'You' : 'Them';
-  }
-  return participants.find((person) => person.id === id)?.name ?? 'Someone';
-}
-
-function CaptionStrip({ turns, participants, readers, you }: CaptionStripProps) {
+function CaptionStrip({ turns, names, readers, emptyText }: CaptionStripProps) {
   const latest = turns.at(-1);
   if (!latest) {
     return (
       <div className="caption-strip caption-empty">
-        <p>Captions appear here in your language as soon as someone finishes a sentence.</p>
+        <p>{emptyText}</p>
       </div>
     );
   }
-  const speaker = nameOf(participants, latest.speakerId, you);
+  const speaker = speakerName(names, latest.speakerId);
   if (!latest.original) {
     return (
       <div className="caption-strip" aria-hidden="true">
@@ -49,7 +42,7 @@ function CaptionStrip({ turns, participants, readers, you }: CaptionStripProps) 
       <p className="caption-who">{speaker}</p>
       {lines.map((line) => (
         <p className="caption-line" dir="auto" key={line.reader}>
-          {readers.length > 1 && <span className="caption-for">{nameOf(participants, line.reader, you)}</span>}
+          {readers.length > 1 && <span className="caption-for">{names[line.reader]}</span>}
           {line.waiting ? <span className="caption-original">{line.text}</span> : line.text}
         </p>
       ))}

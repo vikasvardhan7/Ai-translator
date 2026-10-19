@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.dependencies import get_speech_synthesizer
+from app.api.dependencies import get_speech_synthesizer, require_host_or_guest
 from app.models.voice import VoiceOut, VoicesOut
 from app.services.voice.base import SpeechSynthesizer, VoiceFailed
 
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/voices", tags=["voices"])
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
 
 
-@router.get("", response_model=VoicesOut)
+@router.get("", response_model=VoicesOut, dependencies=[Depends(require_host_or_guest)])
 async def list_voices(synthesizer: Synthesizer) -> VoicesOut:
     if synthesizer is None:
         return VoicesOut(voices=[])

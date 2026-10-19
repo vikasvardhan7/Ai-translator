@@ -64,7 +64,7 @@ class Recorder:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        response = self.responses.pop(0)
+        response = self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
         if isinstance(response, Exception):
             raise response
         return response

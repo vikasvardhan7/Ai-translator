@@ -1,10 +1,17 @@
 import { memo } from 'react';
 
-import { languageLabel } from '../../services/languageNames';
-import type { Participant, SpeakerId } from '../../services/protocol';
+import type { SpeakerId } from '../../services/protocol';
+
+export interface Tile {
+  id: SpeakerId;
+  title: string;
+  badge: string;
+  detail: string;
+  away: boolean;
+}
 
 interface CallTilesProps {
-  participants: Participant[];
+  tiles: Tile[];
   you: SpeakerId | null;
   talking: ReadonlySet<SpeakerId>;
   hearing: SpeakerId | null;
@@ -12,51 +19,49 @@ interface CallTilesProps {
   roomTalking: boolean;
 }
 
-function title(person: Participant, you: SpeakerId | null): string {
-  if (!you) {
-    return person.name;
+const STATUS = {
+  away: 'Not connected right now',
+  talking: 'Speaking',
+  listening: 'Listening',
+  hearing: 'Hearing the translation',
+  muted: 'Microphone off',
+  idle: '',
+};
+
+function stateOf(tile: Tile, props: CallTilesProps): keyof typeof STATUS {
+  if (tile.away) {
+    return 'away';
   }
-  return person.id === you ? 'You' : 'Them';
+  if (props.talking.has(tile.id)) {
+    return 'talking';
+  }
+  if (props.roomTalking) {
+    return 'listening';
+  }
+  if (props.hearing === tile.id) {
+    return 'hearing';
+  }
+  return tile.id === props.you && props.muted ? 'muted' : 'idle';
 }
 
-function badge(person: Participant): string {
-  return person.preferred_language.slice(0, 3).toUpperCase();
-}
-
-function CallTiles({ participants, you, talking, hearing, muted, roomTalking }: CallTilesProps) {
-  const ordered = you
-    ? [...participants.filter((person) => person.id !== you), ...participants.filter((person) => person.id === you)]
-    : participants;
+function CallTiles(props: CallTilesProps) {
+  const { tiles, you } = props;
+  const ordered = you ? [...tiles.filter((tile) => tile.id !== you), ...tiles.filter((tile) => tile.id === you)] : tiles;
 
   return (
     <div className="call-tiles">
-      {ordered.map((person) => {
-        const state = talking.has(person.id)
-          ? 'talking'
-          : roomTalking
-            ? 'listening'
-            : hearing === person.id
-            ? 'hearing'
-            : person.id === you && muted
-              ? 'muted'
-              : 'idle';
-        const status = {
-          talking: 'Speaking',
-          listening: 'Listening',
-          hearing: 'Hearing the translation',
-          muted: 'Microphone off',
-          idle: '',
-        }[state];
+      {ordered.map((tile) => {
+        const state = stateOf(tile, props);
         return (
-          <section className="call-tile" data-state={state} aria-label={title(person, you)} key={person.id}>
+          <section className="call-tile" data-state={state} aria-label={tile.title} key={tile.id}>
             <div className="call-avatar" aria-hidden="true">
               <span className="call-avatar-ring" />
               <span className="call-avatar-ring call-avatar-ring-late" />
-              <span className="call-avatar-face">{badge(person)}</span>
+              <span className="call-avatar-face">{tile.badge}</span>
             </div>
-            <h2 dir="auto">{title(person, you)}</h2>
-            <p className="call-tile-language">{languageLabel(person.preferred_language)}</p>
-            <p className="call-tile-status" aria-live="polite">{status}</p>
+            <h2 dir="auto">{tile.title}</h2>
+            <p className="call-tile-language">{tile.detail}</p>
+            <p className="call-tile-status" aria-live="polite">{STATUS[state]}</p>
           </section>
         );
       })}

@@ -1,10 +1,19 @@
 import unicodedata
+from dataclasses import dataclass
 
 IGNORED_CHARACTER_KINDS = ("P", "Z")
 MIN_ECHO_LETTERS = 2
 MIN_ECHO_SHARE = 0.8
 MIN_ECHO_WORDS = 3
-MAX_RECENT_TRANSLATIONS = 10
+MAX_REMEMBERED = 10
+
+
+@dataclass(frozen=True)
+class PlayedVoice:
+    listener_id: str
+    text: str
+    sent: float
+    until: float
 
 
 def letters(text: str) -> str:
@@ -29,3 +38,12 @@ def is_echo(heard: str, played: str) -> bool:
     played_words = set(words(played))
     shared = sum(word in played_words for word in heard_words)
     return len(heard_words) >= MIN_ECHO_WORDS and shared >= MIN_ECHO_SHARE * len(heard_words)
+
+
+def is_overheard(heard: str, spoken: str) -> bool:
+    heard_words = words(heard)
+    if len(heard_words) < MIN_ECHO_WORDS:
+        return is_echo(heard, spoken)
+    spoken_words = set(words(spoken))
+    shared = sum(word in spoken_words for word in heard_words)
+    return shared >= MIN_ECHO_SHARE * len(heard_words)

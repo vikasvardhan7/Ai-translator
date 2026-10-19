@@ -3,8 +3,7 @@ import { useRef } from 'react';
 import { languageName } from '../../services/languageNames';
 import type { Participant, SpeakerId } from '../../services/protocol';
 import ChatTimeline from '../session/ChatTimeline';
-import type { Turn } from '../session/conversation';
-import { MAX_TURNS } from '../session/conversation';
+import { MAX_TURNS, type Names, type Turn } from '../session/conversation';
 import { transcriptSubtitles, transcriptText } from '../session/transcript';
 import { usePanelFocus } from './usePanelFocus';
 
@@ -12,6 +11,7 @@ interface TranscriptPanelProps {
   open: boolean;
   turns: Turn[];
   participants: Participant[];
+  names: Names;
   you: SpeakerId | null;
   onClose: () => void;
 }
@@ -35,7 +35,7 @@ function save(name: string, text: string, type: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), KEEP_DOWNLOAD_MS);
 }
 
-export default function TranscriptPanel({ open, turns, participants, you, onClose }: TranscriptPanelProps) {
+export default function TranscriptPanel({ open, turns, participants, names, you, onClose }: TranscriptPanelProps) {
   const readers = you ? participants.filter((person) => person.id === you) : participants;
   const empty = !turns.some((turn) => turn.original);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -54,7 +54,7 @@ export default function TranscriptPanel({ open, turns, participants, you, onClos
           className="button button-small button-secondary"
           type="button"
           disabled={empty}
-          onClick={() => save(`conversation-${stamp()}.txt`, transcriptText(turns, participants), 'text/plain;charset=utf-8')}
+          onClick={() => save(`conversation-${stamp()}.txt`, transcriptText(turns, participants, names), 'text/plain;charset=utf-8')}
         >
           Download text
         </button>
@@ -66,7 +66,7 @@ export default function TranscriptPanel({ open, turns, participants, you, onClos
             key={reader.id}
             onClick={() => save(
               `conversation-${stamp()}-${reader.preferred_language}.srt`,
-              transcriptSubtitles(turns, participants, reader.id),
+              transcriptSubtitles(turns, reader.id, names),
               'application/x-subrip;charset=utf-8',
             )}
           >
@@ -74,7 +74,7 @@ export default function TranscriptPanel({ open, turns, participants, you, onClos
           </button>
         ))}
       </div>
-      <ChatTimeline participants={participants} turns={shown} you={you} />
+      <ChatTimeline participants={participants} names={names} turns={shown} you={you} />
     </aside>
   );
 }

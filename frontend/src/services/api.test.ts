@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, createSession, detectLanguage, getHealth, getRoom, getVoices, joinRoom } from './api';
+import { ApiError, leaveRoom, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom } from './api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -15,9 +15,9 @@ describe('frontend API calls', () => {
   });
 
   it('loads backend health', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('{"status":"ok","version":"0.8.0"}', { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response('{"status":"ok","version":"0.9.0"}', { status: 200 }));
 
-    await expect(getHealth()).resolves.toEqual({ status: 'ok', version: '0.8.0' });
+    await expect(getHealth()).resolves.toEqual({ status: 'ok', version: '0.9.0' });
   });
 
   it('posts participants and consent to create a session', async () => {
@@ -86,7 +86,60 @@ describe('frontend API calls', () => {
     await expect(detectLanguage(wav)).resolves.toEqual({ language: 'te' });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('http://localhost:8000/api/languages/detect');
-    expect(init).toMatchObject({ method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+    expect(init).toMatchObject({ method: 'POST', body: wav });
+    expect(new Headers(init!.headers).get('Content-Type')).toBe('audio/wav');
+  });
+
+  it('lets an invited guest find their language with the invite', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"language":"en","language_name":"English"}', { status: 200 }));
+
+    await detectLanguage(new ArrayBuffer(48), { roomId: 'r1', token: 'invite' });
+
+    const headers = new Headers(fetchMock.mock.calls[0]![1]!.headers);
+    expect([headers.get('X-Room-Id'), headers.get('X-Room-Token')]).toEqual(['r1', 'invite']);
+  });
+
+  it('sends the saved host key with every request and checks a new one', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'K7QM-4XPA-2JRT', setItem: () => undefined });
+    fetchMock.mockResolvedValueOnce(new Response('{"host":true}', { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response('{"host":false}', { status: 200 }));
+
+    await expect(isHost()).resolves.toBe(true);
+    await expect(isHost('WRONG')).resolves.toBe(false);
+
+    const keys = fetchMock.mock.calls.map(([, init]) => new Headers(init!.headers).get('X-Host-Key'));
+    expect(keys).toEqual(['K7QM-4XPA-2JRT', 'WRONG']);
+  });
+
+  it('works without saved storage', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); } });
+    fetchMock.mockResolvedValueOnce(new Response('{"status":"ok","version":"0.9.0"}', { status: 200 }));
+
+    await getHealth();
+
+    expect(new Headers(fetchMock.mock.calls[0]![1]!.headers).has('X-Host-Key')).toBe(false);
+  });
+
+  it('ends a conversation with this device\'s token', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetchMock.mockResolvedValueOnce(new Response('{"detail":"Only the person who started it."}', { status: 403 }));
+
+    await expect(leaveRoom('r1', 'host')).resolves.toBeUndefined();
+    await expect(leaveRoom('r1', 'wrong')).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock.mock.calls[0]).toEqual(['http://localhost:8000/api/rooms/r1', { method: 'DELETE', headers: { 'X-Room-Token': 'host' } }]);
+  });
+
+  it('accepts a meeting with only the person using it', async () => {
+    const you = { id: 'A' as const, name: 'You', preferred_language: 'en' };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      session_id: 'm1', mode: 'call', participants: [you], created_at: '2026-10-18T09:30:00Z',
+    }), { status: 201 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      session_id: 'm2', mode: 'call', participants: [you, { ...you, id: 'B' }], created_at: '2026-10-18T09:30:00Z',
+    }), { status: 201 }));
+
+    await expect(createSession([you], true, 'call')).resolves.toMatchObject({ mode: 'call', participants: [you] });
+    await expect(createSession([you], true, 'call')).rejects.toThrow('invalid session response');
   });
 
   it('passes on why no language was found', async () => {
@@ -105,7 +158,7 @@ describe('frontend API calls', () => {
     await expect(getRoom('r1', 'secret')).resolves.toMatchObject({ room_id: 'r1', guest: null });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('http://localhost:8000/api/rooms/r1');
-    expect(init).toMatchObject({ headers: { 'X-Room-Token': 'secret' } });
+    expect(new Headers(init!.headers).get('X-Room-Token')).toBe('secret');
   });
 
   it('joins with the invite and keeps the new device token', async () => {

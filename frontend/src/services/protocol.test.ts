@@ -19,7 +19,7 @@ describe('parseServerMessage', () => {
       ],
       server_voice: true,
       mode: 'together',
-    })).toMatchObject({ type: 'session.ready', server_voice: true, mode: 'together' });
+    })).toMatchObject({ type: 'session.ready', server_voice: true, mode: 'together', connected: null });
   });
 
   it('reads a conversation across two devices and the other person leaving', () => {
@@ -33,9 +33,12 @@ describe('parseServerMessage', () => {
       server_voice: true,
       mode: 'remote',
       you: 'B',
-    })).toMatchObject({ mode: 'remote' });
-    expect(parse({ type: 'peer.left', participant_id: 'A' })).toEqual({ type: 'peer.left', seq: 1, participant_id: 'A' });
-    expect(parse({ type: 'peer.left', participant_id: 'C' })).toBeNull();
+      connected: ['B'],
+    })).toMatchObject({ mode: 'remote', connected: ['B'] });
+    for (const type of ['peer.connected', 'peer.disconnected', 'peer.left']) {
+      expect(parse({ type, participant_id: 'A' })).toEqual({ type, seq: 1, participant_id: 'A' });
+      expect(parse({ type, participant_id: 'C' })).toBeNull();
+    }
     expect(parse({
       type: 'participants.updated',
       participants: [{ id: 'A', name: 'Person 1', preferred_language: 'hi' }],

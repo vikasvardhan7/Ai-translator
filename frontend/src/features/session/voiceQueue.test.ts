@@ -59,6 +59,7 @@ describe('VoiceQueue', () => {
   let player: FakePlayer;
   let speaking: (SpeakerId | null)[];
   let noVoice: string[];
+  let played: [string, SpeakerId, number][];
   let queue: VoiceQueue;
 
   beforeEach(() => {
@@ -66,7 +67,34 @@ describe('VoiceQueue', () => {
     player = new FakePlayer();
     speaking = [];
     noVoice = [];
-    queue = new VoiceQueue(player, (id) => speaking.push(id), (language) => noVoice.push(language), 1_000, 5_000);
+    played = [];
+    queue = new VoiceQueue(
+      player,
+      (id) => speaking.push(id),
+      (language) => noVoice.push(language),
+      (utteranceId, listenerId, seconds) => played.push([utteranceId, listenerId, seconds]),
+      1_000,
+      5_000,
+    );
+  });
+
+  it('reports how long each voice played once it has finished', async () => {
+    queue.expect('u1', 'A', 'How are you?', 'en');
+    queue.audio('u1', 'A', 'AAAA');
+    await settle();
+    vi.advanceTimersByTime(2_500);
+    player.end();
+    await settle();
+
+    expect(played).toEqual([['u1', 'A', 2.5]]);
+  });
+
+  it('reports nothing for a voice that never started', async () => {
+    queue.setEnabled('A', false);
+    queue.expect('u1', 'A', 'How are you?', 'en');
+    await settle();
+
+    expect(played).toEqual([]);
   });
 
   afterEach(() => {

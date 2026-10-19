@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { getVoices, type VoiceOption } from '../../services/api';
+import { getVoices, type RoomAccess, type VoiceOption } from '../../services/api';
 import { languageLabel, languageName } from '../../services/languageNames';
 import type { Participant, SpeakerId } from '../../services/protocol';
 import LanguageSelect from '../consent/LanguageSelect';
@@ -8,7 +8,7 @@ import { loadLanguageOptions, type LanguageOption } from '../consent/languageOpt
 import { browserVoicesFor, type BrowserVoice } from '../session/voicePlayer';
 import { usePanelFocus } from './usePanelFocus';
 
-export type VoiceMode = 'natural' | 'fast';
+type VoiceMode = 'natural' | 'fast';
 
 export interface ListenerSettings {
   mode: VoiceMode;
@@ -24,6 +24,8 @@ interface SettingsPanelProps {
   you: SpeakerId | null;
   settings: Record<SpeakerId, ListenerSettings>;
   naturalAvailable: boolean;
+  voiceShown: boolean;
+  room: RoomAccess | null;
   onChange: (id: SpeakerId, settings: ListenerSettings) => void;
   onLanguage: (id: SpeakerId, language: string) => void;
   onClose: () => void;
@@ -41,6 +43,7 @@ function PersonSettings({
   settings,
   naturalAvailable,
   naturalVoices,
+  voiceShown,
   languages,
   onChange,
   onLanguage,
@@ -51,6 +54,7 @@ function PersonSettings({
   settings: ListenerSettings;
   naturalAvailable: boolean;
   naturalVoices: VoiceOption[] | null;
+  voiceShown: boolean;
   languages: LanguageOption[];
   onChange: (settings: ListenerSettings) => void;
   onLanguage: (language: string) => void;
@@ -86,7 +90,9 @@ function PersonSettings({
   return (
     <section className="settings-person" aria-label={`Settings for ${name}`}>
       <h3>{name}</h3>
-      <p className="settings-hint">Hears translations in {languageLabel(person.preferred_language)}</p>
+      <p className="settings-hint">
+        {voiceShown ? 'Hears translations in' : 'Captions in'} {languageLabel(person.preferred_language)}
+      </p>
       {languages.length > 0 ? (
         <LanguageSelect label="Language" value={person.preferred_language} languages={languages} onChange={chooseLanguage} />
       ) : (
@@ -94,84 +100,88 @@ function PersonSettings({
       )}
       {languageIssue && <p className="settings-error" role="alert">{languageIssue}</p>}
 
-      <fieldset className="settings-voice">
-        <legend>Voice</legend>
-        <label className="settings-choice">
-          <input
-            type="radio"
-            name={`mode-${person.id}`}
-            checked={settings.mode === 'natural'}
-            disabled={!naturalAvailable}
-            onChange={() => onChange({ ...settings, mode: 'natural' })}
-          />
-          <span>
-            <strong>Natural</strong>
-            <small>{naturalAvailable ? 'Gemini voice, smooth and clear, about 2 s slower' : 'Not set up on this server'}</small>
-          </span>
-        </label>
-        <label className="settings-choice">
-          <input
-            type="radio"
-            name={`mode-${person.id}`}
-            checked={settings.mode === 'fast'}
-            onChange={() => onChange({ ...settings, mode: 'fast' })}
-          />
-          <span>
-            <strong>Fast</strong>
-            <small>This browser's own voice, instant</small>
-          </span>
-        </label>
-      </fieldset>
+      {voiceShown && (
+        <>
+          <fieldset className="settings-voice">
+            <legend>Voice</legend>
+            <label className="settings-choice">
+              <input
+                type="radio"
+                name={`mode-${person.id}`}
+                checked={settings.mode === 'natural'}
+                disabled={!naturalAvailable}
+                onChange={() => onChange({ ...settings, mode: 'natural' })}
+              />
+              <span>
+                <strong>Natural</strong>
+                <small>{naturalAvailable ? 'Gemini voice, smooth and clear, about 2 s slower' : 'Not set up on this server'}</small>
+              </span>
+            </label>
+            <label className="settings-choice">
+              <input
+                type="radio"
+                name={`mode-${person.id}`}
+                checked={settings.mode === 'fast'}
+                onChange={() => onChange({ ...settings, mode: 'fast' })}
+              />
+              <span>
+                <strong>Fast</strong>
+                <small>This browser's own voice, instant</small>
+              </span>
+            </label>
+          </fieldset>
 
-      {settings.mode === 'natural' ? (
-        <label className="field-label settings-field">
-          Natural voice
-          <select
-            className="text-input"
-            value={settings.naturalVoice ?? ''}
-            onChange={(event) => onChange({ ...settings, naturalVoice: event.currentTarget.value || null })}
-          >
-            <option value="">Automatic</option>
-            {(naturalVoices ?? []).map((voice) => (
-              <option value={voice.id} key={voice.id}>{voiceLabel(voice)}</option>
-            ))}
-          </select>
-          {naturalVoices === null && <small className="settings-hint">Loading voices</small>}
-        </label>
-      ) : (
-        <label className="field-label settings-field">
-          Browser voice
-          <select
-            className="text-input"
-            value={settings.browserVoice ?? ''}
-            disabled={!browserVoices?.length}
-            onChange={(event) => onChange({ ...settings, browserVoice: event.currentTarget.value || null })}
-          >
-            <option value="">Automatic</option>
-            {(browserVoices ?? []).map((voice) => (
-              <option value={voice.id} key={voice.id}>{voice.name}</option>
-            ))}
-          </select>
-          {browserVoices !== null && browserVoices.length === 0 && (
-            <small className="settings-error">
-              This browser has no {languageName(person.preferred_language)} voice. Use Natural, or try Edge.
-            </small>
+          {settings.mode === 'natural' ? (
+            <label className="field-label settings-field">
+              Natural voice
+              <select
+                className="text-input"
+                value={settings.naturalVoice ?? ''}
+                onChange={(event) => onChange({ ...settings, naturalVoice: event.currentTarget.value || null })}
+              >
+                <option value="">Automatic</option>
+                {(naturalVoices ?? []).map((voice) => (
+                  <option value={voice.id} key={voice.id}>{voiceLabel(voice)}</option>
+                ))}
+              </select>
+              {naturalVoices === null && <small className="settings-hint">Loading voices</small>}
+            </label>
+          ) : (
+            <label className="field-label settings-field">
+              Browser voice
+              <select
+                className="text-input"
+                value={settings.browserVoice ?? ''}
+                disabled={!browserVoices?.length}
+                onChange={(event) => onChange({ ...settings, browserVoice: event.currentTarget.value || null })}
+              >
+                <option value="">Automatic</option>
+                {(browserVoices ?? []).map((voice) => (
+                  <option value={voice.id} key={voice.id}>{voice.name}</option>
+                ))}
+              </select>
+              {browserVoices !== null && browserVoices.length === 0 && (
+                <small className="settings-error">
+                  This browser has no {languageName(person.preferred_language)} voice. Use Natural, or try Edge.
+                </small>
+              )}
+            </label>
           )}
-        </label>
-      )}
 
-      <label className="field-label settings-field">
-        Speed: {settings.rate.toFixed(2).replace(/0$/, '')}x
-        <input
-          className="settings-range"
-          type="range"
-          min={0.75}
-          max={1.5}
-          step={0.05}
-          value={settings.rate}
-          onChange={(event) => onChange({ ...settings, rate: Number(event.currentTarget.value) })}
-        />
-      </label>
+          <label className="field-label settings-field">
+            Speed: {settings.rate.toFixed(2).replace(/0$/, '')}x
+            <input
+              className="settings-range"
+              type="range"
+              min={0.75}
+              max={1.5}
+              step={0.05}
+              value={settings.rate}
+              onChange={(event) => onChange({ ...settings, rate: Number(event.currentTarget.value) })}
+            />
+          </label>
+        </>
+      )}
     </section>
   );
 }
@@ -183,6 +193,8 @@ export default function SettingsPanel({
   you,
   settings,
   naturalAvailable,
+  voiceShown,
+  room,
   onChange,
   onLanguage,
   onClose,
@@ -195,15 +207,15 @@ export default function SettingsPanel({
   usePanelFocus(open, onClose, panelRef);
 
   useEffect(() => {
-    if (!open || !naturalAvailable || voicesAskedRef.current) {
+    if (!open || !naturalAvailable || !voiceShown || voicesAskedRef.current) {
       return;
     }
     voicesAskedRef.current = true;
-    getVoices().then(setNaturalVoices, (error: unknown) => {
+    getVoices(room ?? undefined).then(setNaturalVoices, (error: unknown) => {
       setNaturalVoices([]);
       setVoicesIssue(error instanceof Error ? error.message : 'The voice list could not be loaded.');
     });
-  }, [naturalAvailable, open]);
+  }, [naturalAvailable, open, room, voiceShown]);
 
   useEffect(() => {
     if (!open || languages.length > 0) {
@@ -239,6 +251,7 @@ export default function SettingsPanel({
           settings={settings[person.id]}
           naturalAvailable={naturalAvailable}
           naturalVoices={naturalAvailable ? naturalVoices : []}
+          voiceShown={voiceShown}
           languages={languages}
           onChange={(next) => onChange(person.id, next)}
           onLanguage={(language) => onLanguage(person.id, language)}

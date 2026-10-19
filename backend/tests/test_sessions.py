@@ -51,7 +51,7 @@ def test_text_that_is_not_a_language_code_is_rejected(client: TestClient) -> Non
     assert "not a language code" in response.text
 
 
-@pytest.mark.parametrize(("given", "stored"), [("yue", "yue"), ("TE", "te"), ("pt-BR", "pt")])
+@pytest.mark.parametrize(("given", "stored"), [("yue", "yue"), ("TA", "ta"), ("pt-BR", "pt")])
 def test_any_language_code_is_accepted(client: TestClient, given: str, stored: str) -> None:
     good = body()
     good["participants"][0]["preferred_language"] = given
@@ -60,6 +60,15 @@ def test_any_language_code_is_accepted(client: TestClient, given: str, stored: s
 
     assert response.status_code == 201
     assert response.json()["participants"][0]["preferred_language"] == stored
+
+
+def test_two_people_may_choose_the_same_language(client: TestClient) -> None:
+    same = body()
+    same["participants"][0]["preferred_language"] = "TE"
+
+    response = client.post("/api/sessions", json=same)
+
+    assert response.status_code == 201
 
 
 def test_duplicate_participant_ids_are_rejected(client: TestClient) -> None:
@@ -108,7 +117,7 @@ def test_validation_errors_are_one_readable_sentence(client: TestClient) -> None
 
 
 def test_too_many_waiting_sessions_are_refused(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr(session_store, "MAX_UNOPENED_SESSIONS", 1)
+    monkeypatch.setattr(session_store, "MAX_WAITING_SESSIONS", 1)
     assert client.post("/api/sessions", json=body()).status_code == 201
 
     response = client.post("/api/sessions", json=body())

@@ -18,7 +18,17 @@ describe('conversations', () => {
       participants: [host, guest],
       streamPath: '/api/sessions/s%201/stream',
       you: null,
+      room: null,
     });
+  });
+
+  it('opens a meeting as the one person using it', () => {
+    expect(sessionConversation({
+      session_id: 'm1',
+      mode: 'call',
+      participants: [host],
+      created_at: '2026-10-18T09:30:00Z',
+    })).toMatchObject({ mode: 'call', participants: [host], you: 'A', room: null });
   });
 
   it('opens a two-device conversation with this device\'s token', () => {
@@ -28,6 +38,7 @@ describe('conversations', () => {
       participants: [host, guest],
       streamPath: '/api/rooms/r1/stream?token=a%2Fb%2Bc',
       you: 'B',
+      room: { roomId: 'r1', token: 'a/b+c' },
     });
   });
 

@@ -1,34 +1,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import CallTiles from '../call/CallTiles';
+import CallTiles, { type Tile } from '../call/CallTiles';
 import CaptionStrip from '../call/CaptionStrip';
 import ControlBar from '../call/ControlBar';
 import SettingsPanel, { type ListenerSettings } from '../call/SettingsPanel';
 import TranscriptPanel from '../call/TranscriptPanel';
-import { languageName } from '../../services/languageNames';
-import { MicrophoneNeedsTap, openMicrophoneCapture, type MicrophoneCapture } from '../../services/microphoneCapture';
+import { leaveRoom } from '../../services/api';
+import { languageLabel, languageName } from '../../services/languageNames';
+import {
+  MicrophoneNeedsTap,
+  openMeetingCapture,
+  openMicrophoneCapture,
+  type AudioCapture,
+} from '../../services/microphoneCapture';
 import type { Conversation } from '../../services/conversations';
 import type { Participant, ServerMessage, SpeakerId } from '../../services/protocol';
 import { SessionSocket } from '../../services/sessionSocket';
-import { applyServerMessage, MAX_TURNS, type Turn } from './conversation';
+import { abandonPending, applyServerMessage, MAX_TURNS, speakerName, speakerNames, type Turn } from './conversation';
+import { tagFrame } from './pcm';
 import { createBrowserVoicePlayer, unlockBrowserAudio } from './voicePlayer';
 import { VoiceQueue } from './voiceQueue';
 
 interface SessionScreenProps {
   conversation: Conversation;
+  initialTurns: Turn[];
   onReturnToStart: () => void;
-  onRestart: (() => Promise<void>) | null;
+  onRestart: ((participants: Participant[], turns: Turn[]) => Promise<void>) | null;
 }
 
-type SessionPhase = 'connecting' | 'live' | 'ending' | 'closed';
+type SessionPhase = 'connecting' | 'live' | 'reconnecting' | 'ending' | 'closed';
+type MeetingSound = 'off' | 'connecting' | 'on';
 
 const END_WAIT_MS = 45_000;
 const RESUME_AFTER_VOICE_MS = 600;
 const WIDE_SCREEN = '(min-width: 1100px)';
+const DROPPED = 'The connection dropped before this sentence was translated.';
+const RESTARTED = 'The conversation was started again before this sentence was translated.';
 
 const PHASE_LABELS: Record<SessionPhase, string> = {
   connecting: 'Connecting',
   live: 'Live',
+  reconnecting: 'Reconnecting',
   ending: 'Finishing the last sentences',
   closed: 'Ended',
 };
@@ -39,16 +51,16 @@ function closeIssue(code: number, remote: boolean): string {
       return 'This invite link is no longer valid. Ask for a new link.';
     case 4409:
       return 'The other person has not joined yet.';
+    case 4410:
+      return 'This conversation was opened in another tab or window, so it closed here.';
     case 4404:
       return remote
-        ? 'This conversation has ended or is open on another device. Start a new one.'
-        : 'This conversation has ended or was opened somewhere else. Start it again.';
+        ? 'This conversation has ended. Start a new one.'
+        : 'This conversation has ended or expired. Start it again.';
     case 4403:
       return 'This page is not allowed to connect to the backend. Check FRONTEND_ORIGIN in backend/.env.';
-    case 1011:
-      return 'The server had a problem with this conversation. Start it again.';
     default:
-      return 'The connection to the backend was lost. Check that it is running, then start again.';
+      return 'The connection to the backend could not be restored. Check that it is running, then start again.';
   }
 }
 
@@ -64,35 +76,45 @@ function elapsed(since: number | null, now: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+function badge(language: string): string {
+  return language.slice(0, 3).toUpperCase();
+}
+
 const DEFAULT_SETTINGS: ListenerSettings = { mode: 'fast', naturalVoice: null, browserVoice: null, rate: 1 };
 
-export default function SessionScreen({ conversation, onReturnToStart, onRestart }: SessionScreenProps) {
+export default function SessionScreen({ conversation, initialTurns, onReturnToStart, onRestart }: SessionScreenProps) {
   const { you } = conversation;
+  const meeting = conversation.mode === 'call';
   const socketRef = useRef<SessionSocket | null>(null);
-  const captureRef = useRef<MicrophoneCapture | null>(null);
+  const captureRef = useRef<AudioCapture | null>(null);
+  const meetingRef = useRef<AudioCapture | null>(null);
   const queueRef = useRef<VoiceQueue | null>(null);
   const speakingRef = useRef<SpeakerId | null>(null);
   const phaseRef = useRef<SessionPhase>('connecting');
   const mountedRef = useRef(true);
   const mutedRef = useRef(false);
+  const readyOnceRef = useRef(false);
   const endTimerRef = useRef<number | null>(null);
   const resumeTimerRef = useRef<number | null>(null);
   const serverVoiceRef = useRef(false);
   const sentRef = useRef<Partial<Record<SpeakerId, string>>>({});
   const talkingRef = useRef(new Set<string>());
   const settingsRef = useRef<Record<SpeakerId, ListenerSettings>>({ A: DEFAULT_SETTINGS, B: DEFAULT_SETTINGS });
-  const voiceOnRef = useRef(true);
+  const voiceOnRef = useRef(!meeting);
   const [participants, setParticipants] = useState<Participant[]>(conversation.participants);
   const [phase, setPhaseState] = useState<SessionPhase>('connecting');
   const [issue, setIssue] = useState<string | null>(null);
   const [micIssue, setMicIssue] = useState<string | null>(null);
   const [micNeedsTap, setMicNeedsTap] = useState(false);
+  const [meetingSound, setMeetingSound] = useState<MeetingSound>('off');
+  const [meetingIssue, setMeetingIssue] = useState<string | null>(null);
+  const [peerHere, setPeerHere] = useState<boolean | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>(initialTurns);
   const [level, setLevel] = useState(0);
   const [listening, setListening] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [voiceOn, setVoiceOn] = useState(true);
+  const [voiceOn, setVoiceOn] = useState(!meeting);
   const [hearing, setHearing] = useState<SpeakerId | null>(null);
   const [talking, setTalking] = useState<ReadonlySet<SpeakerId>>(new Set());
   const [roomTalking, setRoomTalking] = useState(false);
@@ -109,10 +131,22 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
     [conversation.participants, you],
   );
   const listeners = participants.filter((person) => listenerIds.includes(person.id));
+  const names = useMemo(() => speakerNames(conversation.mode, participants, you), [conversation.mode, participants, you]);
 
   const setPhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next;
     setPhaseState(next);
+  }, []);
+
+  const ownTurn = useCallback(
+    (turn: Turn) => conversation.mode !== 'remote' || turn.speakerId === null || turn.speakerId === you,
+    [conversation.mode, you],
+  );
+
+  const clearTalking = useCallback(() => {
+    talkingRef.current.clear();
+    setTalking(new Set());
+    setRoomTalking(false);
   }, []);
 
   const stopListening = useCallback(() => {
@@ -120,6 +154,12 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
     captureRef.current = null;
     setListening(false);
     setLevel(0);
+  }, []);
+
+  const stopMeetingSound = useCallback(() => {
+    meetingRef.current?.stop();
+    meetingRef.current = null;
+    setMeetingSound('off');
   }, []);
 
   const startListening = useCallback(async () => {
@@ -136,7 +176,7 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
       captureRef.current = capture;
       capture.start(
         (frame) => {
-          socketRef.current?.sendAudio(frame);
+          socketRef.current?.sendAudio(meeting ? tagFrame('A', frame) : frame);
         },
         (value) => {
           if (mountedRef.current) {
@@ -159,7 +199,7 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
         setMicIssue(errorText(error, 'The microphone could not be opened.'));
       }
     }
-  }, [stopListening]);
+  }, [meeting, stopListening]);
 
   const applyVoice = useCallback((id: SpeakerId) => {
     const queue = queueRef.current;
@@ -200,14 +240,24 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
         setServerVoice(message.server_voice);
         setParticipants(message.participants);
         queue?.setServerVoice(message.server_voice);
-        const mode = message.server_voice ? 'natural' : 'fast';
+        sentRef.current = {};
+        if (!readyOnceRef.current) {
+          readyOnceRef.current = true;
+          const mode = message.server_voice ? 'natural' : 'fast';
+          for (const id of listenerIds) {
+            settingsRef.current = { ...settingsRef.current, [id]: { ...settingsRef.current[id], mode } };
+          }
+          setSettings(settingsRef.current);
+          setLiveSince(Date.now());
+        }
         for (const id of listenerIds) {
-          settingsRef.current = { ...settingsRef.current, [id]: { ...settingsRef.current[id], mode } };
           applyVoice(id);
         }
-        setSettings(settingsRef.current);
+        if (you && message.connected) {
+          setPeerHere(message.connected.some((id) => id !== you));
+        }
+        clearTalking();
         setPhase('live');
-        setLiveSince(Date.now());
         void startListening();
         break;
       }
@@ -227,6 +277,14 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
         queue?.setHeld(you ? set.has(you) : set.size > 0);
         break;
       }
+      case 'peer.connected':
+        setPeerHere(true);
+        break;
+      case 'peer.disconnected':
+        talkingRef.current.delete(message.participant_id);
+        setTalking(new Set([...talkingRef.current].filter((id): id is SpeakerId => id === 'A' || id === 'B')));
+        setPeerHere(false);
+        break;
       case 'peer.left':
         queue?.cancelAll();
         stopListening();
@@ -252,18 +310,31 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
       default:
         break;
     }
-  }, [applyVoice, listenerIds, setPhase, startListening, stopListening, you]);
+  }, [applyVoice, clearTalking, listenerIds, setPhase, startListening, stopListening, you]);
+
+  const handleReconnecting = useCallback((reconnecting: boolean) => {
+    if (!reconnecting || phaseRef.current === 'ending' || phaseRef.current === 'closed') {
+      return;
+    }
+    queueRef.current?.cancelAll();
+    clearTalking();
+    setHearing(null);
+    setTurns((current) => abandonPending(current, DROPPED, ownTurn));
+    setPhase('reconnecting');
+  }, [clearTalking, ownTurn, setPhase]);
 
   const handleClose = useCallback((code: number) => {
     queueRef.current?.cancelAll();
     stopListening();
+    stopMeetingSound();
     if (code === 1000 || phaseRef.current === 'ending') {
       onReturnToStart();
       return;
     }
+    setTurns((current) => abandonPending(current, DROPPED, ownTurn));
     setPhase('closed');
     setIssue(closeIssue(code, conversation.mode === 'remote'));
-  }, [conversation.mode, onReturnToStart, setPhase, stopListening]);
+  }, [conversation.mode, onReturnToStart, ownTurn, setPhase, stopListening, stopMeetingSound]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -297,15 +368,26 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
           `No ${languageName(language)} voice in this browser. Switch to the Natural voice in Settings, or use Edge.`,
         ]);
       },
+      (utteranceId, listenerId, seconds) => {
+        socketRef.current?.send({ type: 'voice.played', utterance_id: utteranceId, listener_id: listenerId, seconds });
+      },
     );
-    const socket = new SessionSocket(handleMessage, handleClose);
+    if (!voiceOnRef.current) {
+      for (const id of ['A', 'B'] as const) {
+        queue.setEnabled(id, false);
+      }
+    }
+    const socket = new SessionSocket(handleMessage, handleClose, handleReconnecting);
     queueRef.current = queue;
     socketRef.current = socket;
     const connectTimer = window.setTimeout(() => socket.connect(conversation.streamPath), 0);
+    const retryNow = (): void => socket.retryNow();
+    window.addEventListener('online', retryNow);
 
     return () => {
       mountedRef.current = false;
       window.clearTimeout(connectTimer);
+      window.removeEventListener('online', retryNow);
       if (endTimerRef.current !== null) {
         window.clearTimeout(endTimerRef.current);
       }
@@ -315,14 +397,16 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
       queue.cancelAll();
       captureRef.current?.stop();
       captureRef.current = null;
+      meetingRef.current?.stop();
+      meetingRef.current = null;
       socket.close();
       queueRef.current = null;
       socketRef.current = null;
     };
-  }, [handleClose, handleMessage, conversation.streamPath]);
+  }, [handleClose, handleMessage, handleReconnecting, conversation.streamPath]);
 
   useEffect(() => {
-    if (phase !== 'live') {
+    if (phase !== 'live' && phase !== 'reconnecting') {
       return undefined;
     }
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -331,7 +415,11 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
 
   function endSession(): void {
     const socket = socketRef.current;
+    stopMeetingSound();
     if (phaseRef.current !== 'live' || !socket?.isOpen) {
+      if (conversation.room && phaseRef.current !== 'closed') {
+        void leaveRoom(conversation.room.roomId, conversation.room.token).catch(() => undefined);
+      }
       onReturnToStart();
       return;
     }
@@ -348,7 +436,7 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
     }
     setRestarting(true);
     try {
-      await onRestart();
+      await onRestart(participants, abandonPending(turns, RESTARTED));
     } catch (error) {
       if (mountedRef.current) {
         setIssue(errorText(error, 'The conversation could not be started again.'));
@@ -364,9 +452,43 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
     captureRef.current?.mute(next);
     if (next) {
       captureRef.current?.pause();
-      socketRef.current?.send({ type: 'audio.pause' });
+      socketRef.current?.send(meeting ? { type: 'audio.pause', participant_id: 'A' } : { type: 'audio.pause' });
     } else if (speakingRef.current === null) {
       captureRef.current?.resume();
+    }
+  }
+
+  async function toggleMeetingSound(): Promise<void> {
+    if (meetingRef.current) {
+      stopMeetingSound();
+      socketRef.current?.send({ type: 'audio.pause', participant_id: 'B' });
+      return;
+    }
+    setMeetingIssue(null);
+    setMeetingSound('connecting');
+    try {
+      const capture = await openMeetingCapture();
+      if (!mountedRef.current || phaseRef.current === 'ending' || phaseRef.current === 'closed') {
+        capture.stop();
+        return;
+      }
+      meetingRef.current = capture;
+      capture.start(
+        (frame) => {
+          socketRef.current?.sendAudio(tagFrame('B', frame));
+        },
+        () => undefined,
+        () => {
+          stopMeetingSound();
+          setMeetingIssue("The meeting's sound is no longer shared. Select Connect meeting to share it again.");
+        },
+      );
+      setMeetingSound('on');
+    } catch (error) {
+      if (mountedRef.current) {
+        setMeetingSound('off');
+        setMeetingIssue(errorText(error, "The meeting's sound could not be shared."));
+      }
     }
   }
 
@@ -387,24 +509,39 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
 
   const shownTurns = turns.length > MAX_TURNS ? turns.slice(-MAX_TURNS) : turns;
   const latest = [...shownTurns].reverse().find((turn) => turn.original);
-  const latestName = you && latest?.speakerId === you
-    ? 'You'
-    : participants.find((person) => person.id === latest?.speakerId)?.name;
-  const announcement = latest?.original ? `${latestName ?? 'Someone'}: ${latest.original.text}` : '';
+  const announcement = latest?.original ? `${speakerName(names, latest.speakerId)}: ${latest.original.text}` : '';
   const ended = phase === 'closed' || phase === 'ending';
   const others = participants.filter((person) => !listenerIds.includes(person.id));
+  const meetingLanguage = [...turns].reverse().find((turn) => turn.speakerId === 'B' && turn.original)?.original?.language ?? null;
+  const tiles: Tile[] = participants.map((person) => ({
+    id: person.id,
+    title: names[person.id],
+    badge: badge(person.preferred_language),
+    detail: languageLabel(person.preferred_language),
+    away: you !== null && person.id !== you && peerHere === false,
+  }));
+  if (meeting) {
+    tiles.push({
+      id: 'B',
+      title: names.B,
+      badge: meetingLanguage ? badge(meetingLanguage) : '···',
+      detail: meetingLanguage ? `Speaking ${languageName(meetingLanguage)}` : 'Any language',
+      away: meetingSound !== 'on',
+    });
+  }
+  const title = meeting && participants[0]
+    ? `Meeting captions in ${languageName(participants[0].preferred_language)}`
+    : participants.map((person) => languageName(person.preferred_language)).join(' and ');
 
   return (
     <main className="call-page">
-      <h1 className="visually-hidden" tabIndex={-1}>Conversation</h1>
+      <h1 className="visually-hidden" tabIndex={-1}>{meeting ? 'Meeting' : 'Conversation'}</h1>
       <header className="call-top">
         <p className="call-status" data-phase={phase} aria-live="polite">
           <span className="call-status-dot" aria-hidden="true" />
           {PHASE_LABELS[phase]}
         </p>
-        <p className="call-title">
-          {participants.map((person) => languageName(person.preferred_language)).join(' and ')}
-        </p>
+        <p className="call-title">{title}</p>
         <p className="call-timer">
           <span className="visually-hidden">Call length </span>
           {elapsed(liveSince, now)}
@@ -421,6 +558,16 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
           )}
         </div>
       )}
+      {phase === 'reconnecting' && (
+        <p className="notice call-notice" role="status">
+          The connection dropped. Reconnecting by itself; your transcript is kept.
+        </p>
+      )}
+      {phase === 'live' && peerHere === false && (
+        <p className="notice call-notice" role="status">
+          Waiting for the other person to connect. If their connection dropped, they will be back in a moment.
+        </p>
+      )}
       {micIssue && phase === 'live' && (
         <div className={`notice call-notice ${micNeedsTap ? 'notice-action' : 'notice-danger'}`} role="alert">
           <span>{micIssue}</span>
@@ -436,6 +583,9 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
           </button>
         </div>
       )}
+      {meetingIssue && !ended && (
+        <p className="notice notice-danger call-notice" role="alert">{meetingIssue}</p>
+      )}
       {notices.map((notice) => (
         <p className="notice call-notice" role="status" key={notice}>
           {notice}
@@ -444,21 +594,49 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
       <p className="visually-hidden" aria-live="polite">{announcement}</p>
 
       <div className="call-body" data-panel={transcriptOpen}>
-        <section className="call-stage" aria-label="Call">
+        <section className="call-stage" aria-label={meeting ? 'Meeting' : 'Call'}>
           <CallTiles
-            participants={participants}
+            tiles={tiles}
             you={you}
             talking={talking}
             hearing={hearing}
             muted={muted}
             roomTalking={roomTalking}
           />
-          <CaptionStrip turns={shownTurns} participants={participants} readers={listenerIds} you={you} />
+          {meeting && meetingSound !== 'on' && !ended && (
+            <div className="meeting-connect">
+              <h2>Connect your meeting</h2>
+              <p>
+                Pick the meeting&apos;s browser tab and turn on <strong>Share tab audio</strong>. For the Teams or Zoom app,
+                pick <strong>Entire screen</strong> and turn on <strong>Share system audio</strong>.
+              </p>
+              <p>Wear headphones so your microphone does not pick up the meeting, and let the others know captions are on.</p>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => void toggleMeetingSound()}
+                disabled={meetingSound === 'connecting'}
+              >
+                {meetingSound === 'connecting' ? 'Waiting for your choice' : 'Connect meeting'}
+              </button>
+            </div>
+          )}
+          <CaptionStrip
+            turns={shownTurns}
+            names={names}
+            readers={listenerIds}
+            emptyText={
+              meeting
+                ? 'Captions of the meeting appear here in your language after each sentence.'
+                : 'Captions appear here in your language as soon as someone finishes a sentence.'
+            }
+          />
         </section>
         <TranscriptPanel
           open={transcriptOpen}
           turns={turns}
           participants={participants}
+          names={names}
           you={you}
           onClose={() => setTranscriptOpen(false)}
         />
@@ -471,12 +649,15 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
         you={you}
         settings={settings}
         naturalAvailable={serverVoice}
+        voiceShown={!meeting}
+        room={conversation.room}
         onChange={changeSettings}
         onLanguage={changeLanguage}
         onClose={() => setSettingsOpen(false)}
       />
 
       <ControlBar
+        meeting={meeting ? { connected: meetingSound === 'on', busy: meetingSound === 'connecting' } : null}
         muted={muted}
         micReady={listening}
         level={level}
@@ -485,6 +666,7 @@ export default function SessionScreen({ conversation, onReturnToStart, onRestart
         transcriptOpen={transcriptOpen}
         ended={ended}
         onMute={toggleMute}
+        onMeeting={() => void toggleMeetingSound()}
         onVoice={toggleVoice}
         onSettings={() => setSettingsOpen((open) => !open)}
         onTranscript={() => setTranscriptOpen((open) => !open)}

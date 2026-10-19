@@ -33,13 +33,16 @@ class SessionCreate(BaseModel):
 
     consent: bool
     mode: SessionMode = "together"
-    participants: list[Participant] = Field(min_length=2, max_length=2)
+    participants: list[Participant] = Field(min_length=1, max_length=2)
 
     @model_validator(mode="after")
     def check_consent_and_ids(self) -> "SessionCreate":
         if not self.consent:
-            raise ValueError("Both people must agree before a session can start (consent: true).")
-        if {p.id for p in self.participants} != {"A", "B"}:
+            raise ValueError("Everyone must agree before a session can start (consent: true).")
+        ids = sorted(p.id for p in self.participants)
+        if self.mode == "call" and ids != ["A"]:
+            raise ValueError("A meeting has one participant, with the id 'A': the person using it.")
+        if self.mode == "together" and ids != ["A", "B"]:
             raise ValueError("Participants must have the ids 'A' and 'B', one each.")
         return self
 
