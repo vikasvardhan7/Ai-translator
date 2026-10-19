@@ -92,7 +92,7 @@ describe('SessionSocket', () => {
     expect(messages.map((message) => message.seq)).toEqual([1, 2]);
   });
 
-  it.each([1000, 4401, 4403, 4404, 4409, 4410])('reports a final close %i without trying again', (code) => {
+  it.each([1000, 4401, 4403, 4404, 4410])('reports a final close %i without trying again', (code) => {
     socket.connect('s1');
     const fake = created[0]!;
     fake.open();

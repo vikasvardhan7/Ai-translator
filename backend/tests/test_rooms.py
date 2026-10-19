@@ -24,7 +24,7 @@ def create(client: TestClient) -> dict:
 def join(client: TestClient, room: dict, token: str | None = None, guest=GUEST, consent=True):
     return client.post(
         f"/api/rooms/{room['room_id']}/join",
-        json={"consent": consent, "token": token or room["guest_token"], "guest": guest},
+        json={"consent": consent, "token": token or room["invite_token"], "guest": guest},
     )
 
 
@@ -42,7 +42,7 @@ def look(client: TestClient, room: dict, token: str):
 def token_of(room: dict, who: str) -> str:
     if who == "A":
         return room["host_token"]
-    return room.get("guest_device_token", room["guest_token"])
+    return room.get("guest_device_token", room["invite_token"])
 
 
 def connect(client: TestClient, room: dict, who: str, headers: dict | None = None):
@@ -64,7 +64,7 @@ def closed_code(ws) -> int:
     return closed.value.code
 
 
-def test_a_room_is_created_with_two_tokens_and_no_guest(client: TestClient) -> None:
+def test_a_room_is_created_with_two_tokens_and_no_guests(client: TestClient) -> None:
     response = client.post(
         "/api/rooms",
         json={"consent": True, "host": {"name": " Host ", "preferred_language": "EN-us"}},
@@ -75,16 +75,17 @@ def test_a_room_is_created_with_two_tokens_and_no_guest(client: TestClient) -> N
     assert set(data) == {
         "room_id",
         "host_token",
-        "guest_token",
+        "invite_token",
         "host",
-        "guest",
+        "guests",
+        "max_people",
         "public_url",
         "public_url_problem",
     }
     assert data["host"] == {"id": "A", "name": "Host", "preferred_language": "en"}
-    assert data["guest"] is None
-    assert data["host_token"] != data["guest_token"]
-    assert min(len(data["host_token"]), len(data["guest_token"])) >= 32
+    assert (data["guests"], data["max_people"]) == ([], 6)
+    assert data["host_token"] != data["invite_token"]
+    assert min(len(data["host_token"]), len(data["invite_token"])) >= 32
 
 
 @pytest.mark.parametrize(
@@ -126,7 +127,8 @@ def test_either_token_can_look_at_the_room(client: TestClient, who: str) -> None
     assert response.json() == {
         "room_id": room["room_id"],
         "host": {"id": "A", "name": "Host", "preferred_language": "en"},
-        "guest": None,
+        "guests": [],
+        "max_people": 6,
     }
 
 
@@ -148,24 +150,26 @@ def test_the_guest_joins_as_b(client: TestClient) -> None:
 
     guest = {"id": "B", "name": "Guest", "preferred_language": "te"}
     assert response.status_code == 200
-    assert response.json()["guest"] == guest
-    assert look(client, room, room["host_token"]).json()["guest"] == guest
+    assert (response.json()["guests"], response.json()["you"]) == ([guest], "B")
+    assert look(client, room, room["host_token"]).json()["guests"] == [guest]
 
 
-def test_the_invite_link_stops_working_once_someone_joins() -> None:
+def test_one_invite_link_lets_more_people_join_but_never_opens_the_stream() -> None:
     client = voiced()
     with client:
         room = joined(client)
-        looked = look(client, room, room["guest_token"])
-        again = join(client, room)
+        looked = look(client, room, room["invite_token"])
+        again = join(client, room, guest={"name": "Third", "preferred_language": "hi"})
         device = look(client, room, room["guest_device_token"])
         with client.websocket_connect(
-            f"/api/rooms/{room['room_id']}/stream?token={room['guest_token']}"
+            f"/api/rooms/{room['room_id']}/stream?token={room['invite_token']}"
         ) as ws:
             code = closed_code(ws)
 
-    assert room["guest_device_token"] != room["guest_token"]
-    assert (looked.status_code, again.status_code, device.status_code) == (403, 409, 200)
+    assert room["guest_device_token"] != room["invite_token"]
+    assert (looked.status_code, again.status_code, device.status_code) == (200, 200, 200)
+    assert again.json()["you"] == "C"
+    assert [p["id"] for p in again.json()["guests"]] == ["B", "C"]
     assert code == 4401
 
 
@@ -176,7 +180,7 @@ def test_only_the_invite_token_can_join(client: TestClient) -> None:
     by_stranger = join(client, room, token="guess")
 
     assert (by_host.status_code, by_stranger.status_code) == (403, 403)
-    assert look(client, room, room["host_token"]).json()["guest"] is None
+    assert look(client, room, room["host_token"]).json()["guests"] == []
 
 
 def test_joining_an_unknown_room_is_not_found(client: TestClient) -> None:
@@ -187,13 +191,17 @@ def test_joining_an_unknown_room_is_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_a_second_guest_is_refused(client: TestClient) -> None:
-    room = joined(client)
+def test_up_to_six_people_fit_in_a_room(client: TestClient) -> None:
+    room = create(client)
 
-    response = join(client, room, guest={"name": "Other", "preferred_language": "hi"})
+    joins = [
+        join(client, room, guest={"name": f"Guest {n}", "preferred_language": "hi"})
+        for n in range(6)
+    ]
 
-    assert response.status_code == 409
-    assert "already joined" in response.json()["detail"]
+    assert [r.status_code for r in joins] == [200] * 5 + [409]
+    assert [r.json()["you"] for r in joins[:5]] == ["B", "C", "D", "E", "F"]
+    assert "full: 6 people" in joins[5].json()["detail"]
 
 
 def test_the_guest_may_choose_the_hosts_language(client: TestClient) -> None:
@@ -202,7 +210,7 @@ def test_the_guest_may_choose_the_hosts_language(client: TestClient) -> None:
     response = join(client, room, guest={"name": "Guest", "preferred_language": "EN"})
 
     assert response.status_code == 200
-    assert response.json()["guest"]["preferred_language"] == "en"
+    assert response.json()["guests"][0]["preferred_language"] == "en"
 
 
 def test_joining_needs_consent(client: TestClient) -> None:
@@ -501,23 +509,29 @@ def test_a_device_that_comes_back_takes_over_its_place() -> None:
     assert on_new == ["utterance.received", "transcript.final", "translation.final", "tts.audio"]
 
 
-def test_connecting_before_the_guest_joins_is_refused() -> None:
+def test_the_host_waits_in_the_call_and_sees_people_join() -> None:
     client = voiced()
     with client:
         room = create(client)
         with connect(client, room, "A") as a:
-            error = receive(a)
-            code = closed_code(a)
-        assert join(client, room).status_code == 200
-        with connect(client, room, "A") as a:
             ready = receive(a)
+            joined_now = join(client, room).json()
+            people = receive(a)
+            room["guest_device_token"] = joined_now["token"]
+            with connect(client, room, "B") as b:
+                ready_b = receive(b)
+                arrived = a.receive_json()
 
-    assert (error["code"], error["message"]) == (
-        "not_joined",
-        "The other person has not joined yet.",
+    assert (ready["type"], ready["connected"], len(ready["participants"])) == (
+        "session.ready",
+        ["A"],
+        1,
     )
-    assert code == 4409
-    assert ready["type"] == "session.ready"
+    assert people["type"] == "participants.updated"
+    assert [p["id"] for p in people["participants"]] == ["A", "B"]
+    assert joined_now["you"] == "B"
+    assert ready_b["connected"] == ["A", "B"]
+    assert (arrived["type"], arrived["participant_id"]) == ("peer.connected", "B")
 
 
 def test_a_wrong_token_is_refused_on_the_stream() -> None:
@@ -676,15 +690,34 @@ def test_a_person_who_cannot_reconnect_can_still_leave_and_the_other_is_told() -
                 headers={"X-Room-Token": room["guest_device_token"]},
             )
             told = receive(a)
+            people = receive(a)
             a.send_json({"type": "ping"})
             pong = receive(a)
         with connect(client, room, "B") as again:
-            error = receive(again)
             code = closed_code(again)
+        still = look(client, room, room["host_token"])
 
     assert left.status_code == 204
     assert (told["type"], told["participant_id"], pong["type"]) == ("peer.left", "B", "pong")
-    assert (error["code"], code) == ("unknown_session", 4404)
+    assert [p["id"] for p in people["participants"]] == ["A"]
+    assert code == 4401
+    assert (still.status_code, still.json()["guests"]) == (200, [])
+
+
+def test_a_left_place_is_never_given_again_and_an_empty_token_opens_nothing() -> None:
+    client = voiced()
+    with client:
+        room = create(client)
+        tokens = people(client, room, "hi", "te", "ta", "kn", "ml")
+        client.delete(f"/api/rooms/{room['room_id']}", headers={"X-Room-Token": tokens[0]})
+        refused = join(client, room, guest={"name": "Late", "preferred_language": "mr"})
+        with client.websocket_connect(f"/api/rooms/{room['room_id']}/stream?token=") as ws:
+            code = closed_code(ws)
+        empty = look(client, room, "")
+
+    assert refused.status_code == 409
+    assert "No more people can join" in refused.json()["detail"]
+    assert (code, empty.status_code) == (4401, 403)
 
 
 def test_a_wrong_token_cannot_end_a_room(client: TestClient) -> None:
@@ -722,3 +755,89 @@ def test_the_echo_of_a_voice_played_on_the_other_device_is_ignored() -> None:
     assert on_b[-1]["type"] == "tts.audio"
     assert on_b_after == ["utterance.received", "utterance.ignored"]
     assert on_a[-1] == "utterance.ignored"
+
+
+def people(client: TestClient, room: dict, *languages: str) -> list[str]:
+    tokens = []
+    for index, language in enumerate(languages):
+        guest = {"name": f"Guest {index}", "preferred_language": language}
+        tokens.append(join(client, room, guest=guest).json()["token"])
+    return tokens
+
+
+def stream(client: TestClient, room: dict, token: str):
+    return client.websocket_connect(f"/api/rooms/{room['room_id']}/stream?token={token}")
+
+
+def test_three_people_each_get_the_sentence_in_their_own_language_and_voice() -> None:
+    synthesizer = FakeSynthesizer()
+    translator = FakeTranslator(language="en", text="Hello all", translation="Translated")
+    client = voiced(translator, synthesizer)
+
+    with client:
+        room = create(client)
+        hindi, telugu = people(client, room, "hi", "te")
+        with (
+            connect(client, room, "A") as a,
+            stream(client, room, hindi) as b,
+            stream(client, room, telugu) as c,
+        ):
+            [receive(ws) for ws in (a, b, c)]
+            speak(a)
+            on_a = [receive(a) for _ in range(4)]
+            on_b = [receive(b) for _ in range(5)]
+            on_c = [receive(c) for _ in range(5)]
+
+    call = translator.calls[0]
+    assert call.target_languages == ["en", "hi", "te"]
+    assert call.speaker_language == "en"
+    assert [m["type"] for m in on_a] == [
+        "utterance.received",
+        "transcript.final",
+        "translation.final",
+        "translation.final",
+    ]
+    for messages, listener, language in ((on_b, "B", "hi"), (on_c, "C", "te")):
+        translations = [m for m in messages if m["type"] == "translation.final"]
+        mine = next(m for m in translations if m["listener_id"] == listener)
+        assert mine["target_language"] == language
+        assert [m["listener_id"] for m in messages if m["type"] == "tts.audio"] == [listener]
+    assert sorted(synthesizer.texts) == ["Translated [hi]", "Translated [te]"]
+
+
+def test_a_guest_who_leaves_does_not_end_the_call_for_the_others() -> None:
+    client = voiced()
+    with client:
+        room = create(client)
+        hindi, telugu = people(client, room, "hi", "te")
+        with connect(client, room, "A") as a, stream(client, room, telugu) as c:
+            [receive(ws) for ws in (a, c)]
+            with stream(client, room, hindi) as b:
+                receive(b)
+                b.send_json({"type": "session.stop"})
+                closed_code(b)
+            left = [receive(a), receive(a)]
+            c.send_json({"type": "ping"})
+            told_c = [receive(c), receive(c), receive(c)]
+            later = join(client, room, guest={"name": "Late", "preferred_language": "ta"})
+
+    assert left[0] == {"type": "peer.left", "seq": left[0]["seq"], "participant_id": "B"}
+    assert [p["id"] for p in left[1]["participants"]] == ["A", "C"]
+    assert [m["type"] for m in told_c] == ["peer.left", "participants.updated", "pong"]
+    assert (later.status_code, later.json()["you"]) == (200, "D")
+
+
+def test_when_the_host_ends_the_call_it_ends_for_everyone() -> None:
+    client = voiced()
+    with client:
+        room = create(client)
+        (hindi,) = people(client, room, "hi")
+        with connect(client, room, "A") as a, stream(client, room, hindi) as b:
+            [receive(ws) for ws in (a, b)]
+            a.send_json({"type": "session.stop"})
+            closed_code(a)
+            left = receive(b)
+        late = join(client, room, guest={"name": "Late", "preferred_language": "ta"})
+
+    assert (left["type"], left["participant_id"]) == ("peer.left", "A")
+    assert late.status_code == 404

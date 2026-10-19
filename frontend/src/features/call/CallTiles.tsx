@@ -49,7 +49,7 @@ function CallTiles(props: CallTilesProps) {
   const ordered = you ? [...tiles.filter((tile) => tile.id !== you), ...tiles.filter((tile) => tile.id === you)] : tiles;
 
   return (
-    <div className="call-tiles">
+    <div className="call-tiles" data-many={ordered.length > 2}>
       {ordered.map((tile) => {
         const state = stateOf(tile, props);
         return (

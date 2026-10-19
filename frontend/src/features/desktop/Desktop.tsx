@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { createSession } from '../../services/api';
 import { inviteFromHash, sessionConversation, type Conversation, type Invite } from '../../services/conversations';
@@ -12,8 +12,11 @@ import SessionScreen from '../session/SessionScreen';
 import AppIcon, { type IconName } from './AppIcon';
 import AppWindow from './AppWindow';
 import { CallBridge, CallBridgeContext } from './bridge';
+import DesktopWidget from './DesktopWidget';
 import HelpApp from './HelpApp';
+import PersonalizeApp from './PersonalizeApp';
 import Taskbar, { APP_ICONS } from './Taskbar';
+import { applyLook, particles, savedCalm, savedTheme, saveLook, themeOf, type ThemeId } from './themes';
 import {
   activeApp,
   clickTaskbar,
@@ -31,6 +34,7 @@ import {
 } from './windows';
 
 const TASKBAR_HEIGHT = 64;
+const PARTICLES = particles();
 
 interface Launch {
   where: Where | null;
@@ -72,10 +76,17 @@ export default function Desktop() {
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemeId>(savedTheme);
+  const [calm, setCalm] = useState(savedCalm);
   const bridge = useMemo(() => new CallBridge(), []);
   const sessionIdRef = useRef<string | null>(null);
   const promptIdRef = useRef(1);
   const active = activeApp(desk);
+
+  useLayoutEffect(() => {
+    applyLook(theme, calm);
+    saveLook(theme, calm);
+  }, [calm, theme]);
 
   useEffect(() => {
     function resize(): void {
@@ -168,7 +179,10 @@ export default function Desktop() {
     setDesk((current) => open(current, 'assistant', currentArea()));
   }, []);
 
-  const handlers: DesktopHandlers = useMemo(() => ({ open: openApp, close: closeApp, start }), [closeApp, openApp, start]);
+  const handlers: DesktopHandlers = useMemo(
+    () => ({ open: openApp, close: closeApp, start, theme: setTheme }),
+    [closeApp, openApp, start],
+  );
 
   const shortcuts: Shortcut[] = [
     { label: 'Translator', icon: 'translator', run: () => openApp('translator') },
@@ -176,6 +190,7 @@ export default function Desktop() {
     { label: 'Call another device', icon: 'remote', run: () => start('remote') },
     { label: 'Talk next to me', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
+    { label: 'Personalize', icon: 'personalize', run: () => openApp('personalize') },
     { label: 'Help', icon: 'help', run: () => openApp('help') },
     { label: 'Privacy', icon: 'privacy', run: () => openApp('privacy') },
     { label: 'Terms', icon: 'terms', run: () => openApp('terms') },
@@ -220,6 +235,8 @@ export default function Desktop() {
             desktop={handlers}
           />
         );
+      case 'personalize':
+        return <PersonalizeApp theme={theme} calm={calm} onTheme={setTheme} onCalm={setCalm} />;
       case 'help':
         return <HelpApp onTry={ask} />;
       case 'privacy':
@@ -232,8 +249,27 @@ export default function Desktop() {
   return (
     <CallBridgeContext.Provider value={bridge}>
       <div className="desktop">
-        <div className="wallpaper" aria-hidden="true">
+        <div className="wallpaper" aria-hidden="true" key={theme}>
           <div className="wallpaper-glow" />
+          <div className="aurora">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="particles" data-kind={themeOf(theme).particles}>
+            {PARTICLES.map((item, index) => (
+              <span
+                key={index}
+                style={{
+                  ['--left' as string]: `${item.left}%`,
+                  ['--size' as string]: `${item.size}px`,
+                  ['--delay' as string]: `${item.delay}s`,
+                  ['--duration' as string]: `${item.duration}s`,
+                  ['--drift' as string]: `${item.drift}px`,
+                }}
+              />
+            ))}
+          </div>
           <svg className="wave wave-back" viewBox="0 0 1440 320" preserveAspectRatio="none">
             <path d="M0 160c120-40 240-60 360-40s240 80 360 80 240-60 360-80 240 0 360 40v160H0z" />
           </svg>
@@ -251,6 +287,7 @@ export default function Desktop() {
           }
         }}>
           <h1 className="visually-hidden">Voice Translator</h1>
+          <DesktopWidget />
           <ul className="desktop-icons" aria-label="Desktop icons">
             {shortcuts.map((shortcut, index) => (
               <li key={shortcut.label} style={{ ['--order' as string]: index }}>

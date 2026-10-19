@@ -398,7 +398,7 @@ def test_from_elsewhere_only_the_host_key_or_a_guest_may_ask() -> None:
         guest = client.post(
             "/api/assistant",
             json=BODY,
-            headers={"X-Room-Id": room["room_id"], "X-Room-Token": room["guest_token"]},
+            headers={"X-Room-Id": room["room_id"], "X-Room-Token": room["invite_token"]},
         )
 
     assert (refused.status_code, allowed.status_code, guest.status_code) == (401, 200, 200)

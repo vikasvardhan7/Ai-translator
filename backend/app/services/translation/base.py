@@ -49,6 +49,7 @@ class SpeechTranslator(Protocol):
         target_languages: list[str],
         *,
         context: Sequence[str] = (),
+        speaker_language: str | None = None,
     ) -> SpeechTranslation: ...
 
     async def detect_language(self, audio: bytes, mime_type: str) -> DetectedLanguage: ...

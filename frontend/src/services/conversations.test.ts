@@ -19,6 +19,8 @@ describe('conversations', () => {
       streamPath: '/api/sessions/s%201/stream',
       you: null,
       room: null,
+      invite: null,
+      maxPeople: 2,
     });
   });
 
@@ -31,18 +33,26 @@ describe('conversations', () => {
     })).toMatchObject({ mode: 'call', participants: [host], you: 'A', room: null });
   });
 
-  it('opens a two-device conversation with this device\'s token', () => {
-    expect(roomConversation({ room_id: 'r1', host, guest }, 'a/b+c', 'B')).toEqual({
-      id: 'r1:B',
+  it('opens a call of several people with this device\'s token', () => {
+    const third = { id: 'C' as const, name: 'Mei', preferred_language: 'zh' };
+    expect(roomConversation({ room_id: 'r1', host, guests: [guest, third], max_people: 6 }, 'a/b+c', 'C')).toEqual({
+      id: 'r1:C',
       mode: 'remote',
-      participants: [host, guest],
+      participants: [host, guest, third],
       streamPath: '/api/rooms/r1/stream?token=a%2Fb%2Bc',
-      you: 'B',
+      you: 'C',
       room: { roomId: 'r1', token: 'a/b+c' },
+      invite: null,
+      maxPeople: 6,
     });
   });
 
-  const room = { room_id: 'r1', host, guest: null, host_token: 'h', guest_token: 'g/1', public_url: null, public_url_problem: null };
+  it('keeps the invite link for the host inside the call', () => {
+    const invite = { link: 'https://x.example/#join/r1/i', problem: null };
+    expect(roomConversation({ room_id: 'r1', host, guests: [], max_people: 6 }, 'h', 'A', invite).invite).toEqual(invite);
+  });
+
+  const room = { room_id: 'r1', host, guests: [], max_people: 6, host_token: 'h', invite_token: 'g/1', public_url: null, public_url_problem: null };
 
   it('makes an invite link that can be read back', () => {
     const link = inviteLink(room, 'https://quiet-river.trycloudflare.com');

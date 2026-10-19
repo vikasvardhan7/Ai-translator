@@ -83,7 +83,7 @@ def test_an_invited_guest_can_find_their_language_and_join_without_the_key() -> 
     room = client.post(
         "/api/rooms", json={"consent": True, "host": HOST}, headers={"X-Host-Key": HOST_KEY}
     ).json()
-    invite = {"X-Room-Id": room["room_id"], "X-Room-Token": room["guest_token"]}
+    invite = {"X-Room-Id": room["room_id"], "X-Room-Token": room["invite_token"]}
 
     stranger = client.post("/api/languages/detect", content=HELLO)
     wrong = client.post(
@@ -93,7 +93,7 @@ def test_an_invited_guest_can_find_their_language_and_join_without_the_key() -> 
     voices = client.get("/api/voices", headers=invite)
     joined = client.post(
         f"/api/rooms/{room['room_id']}/join",
-        json={"consent": True, "token": room["guest_token"], "guest": GUEST},
+        json={"consent": True, "token": room["invite_token"], "guest": GUEST},
     )
     device = {"X-Room-Id": room["room_id"], "X-Room-Token": joined.json()["token"]}
 

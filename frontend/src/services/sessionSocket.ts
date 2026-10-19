@@ -6,7 +6,7 @@ const PING_MS = 5_000;
 const SILENCE_LIMIT_MS = 30_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
 const GIVE_UP_AFTER_MS = 5 * 60_000;
-const FINAL_CODES = new Set([1000, 4401, 4403, 4404, 4409, 4410]);
+const FINAL_CODES = new Set([1000, 4401, 4403, 4404, 4410]);
 const LOST_CODE = 1006;
 
 function socketUrl(streamPath: string): string {

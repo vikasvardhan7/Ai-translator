@@ -5,7 +5,13 @@ interface MeetingControl {
   busy: boolean;
 }
 
+interface PeopleControl {
+  count: number;
+  open: boolean;
+}
+
 interface ControlBarProps {
+  people: PeopleControl | null;
   meeting: MeetingControl | null;
   muted: boolean;
   micReady: boolean;
@@ -18,12 +24,14 @@ interface ControlBarProps {
   onMeeting: () => void;
   onVoice: () => void;
   onSettings: () => void;
+  onPeople: () => void;
   onTranscript: () => void;
   onAsk: () => void;
   onEnd: () => void;
 }
 
 export default function ControlBar({
+  people,
   meeting,
   muted,
   micReady,
@@ -36,6 +44,7 @@ export default function ControlBar({
   onMeeting,
   onVoice,
   onSettings,
+  onPeople,
   onTranscript,
   onAsk,
   onEnd,
@@ -72,6 +81,13 @@ export default function ControlBar({
         <button className="control" type="button" data-off={!voiceOn} aria-pressed={!voiceOn} onClick={onVoice} disabled={ended}>
           <Icon name={voiceOn ? 'voice' : 'voice-off'} />
           <span>Captions only</span>
+        </button>
+      )}
+      {people && (
+        <button className="control" type="button" aria-expanded={people.open} aria-controls="call-people" onClick={onPeople}>
+          <Icon name="people" />
+          <span className="control-count" aria-hidden="true">{people.count}</span>
+          <span>People</span>
         </button>
       )}
       <button className="control" type="button" aria-expanded={settingsOpen} aria-controls="call-settings" onClick={onSettings}>

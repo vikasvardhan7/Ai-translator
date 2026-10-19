@@ -12,6 +12,7 @@ export const CALL_ACTIONS = [
   'show_transcript',
   'hide_transcript',
   'open_settings',
+  'show_people',
   'download_transcript',
   'set_my_language',
   'end_conversation',

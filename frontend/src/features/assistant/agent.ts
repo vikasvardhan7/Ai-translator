@@ -1,9 +1,10 @@
 import type { AgentAction, ChatTurn } from '../../services/api';
 import { languageName } from '../../services/languageNames';
 import { isCallAction, type CallAction } from '../desktop/bridge';
+import { isTheme, themeOf, type ThemeId } from '../desktop/themes';
 import { isApp, type AppId } from '../desktop/windows';
 
-export const DESKTOP_ACTIONS = ['open_app', 'close_app', 'start_conversation'] as const;
+export const DESKTOP_ACTIONS = ['open_app', 'close_app', 'start_conversation', 'set_theme'] as const;
 export type Where = 'here' | 'remote' | 'meeting';
 export const MAX_HISTORY = 30;
 export const MAX_MESSAGE_LENGTH = 4000;
@@ -11,6 +12,7 @@ export const MAX_MESSAGE_LENGTH = 4000;
 export const APP_NAMES: Record<AppId, string> = {
   translator: 'Translator',
   assistant: 'Assistant',
+  personalize: 'Personalize',
   help: 'Help',
   privacy: 'Privacy',
   terms: 'Terms',
@@ -32,6 +34,7 @@ const CALL_NOTES: Record<CallAction, string> = {
   show_transcript: 'Showing the transcript',
   hide_transcript: 'Hid the transcript',
   open_settings: 'Opened the call settings',
+  show_people: 'Showing the people in the call and the invite link',
   download_transcript: 'Downloaded the transcript',
   set_my_language: 'Changed your language',
   end_conversation: 'Ended the conversation',
@@ -41,6 +44,7 @@ export interface DesktopHandlers {
   open: (app: AppId) => void;
   close: (app: AppId) => void;
   start: (where: Where) => void;
+  theme: (theme: ThemeId) => void;
 }
 
 export interface CallRunner {
@@ -63,6 +67,9 @@ export function note(action: AgentAction): string {
   if (name === 'start_conversation' && isWhere(args.where)) {
     return `Ready to start ${WHERE_NAMES[args.where]}: press I agree, let's start`;
   }
+  if (name === 'set_theme' && isTheme(args.theme)) {
+    return `Changed the look to ${themeOf(args.theme).name}`;
+  }
   if (name === 'set_my_language' && args.language) {
     return `Your language is now ${languageName(args.language)}`;
   }
@@ -82,6 +89,8 @@ export function runActions(actions: AgentAction[], desktop: DesktopHandlers, cal
       desktop.close(args.app);
     } else if (name === 'start_conversation' && isWhere(args.where)) {
       desktop.start(args.where);
+    } else if (name === 'set_theme' && isTheme(args.theme)) {
+      desktop.theme(args.theme);
     } else if (isCallAction(name) && call?.available.includes(name)) {
       call.run(name, args);
     } else {

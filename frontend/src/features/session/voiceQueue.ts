@@ -1,4 +1,4 @@
-import type { SpeakerId } from '../../services/protocol';
+import { perSpeaker, type SpeakerId } from '../../services/protocol';
 
 const VOICE_WAIT_MS = 20_000;
 const HOLD_LIMIT_MS = 15_000;
@@ -33,9 +33,9 @@ interface Slot {
 export class VoiceQueue {
   private slots: Slot[] = [];
   private serverVoice = false;
-  private readonly enabled: Record<SpeakerId, boolean> = { A: true, B: true };
-  private readonly localVoice: Record<SpeakerId, boolean> = { A: false, B: false };
-  private readonly styles: Record<SpeakerId, VoiceStyle> = { A: DEFAULT_STYLE, B: DEFAULT_STYLE };
+  private readonly enabled: Record<SpeakerId, boolean> = perSpeaker(true);
+  private readonly localVoice: Record<SpeakerId, boolean> = perSpeaker(false);
+  private readonly styles: Record<SpeakerId, VoiceStyle> = perSpeaker(DEFAULT_STYLE);
   private held = false;
   private holdExpired = false;
   private holdTimer: ReturnType<typeof setTimeout> | undefined;

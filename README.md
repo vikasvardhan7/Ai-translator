@@ -87,6 +87,10 @@ npm run dev
 
 With the backend running, open <http://localhost:5173> in Edge or Chrome. The app looks like a desktop: icons on the left (Translator, Meeting captions, Call another device, Talk next to me, Assistant, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
 
+### Looks
+
+Open **Personalize** to pick one of five looks, each with its own live wallpaper: Ocean (follows light or dark mode), Sunset, Mint, Blossom and Aurora night. **Calm motion** keeps the wallpaper still. The choice is remembered in that browser only. You can also say "change the theme to aurora" to the assistant.
+
 ### The assistant
 
 Type into the taskbar's ask box, or open **Assistant**. It works like a chat: ask anything and it searches the web when the answer needs current information (sources are shown under the answer). During a call it also knows what has been said ("Summarise so far", "What are the action items?"). It can do things for you: "start meeting captions", "mute me", "show the transcript", "download the subtitles", "change my language to Hindi", "open help", "end the call". Nothing is saved; the chat is gone when the page closes. It uses `GEMINI_MODEL`, or `GEMINI_ASSISTANT_MODEL` in `backend/.env` when set. Web search uses Google Search through Gemini, which has its own daily free limit.
@@ -103,19 +107,21 @@ Each sentence is sent to Gemini with the last few sentences as context, so names
 
 The backend log prints one line per sentence with how long each step took, so you can see where time goes.
 
-## Talking to someone on another device
+## Calls with people on other devices (up to 6)
 
-The other person can be on any phone or computer with Edge or Chrome. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed). The backend starts the tunnel for you.
+The others can be on any phone or computer with Edge or Chrome, each speaking their own language. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed). The backend starts the tunnel for you.
 
 1. Install the tunnel program once: `winget install --id Cloudflare.cloudflared`
 2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
 3. Start the backend as above (`uvicorn ... --port 8000`).
-4. Open <http://localhost:8000>, double-click **Call another device**, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and the invite link it shows is the public `https://...trycloudflare.com` link.
-5. Send the invite link to the other person. They need no key. When they open it and say hello, the conversation starts on both devices: each of you talks into your own device, sees both sides of the chat and hears the other person in your language.
+4. Open <http://localhost:8000>, double-click **Call another device**, type your name, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and your call opens straight away, showing the invite link (the public `https://...trycloudflare.com` link).
+5. Send that one link to up to 5 people. They need no key. Each opens it, types their name and says hello, and joins the running call. Everyone talks into their own device, sees the whole conversation and hears everyone else in their own language. **People** in the call shows who is there, who is connected, and the link again; you can also ask the assistant "who is in the call?".
+
+A guest who presses End leaves alone and the call goes on; when the host presses End, the call ends for everyone.
 
 If the app says there is no public link, it also says why: cloudflared is not installed, the frontend is not built, or the tunnel did not start (the backend window has the details). The backend looks for cloudflared on the PATH and where winget puts it; `CLOUDFLARED_PATH` in `backend/.env` names it directly, and `PUBLIC_URL` replaces the tunnel with an address of your own when the app is hosted somewhere. You can also open the app yourself through the public link (for example to be the host from your phone); then the app asks for the host key printed in the backend window, once per browser.
 
-The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation needs it, and invited guests are let in by their invite link. The tunnel address stays the same while the backend runs and changes when it starts again; the conversation stops when your laptop sleeps or the backend is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If either phone loses its connection for a moment, both screens show it and the call continues when it is back.
+The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation needs it, and invited guests are let in by their invite link. The tunnel address stays the same while the backend runs and changes when it starts again; the conversation stops when your laptop sleeps or the backend is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If someone's connection drops for a moment, the others see them as not connected and the call continues when they are back.
 
 ## Project structure
 

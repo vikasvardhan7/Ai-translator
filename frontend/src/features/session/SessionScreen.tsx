@@ -4,6 +4,7 @@ import CallTiles, { type Tile } from '../call/CallTiles';
 import CaptionStrip from '../call/CaptionStrip';
 import ControlBar from '../call/ControlBar';
 import SettingsPanel, { type ListenerSettings } from '../call/SettingsPanel';
+import InvitePanel, { InviteCard } from '../call/InvitePanel';
 import TranscriptPanel from '../call/TranscriptPanel';
 import { CallBridgeContext, type CallAction } from '../desktop/bridge';
 import { leaveRoom } from '../../services/api';
@@ -15,7 +16,7 @@ import {
   type AudioCapture,
 } from '../../services/microphoneCapture';
 import type { Conversation } from '../../services/conversations';
-import type { Participant, ServerMessage, SpeakerId } from '../../services/protocol';
+import { isSpeakerId, perSpeaker, SPEAKER_IDS, type Participant, type ServerMessage, type SpeakerId } from '../../services/protocol';
 import { SessionSocket } from '../../services/sessionSocket';
 import { abandonPending, applyServerMessage, MAX_TURNS, speakerName, speakerNames, type Turn } from './conversation';
 import { downloadSubtitles, downloadText } from './download';
@@ -53,8 +54,6 @@ function closeIssue(code: number, remote: boolean): string {
   switch (code) {
     case 4401:
       return 'This invite link is no longer valid. Ask for a new link.';
-    case 4409:
-      return 'The other person has not joined yet.';
     case 4410:
       return 'This conversation was opened in another tab or window, so it closed here.';
     case 4404:
@@ -105,7 +104,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   const serverVoiceRef = useRef(false);
   const sentRef = useRef<Partial<Record<SpeakerId, string>>>({});
   const talkingRef = useRef(new Set<string>());
-  const settingsRef = useRef<Record<SpeakerId, ListenerSettings>>({ A: DEFAULT_SETTINGS, B: DEFAULT_SETTINGS });
+  const settingsRef = useRef<Record<SpeakerId, ListenerSettings>>(perSpeaker(DEFAULT_SETTINGS));
   const voiceOnRef = useRef(!meeting);
   const [participants, setParticipants] = useState<Participant[]>(conversation.participants);
   const [phase, setPhaseState] = useState<SessionPhase>('connecting');
@@ -114,7 +113,9 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   const [micNeedsTap, setMicNeedsTap] = useState(false);
   const [meetingSound, setMeetingSound] = useState<MeetingSound>('off');
   const [meetingIssue, setMeetingIssue] = useState<string | null>(null);
-  const [peerHere, setPeerHere] = useState<boolean | null>(null);
+  const [connected, setConnected] = useState<ReadonlySet<SpeakerId> | null>(null);
+  const [everyone, setEveryone] = useState<Participant[]>(conversation.participants);
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [notices, setNotices] = useState<string[]>([]);
   const [turns, setTurns] = useState<Turn[]>(initialTurns);
   const [level, setLevel] = useState(0);
@@ -137,7 +138,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
     [conversation.participants, you],
   );
   const listeners = participants.filter((person) => listenerIds.includes(person.id));
-  const names = useMemo(() => speakerNames(conversation.mode, participants, you), [conversation.mode, participants, you]);
+  const names = useMemo(() => speakerNames(conversation.mode, everyone, you), [conversation.mode, everyone, you]);
+
+  const meetPeople = useCallback((people: Participant[]) => {
+    setParticipants(people);
+    setEveryone((seen) => [...seen.filter((old) => !people.some((person) => person.id === old.id)), ...people]);
+  }, []);
 
   const setPhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next;
@@ -244,7 +250,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       case 'session.ready': {
         serverVoiceRef.current = message.server_voice;
         setServerVoice(message.server_voice);
-        setParticipants(message.participants);
+        meetPeople(message.participants);
         queue?.setServerVoice(message.server_voice);
         sentRef.current = {};
         if (!readyOnceRef.current) {
@@ -260,7 +266,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
           applyVoice(id);
         }
         if (you && message.connected) {
-          setPeerHere(message.connected.some((id) => id !== you));
+          setConnected(new Set(message.connected));
         }
         clearTalking();
         setPhase('live');
@@ -268,7 +274,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         break;
       }
       case 'participants.updated':
-        setParticipants(message.participants);
+        meetPeople(message.participants);
         break;
       case 'speech.activity': {
         const who = message.speaker_id ?? 'room';
@@ -278,25 +284,26 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         } else {
           set.delete(who);
         }
-        setTalking(new Set([...set].filter((id): id is SpeakerId => id === 'A' || id === 'B')));
+        setTalking(new Set([...set].filter(isSpeakerId)));
         setRoomTalking(set.has('room'));
         queue?.setHeld(you ? set.has(you) : set.size > 0);
         break;
       }
       case 'peer.connected':
-        setPeerHere(true);
+        setConnected((current) => new Set([...(current ?? []), message.participant_id]));
         break;
       case 'peer.disconnected':
-        talkingRef.current.delete(message.participant_id);
-        setTalking(new Set([...talkingRef.current].filter((id): id is SpeakerId => id === 'A' || id === 'B')));
-        setPeerHere(false);
-        break;
       case 'peer.left':
-        queue?.cancelAll();
-        stopListening();
-        socketRef.current?.close();
-        setPhase('closed');
-        setIssue('The other person left, so the conversation has ended.');
+        talkingRef.current.delete(message.participant_id);
+        setTalking(new Set([...talkingRef.current].filter(isSpeakerId)));
+        setConnected((current) => new Set([...(current ?? [])].filter((id) => id !== message.participant_id)));
+        if (message.type === 'peer.left' && message.participant_id === 'A' && you !== 'A') {
+          queue?.cancelAll();
+          stopListening();
+          socketRef.current?.close();
+          setPhase('closed');
+          setIssue('The host ended the call.');
+        }
         break;
       case 'translation.final':
         if (phaseRef.current === 'live' && (!you || message.listener_id === you)) {
@@ -316,7 +323,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       default:
         break;
     }
-  }, [applyVoice, clearTalking, listenerIds, setPhase, startListening, stopListening, you]);
+  }, [applyVoice, clearTalking, listenerIds, meetPeople, setPhase, startListening, stopListening, you]);
 
   const handleReconnecting = useCallback((reconnecting: boolean) => {
     if (!reconnecting || phaseRef.current === 'ending' || phaseRef.current === 'closed') {
@@ -379,7 +386,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       },
     );
     if (!voiceOnRef.current) {
-      for (const id of ['A', 'B'] as const) {
+      for (const id of SPEAKER_IDS) {
         queue.setEnabled(id, false);
       }
     }
@@ -538,7 +545,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         setTranscriptOpen(name === 'show_transcript');
         break;
       case 'open_settings':
+        setPeopleOpen(false);
         setSettingsOpen(true);
+        break;
+      case 'show_people':
+        setSettingsOpen(false);
+        setPeopleOpen(true);
         break;
       case 'download_transcript':
         if (args.format === 'subtitles' && reader) {
@@ -572,6 +584,9 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         ready.push(voiceOn ? 'captions_only' : 'voice_on');
       }
       ready.push('open_settings');
+      if (conversation.mode === 'remote') {
+        ready.push('show_people');
+      }
       if (listeners.length === 1) {
         ready.push('set_my_language');
       }
@@ -610,8 +625,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
     title: names[person.id],
     badge: badge(person.preferred_language),
     detail: languageLabel(person.preferred_language),
-    away: you !== null && person.id !== you && peerHere === false,
+    away: you !== null && person.id !== you && connected !== null && !connected.has(person.id),
   }));
+  const remote = conversation.mode === 'remote';
+  const alone = remote && participants.length === 1;
+  const waiting = remote && !alone && connected !== null && participants.every((person) => person.id === you || !connected.has(person.id));
+  const languages = [...new Set(participants.map((person) => languageName(person.preferred_language)))];
   if (meeting) {
     tiles.push({
       id: 'B',
@@ -621,9 +640,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       away: meetingSound !== 'on',
     });
   }
-  const title = meeting && participants[0]
-    ? `Meeting captions in ${languageName(participants[0].preferred_language)}`
-    : participants.map((person) => languageName(person.preferred_language)).join(' and ');
+  let title = participants.map((person) => languageName(person.preferred_language)).join(' and ');
+  if (meeting && participants[0]) {
+    title = `Meeting captions in ${languageName(participants[0].preferred_language)}`;
+  } else if (remote) {
+    title = `${participants.length} ${participants.length === 1 ? 'person' : 'people'} · ${languages.join(', ')}`;
+  }
 
   return (
     <main className="call-page">
@@ -655,9 +677,9 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
           The connection dropped. Reconnecting by itself; your transcript is kept.
         </p>
       )}
-      {phase === 'live' && peerHere === false && (
+      {phase === 'live' && waiting && (
         <p className="notice call-notice" role="status">
-          Waiting for the other person to connect. If their connection dropped, they will be back in a moment.
+          Waiting for the others to connect. If their connection dropped, they will be back in a moment.
         </p>
       )}
       {micIssue && phase === 'live' && (
@@ -695,6 +717,20 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
             muted={muted}
             roomTalking={roomTalking}
           />
+          {alone && !ended && (
+            <div className="meeting-connect invite-stage">
+              <h2>Invite people to your call</h2>
+              <p>
+                Send this link to up to {conversation.maxPeople - 1} people. When they open it and say hello, they join
+                and everyone hears everyone else in their own language.
+              </p>
+              {conversation.invite ? (
+                <InviteCard invite={conversation.invite} room={conversation.maxPeople - participants.length} />
+              ) : (
+                <p>Ask the host for the invite link.</p>
+              )}
+            </div>
+          )}
           {meeting && meetingSound !== 'on' && !ended && (
             <div className="meeting-connect">
               <h2>Connect your meeting</h2>
@@ -748,7 +784,20 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         onClose={() => setSettingsOpen(false)}
       />
 
+      {remote && (
+        <InvitePanel
+          open={peopleOpen}
+          invite={conversation.invite}
+          people={participants}
+          you={you}
+          connected={connected}
+          maxPeople={conversation.maxPeople}
+          onClose={() => setPeopleOpen(false)}
+        />
+      )}
+
       <ControlBar
+        people={remote ? { count: participants.length, open: peopleOpen } : null}
         meeting={meeting ? { connected: meetingSound === 'on', busy: meetingSound === 'connecting' } : null}
         muted={muted}
         micReady={listening}
@@ -760,7 +809,14 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         onMute={toggleMute}
         onMeeting={() => void toggleMeetingSound()}
         onVoice={toggleVoice}
-        onSettings={() => setSettingsOpen((open) => !open)}
+        onSettings={() => {
+          setPeopleOpen(false);
+          setSettingsOpen((open) => !open);
+        }}
+        onPeople={() => {
+          setSettingsOpen(false);
+          setPeopleOpen((open) => !open);
+        }}
         onTranscript={() => setTranscriptOpen((open) => !open)}
         onAsk={onAsk}
         onEnd={endSession}

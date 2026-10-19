@@ -3,6 +3,8 @@ import { savedHostKey } from './hostKey';
 import {
   isParticipant,
   isSessionMode,
+  isSpeakerId,
+  type SpeakerId,
   type CreateSessionRequest,
   type CreateSessionResponse,
   type Participant,
@@ -145,12 +147,13 @@ interface PersonDetails {
 export interface RoomInfo {
   room_id: string;
   host: Participant;
-  guest: Participant | null;
+  guests: Participant[];
+  max_people: number;
 }
 
 export interface CreatedRoom extends RoomInfo {
   host_token: string;
-  guest_token: string;
+  invite_token: string;
   public_url: string | null;
   public_url_problem: string | null;
 }
@@ -165,11 +168,13 @@ function readRoom(body: unknown): RoomInfo {
     typeof body.room_id !== 'string' ||
     !isParticipant(body.host) ||
     body.host.id !== 'A' ||
-    !(body.guest === null || (isParticipant(body.guest) && body.guest.id === 'B'))
+    !Array.isArray(body.guests) ||
+    !body.guests.every((guest) => isParticipant(guest) && guest.id !== 'A') ||
+    typeof body.max_people !== 'number'
   ) {
     throw new Error('The backend returned an invalid conversation.');
   }
-  return { room_id: body.room_id, host: body.host, guest: body.guest };
+  return { room_id: body.room_id, host: body.host, guests: body.guests, max_people: body.max_people };
 }
 
 export async function createRoom(host: PersonDetails): Promise<CreatedRoom> {
@@ -179,13 +184,13 @@ export async function createRoom(host: PersonDetails): Promise<CreatedRoom> {
     body: JSON.stringify({ consent: true, host }),
   });
   const room = readRoom(body);
-  if (!isRecord(body) || typeof body.host_token !== 'string' || typeof body.guest_token !== 'string') {
+  if (!isRecord(body) || typeof body.host_token !== 'string' || typeof body.invite_token !== 'string') {
     throw new Error('The backend returned an invalid conversation.');
   }
   return {
     ...room,
     host_token: body.host_token,
-    guest_token: body.guest_token,
+    invite_token: body.invite_token,
     public_url: textOrNull(body.public_url),
     public_url_problem: textOrNull(body.public_url_problem),
   };
@@ -211,17 +216,17 @@ export async function joinRoom(
   roomId: string,
   inviteToken: string,
   guest: PersonDetails,
-): Promise<{ room: RoomInfo; token: string }> {
+): Promise<{ room: RoomInfo; token: string; you: SpeakerId }> {
   const body = await requestJson<unknown>(`/api/rooms/${encodeURIComponent(roomId)}/join`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ consent: true, token: inviteToken, guest }),
   });
   const room = readRoom(body);
-  if (!isRecord(body) || typeof body.token !== 'string') {
+  if (!isRecord(body) || typeof body.token !== 'string' || !isSpeakerId(body.you) || body.you === 'A') {
     throw new Error('The backend returned an invalid conversation.');
   }
-  return { room, token: body.token };
+  return { room, token: body.token, you: body.you };
 }
 
 export interface VoiceOption {

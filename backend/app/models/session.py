@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.languages import invalid_language_message, language_code
 
-ParticipantId = Literal["A", "B"]
+ParticipantId = Literal["A", "B", "C", "D", "E", "F"]
 SessionMode = Literal["together", "call"]
 
 

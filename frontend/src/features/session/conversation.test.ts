@@ -146,9 +146,19 @@ describe('conversation store', () => {
   });
 
   it('names the speakers for each kind of conversation', () => {
-    expect(speakerNames('together', people, null)).toEqual({ A: 'Person 1', B: 'Person 2' });
-    expect(speakerNames('remote', people, 'B')).toEqual({ A: 'Them', B: 'You' });
-    expect(speakerNames('call', [A], 'A')).toEqual({ A: 'You', B: 'Meeting' });
-    expect(speakerName({ A: 'You', B: 'Meeting' }, null)).toBe('Someone');
+    const nobody = { C: 'Someone', D: 'Someone', E: 'Someone', F: 'Someone' };
+    expect(speakerNames('together', people, null)).toEqual({ A: 'Person 1', B: 'Person 2', ...nobody });
+    expect(speakerNames('remote', people, 'B')).toEqual({ A: 'Person 1', B: 'You', ...nobody });
+    expect(speakerNames('call', [A], 'A')).toEqual({ A: 'You', B: 'Meeting', ...nobody });
+    expect(speakerName(speakerNames('call', [A], 'A'), null)).toBe('Someone');
+  });
+
+  it('names everyone in a call of several people, and a blank name by place', () => {
+    const many = [
+      { id: 'A' as const, name: 'Ravi', preferred_language: 'te' },
+      { id: 'C' as const, name: 'Mei', preferred_language: 'zh' },
+      { id: 'D' as const, name: ' ', preferred_language: 'hi' },
+    ];
+    expect(speakerNames('remote', many, 'C')).toMatchObject({ A: 'Ravi', B: 'Someone', C: 'You', D: 'Person 4' });
   });
 });

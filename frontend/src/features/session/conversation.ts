@@ -1,4 +1,4 @@
-import type { ConversationMode, Participant, ServerMessage, SpeakerId } from '../../services/protocol';
+import { perSpeaker, SPEAKER_IDS, type ConversationMode, type Participant, type ServerMessage, type SpeakerId } from '../../services/protocol';
 
 export const MAX_TURNS = 100;
 
@@ -92,15 +92,19 @@ export function abandonPending(turns: Turn[], reason: string, affected: (turn: T
 }
 
 export function speakerNames(mode: ConversationMode, participants: readonly Participant[], you: SpeakerId | null): Names {
+  const names = perSpeaker('Someone');
   if (mode === 'call') {
-    return { A: 'You', B: 'Meeting' };
+    return { ...names, A: 'You', B: 'Meeting' };
   }
-  if (you) {
-    return { A: you === 'A' ? 'You' : 'Them', B: you === 'B' ? 'You' : 'Them' };
+  for (const id of SPEAKER_IDS) {
+    const person = participants.find((item) => item.id === id);
+    if (id === you) {
+      names[id] = 'You';
+    } else if (person) {
+      names[id] = person.name.trim() || `Person ${SPEAKER_IDS.indexOf(id) + 1}`;
+    }
   }
-  const nameOf = (id: SpeakerId, fallback: string): string =>
-    participants.find((person) => person.id === id)?.name ?? fallback;
-  return { A: nameOf('A', 'Person 1'), B: nameOf('B', 'Person 2') };
+  return names;
 }
 
 export function speakerName(names: Names, id: SpeakerId | null): string {

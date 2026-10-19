@@ -1,4 +1,5 @@
-export type SpeakerId = 'A' | 'B';
+export const SPEAKER_IDS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
+export type SpeakerId = (typeof SPEAKER_IDS)[number];
 export type SessionMode = 'together' | 'call';
 export type ConversationMode = SessionMode | 'remote';
 
@@ -137,8 +138,12 @@ function isString(value: unknown): value is string {
   return typeof value === 'string';
 }
 
-function isSpeakerId(value: unknown): value is SpeakerId {
-  return value === 'A' || value === 'B';
+export function isSpeakerId(value: unknown): value is SpeakerId {
+  return typeof value === 'string' && (SPEAKER_IDS as readonly string[]).includes(value);
+}
+
+export function perSpeaker<T>(value: T): Record<SpeakerId, T> {
+  return Object.fromEntries(SPEAKER_IDS.map((id) => [id, value])) as Record<SpeakerId, T>;
 }
 
 function isSpeakerOrNull(value: unknown): value is SpeakerId | null {

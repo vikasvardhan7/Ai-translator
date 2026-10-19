@@ -7,6 +7,7 @@ import { APPS, type AppId, type WindowState } from './windows';
 export const APP_ICONS: Record<AppId, IconName> = {
   translator: 'translator',
   assistant: 'assistant',
+  personalize: 'personalize',
   help: 'help',
   privacy: 'privacy',
   terms: 'terms',

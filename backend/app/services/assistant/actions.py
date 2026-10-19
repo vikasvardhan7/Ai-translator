@@ -4,7 +4,8 @@ from typing import Any
 from app.core.languages import language_code
 from app.services.assistant.base import AppAction
 
-APPS = ["translator", "assistant", "help", "privacy", "terms"]
+APPS = ["translator", "assistant", "personalize", "help", "privacy", "terms"]
+THEMES = ["ocean", "sunset", "mint", "blossom", "aurora"]
 WHERE = ["here", "remote", "meeting"]
 FORMATS = ["text", "subtitles"]
 
@@ -33,17 +34,25 @@ CATALOG = {
     for spec in [
         ActionSpec(
             "open_app",
-            "Open one of the desktop apps: translator (conversations, two-device calls and"
-            " meeting captions), assistant (this chat), help, privacy or terms.",
+            "Open one of the desktop apps: translator (conversations, calls with people on other"
+            " devices and meeting captions), assistant (this chat), personalize (colours and"
+            " themes), help, privacy or terms.",
             {"app": APPS},
         ),
         ActionSpec("close_app", "Close one of the open desktop apps.", {"app": APPS}),
         ActionSpec(
             "start_conversation",
             "Open the translator ready to start: here (two people next to each other), remote"
-            " (with someone on another device, through an invite link) or meeting (captions"
-            " for an online meeting). The person still says hello so their language is found.",
+            " (a call with up to 5 people on other devices, through one invite link) or meeting"
+            " (captions for an online meeting). The person still says hello so their language"
+            " is found.",
             {"where": WHERE},
+        ),
+        ActionSpec(
+            "set_theme",
+            "Change the look of the app: ocean (blue waves), sunset (warm coral), mint (fresh"
+            " green), blossom (soft pink) or aurora (dark night with aurora).",
+            {"theme": THEMES},
         ),
         ActionSpec("mute", "Mute this person's microphone in the running call.", {}),
         ActionSpec("unmute", "Turn this person's microphone back on in the running call.", {}),
@@ -59,6 +68,11 @@ CATALOG = {
         ActionSpec("show_transcript", "Show the transcript panel of the running call.", {}),
         ActionSpec("hide_transcript", "Hide the transcript panel of the running call.", {}),
         ActionSpec("open_settings", "Open the settings of the running call.", {}),
+        ActionSpec(
+            "show_people",
+            "Show who is in the running call, who is connected, and the invite link to share.",
+            {},
+        ),
         ActionSpec(
             "download_transcript",
             "Download the running call's transcript as plain text or as subtitles.",

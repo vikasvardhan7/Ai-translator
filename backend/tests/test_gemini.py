@@ -517,3 +517,14 @@ async def test_without_earlier_sentences_the_request_is_unchanged() -> None:
 
     request = json.loads(recorder.requests[0].content)["contents"][0]["parts"][1]["text"]
     assert "Earlier sentences" not in request
+
+
+async def test_the_speakers_own_language_is_given_as_a_hint() -> None:
+    recorder = Recorder(answer())
+
+    await translator(recorder).translate_speech(
+        b"RIFFdata", "audio/wav", ["en", "te"], speaker_language="te"
+    )
+
+    request = json.loads(recorder.requests[0].content)["contents"][0]["parts"][1]["text"]
+    assert "The speaker chose the language with ISO 639 code te" in request

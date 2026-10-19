@@ -12,6 +12,7 @@ class TranslatorCall:
     mime_type: str
     target_languages: list[str]
     context: tuple[str, ...] = ()
+    speaker_language: str | None = None
 
 
 @dataclass
@@ -33,8 +34,11 @@ class FakeTranslator:
         target_languages: list[str],
         *,
         context: Sequence[str] = (),
+        speaker_language: str | None = None,
     ) -> SpeechTranslation:
-        self.calls.append(TranslatorCall(audio, mime_type, target_languages, tuple(context)))
+        self.calls.append(
+            TranslatorCall(audio, mime_type, target_languages, tuple(context), speaker_language)
+        )
         if self.delays:
             await asyncio.sleep(self.delays.pop(0))
         if self.failure:

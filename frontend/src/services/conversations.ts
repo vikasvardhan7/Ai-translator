@@ -1,6 +1,11 @@
 import type { CreatedRoom, RoomAccess, RoomInfo } from './api';
 import type { ConversationMode, CreateSessionResponse, Participant, SpeakerId } from './protocol';
 
+export interface InviteDetails {
+  link: string;
+  problem: string | null;
+}
+
 export interface Conversation {
   id: string;
   mode: ConversationMode;
@@ -8,6 +13,8 @@ export interface Conversation {
   streamPath: string;
   you: SpeakerId | null;
   room: RoomAccess | null;
+  invite: InviteDetails | null;
+  maxPeople: number;
 }
 
 export interface Invite {
@@ -23,24 +30,33 @@ export function sessionConversation(session: CreateSessionResponse): Conversatio
     streamPath: `/api/sessions/${encodeURIComponent(session.session_id)}/stream`,
     you: session.mode === 'call' ? 'A' : null,
     room: null,
+    invite: null,
+    maxPeople: session.participants.length,
   };
 }
 
-export function roomConversation(room: RoomInfo, token: string, you: SpeakerId): Conversation {
+export function roomConversation(
+  room: RoomInfo,
+  token: string,
+  you: SpeakerId,
+  invite: InviteDetails | null = null,
+): Conversation {
   const query = new URLSearchParams({ token });
   return {
     id: `${room.room_id}:${you}`,
     mode: 'remote',
-    participants: room.guest ? [room.host, room.guest] : [room.host],
+    participants: [room.host, ...room.guests],
     streamPath: `/api/rooms/${encodeURIComponent(room.room_id)}/stream?${query.toString()}`,
     you,
     room: { roomId: room.room_id, token },
+    invite,
+    maxPeople: room.max_people,
   };
 }
 
 export function inviteLink(room: CreatedRoom, origin: string): string {
   const base = (room.public_url ?? origin).replace(/\/+$/, '');
-  return `${base}/#join/${encodeURIComponent(room.room_id)}/${encodeURIComponent(room.guest_token)}`;
+  return `${base}/#join/${encodeURIComponent(room.room_id)}/${encodeURIComponent(room.invite_token)}`;
 }
 
 export function inviteProblem(room: CreatedRoom, hostname: string): string | null {

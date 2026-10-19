@@ -51,7 +51,7 @@ def is_host_request(connection: HTTPConnection) -> bool:
 def _is_invited(connection: HTTPConnection) -> bool:
     room = get_room_store(connection).get(connection.headers.get(ROOM_ID_HEADER, ""))
     token = connection.headers.get(ROOM_TOKEN_HEADER, "")
-    return room is not None and bool(token) and room.participant_for(token) is not None
+    return room is not None and bool(token) and room.allows(token)
 
 
 def require_host(connection: HTTPConnection) -> None:

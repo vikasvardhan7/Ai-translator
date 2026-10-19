@@ -1,4 +1,4 @@
-export const APPS = ['translator', 'assistant', 'help', 'privacy', 'terms'] as const;
+export const APPS = ['translator', 'assistant', 'personalize', 'help', 'privacy', 'terms'] as const;
 export type AppId = (typeof APPS)[number];
 
 export interface WindowState {
@@ -27,6 +27,7 @@ const MIN_VISIBLE = 96;
 export const SIZES: Record<AppId, { width: number; height: number }> = {
   translator: { width: 1080, height: 760 },
   assistant: { width: 560, height: 680 },
+  personalize: { width: 760, height: 640 },
   help: { width: 640, height: 620 },
   privacy: { width: 680, height: 620 },
   terms: { width: 680, height: 620 },

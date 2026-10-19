@@ -12,11 +12,18 @@ IDLE_ROOM_LIFETIME = timedelta(minutes=30)
 UNJOINED_ROOM_LIFETIME = timedelta(minutes=10)
 MAX_WAITING_ROOMS = 100
 HOST_ID: ParticipantId = "A"
-GUEST_ID: ParticipantId = "B"
+GUEST_IDS: tuple[ParticipantId, ...] = ("B", "C", "D", "E", "F")
+MAX_PEOPLE = 1 + len(GUEST_IDS)
 
 
 class RoomLimitReached(Exception):
     pass
+
+
+class RoomFull(Exception):
+    def __init__(self, *, people_left: bool) -> None:
+        super().__init__()
+        self.people_left = people_left
 
 
 def _now() -> datetime:
@@ -30,29 +37,44 @@ def _same_token(given: str, expected: str) -> bool:
 @dataclass
 class Room:
     id: str
-    host: Participant
-    guest: Participant | None = None
+    conversation: Session
     host_token: str = field(default_factory=secrets.token_urlsafe)
-    guest_token: str = field(default_factory=secrets.token_urlsafe)
+    invite_token: str = field(default_factory=secrets.token_urlsafe)
+    guest_tokens: dict[ParticipantId, str] = field(default_factory=dict)
+    left: set[str] = field(default_factory=set)
     idle_since: datetime = field(default_factory=_now)
     devices: dict[str, Device] = field(default_factory=dict)
     ended: bool = False
-    server_voice_for: set[str] = field(default_factory=lambda: {HOST_ID, GUEST_ID})
+    server_voice_for: set[str] = field(default_factory=lambda: {HOST_ID})
     voice_for: dict[str, str] = field(default_factory=dict)
     recent_voices: deque[PlayedVoice] = field(default_factory=lambda: deque(maxlen=MAX_REMEMBERED))
     translations: dict[tuple[str, str], str] = field(default_factory=dict)
     recent_sentences: deque[str] = field(default_factory=lambda: deque(maxlen=CONTEXT_SENTENCES))
 
+    @property
+    def host(self) -> Participant:
+        return next(p for p in self.conversation.participants if p.id == HOST_ID)
+
+    @property
+    def guests(self) -> list[Participant]:
+        return [p for p in self.conversation.participants if p.id != HOST_ID]
+
     def participant_for(self, token: str) -> ParticipantId | None:
         if _same_token(token, self.host_token):
             return HOST_ID
-        if _same_token(token, self.guest_token):
-            return GUEST_ID
+        for participant_id, guest_token in self.guest_tokens.items():
+            if _same_token(token, guest_token):
+                return participant_id
         return None
 
+    def is_invite(self, token: str) -> bool:
+        return _same_token(token, self.invite_token)
+
+    def allows(self, token: str) -> bool:
+        return self.participant_for(token) is not None or self.is_invite(token)
+
     def session(self) -> Session:
-        participants = [p for p in (self.host, self.guest) if p is not None]
-        return Session(id=self.id, participants=participants, mode="remote")
+        return self.conversation
 
 
 class RoomStore:
@@ -63,7 +85,9 @@ class RoomStore:
         self._drop_expired()
         if sum(not room.devices for room in self._rooms.values()) >= MAX_WAITING_ROOMS:
             raise RoomLimitReached
-        room = Room(id=str(uuid.uuid4()), host=Participant(id=HOST_ID, **host.model_dump()))
+        room_id = str(uuid.uuid4())
+        participant = Participant(id=HOST_ID, **host.model_dump())
+        room = Room(id=room_id, conversation=Session(room_id, [participant], "remote"))
         self._rooms[room.id] = room
         return room
 
@@ -71,11 +95,31 @@ class RoomStore:
         self._drop_expired()
         return self._rooms.get(room_id)
 
-    def join(self, room: Room, guest: Person) -> str:
-        room.guest = Participant(id=GUEST_ID, **guest.model_dump())
-        room.guest_token = secrets.token_urlsafe()
+    def join(self, room: Room, guest: Person) -> tuple[ParticipantId, str]:
+        used = room.guest_tokens.keys() | room.left
+        free = next((guest_id for guest_id in GUEST_IDS if guest_id not in used), None)
+        if free is None:
+            raise RoomFull(people_left=len(room.conversation.participants) < MAX_PEOPLE)
+        participants = room.conversation.participants
+        participants.append(Participant(id=free, **guest.model_dump()))
+        participants.sort(key=lambda p: p.id)
+        token = secrets.token_urlsafe()
+        room.guest_tokens[free] = token
+        room.server_voice_for.add(free)
         room.idle_since = _now()
-        return room.guest_token
+        return free, token
+
+    def leave(self, room: Room, participant_id: str) -> None:
+        if participant_id == HOST_ID:
+            self.end(room)
+            return
+        room.conversation.participants[:] = [
+            p for p in room.conversation.participants if p.id != participant_id
+        ]
+        room.guest_tokens.pop(participant_id, None)
+        room.left.add(participant_id)
+        room.server_voice_for.discard(participant_id)
+        room.voice_for.pop(participant_id, None)
 
     def connect(self, room: Room, participant_id: str, device: Device) -> Device | None:
         replaced = room.devices.get(participant_id)
@@ -87,7 +131,8 @@ class RoomStore:
             return False
         del room.devices[participant_id]
         room.idle_since = _now()
-        room.ended = room.ended or ended
+        if ended:
+            self.leave(room, participant_id)
         if room.ended and not room.devices:
             self._rooms.pop(room.id, None)
         return True
@@ -98,7 +143,7 @@ class RoomStore:
             self._rooms.pop(room.id, None)
 
     def _expired(self, room: Room) -> bool:
-        lifetime = IDLE_ROOM_LIFETIME if room.guest else UNJOINED_ROOM_LIFETIME
+        lifetime = IDLE_ROOM_LIFETIME if room.guests else UNJOINED_ROOM_LIFETIME
         return not room.devices and _now() - room.idle_since > lifetime
 
     def _drop_expired(self) -> None:

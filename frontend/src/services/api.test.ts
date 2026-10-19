@@ -152,10 +152,11 @@ describe('frontend API calls', () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       room_id: 'r1',
       host: { id: 'A', name: 'Person 1', preferred_language: 'te' },
-      guest: null,
+      guests: [],
+      max_people: 6,
     }), { status: 200 }));
 
-    await expect(getRoom('r1', 'secret')).resolves.toMatchObject({ room_id: 'r1', guest: null });
+    await expect(getRoom('r1', 'secret')).resolves.toMatchObject({ room_id: 'r1', guests: [], max_people: 6 });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('http://localhost:8000/api/rooms/r1');
     expect(new Headers(init!.headers).get('X-Room-Token')).toBe('secret');
@@ -165,19 +166,33 @@ describe('frontend API calls', () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       room_id: 'r1',
       host: { id: 'A', name: 'Person 1', preferred_language: 'te' },
-      guest: { id: 'B', name: 'Person 2', preferred_language: 'en' },
+      guests: [{ id: 'B', name: 'Person 2', preferred_language: 'en' }, { id: 'C', name: 'Mei', preferred_language: 'zh' }],
+      max_people: 6,
       token: 'device',
+      you: 'C',
     }), { status: 200 }));
 
-    const joined = await joinRoom('r1', 'invite', { name: 'Person 2', preferred_language: 'en' });
+    const joined = await joinRoom('r1', 'invite', { name: 'Mei', preferred_language: 'zh' });
 
+    expect(joined.you).toBe('C');
     expect(joined.token).toBe('device');
-    expect(joined.room.guest?.id).toBe('B');
+    expect(joined.room.guests.map((person) => person.id)).toEqual(['B', 'C']);
     expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({
       consent: true,
       token: 'invite',
-      guest: { name: 'Person 2', preferred_language: 'en' },
+      guest: { name: 'Mei', preferred_language: 'zh' },
     });
+  });
+
+  it('refuses a room answer that names the host as a guest', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      room_id: 'r1',
+      host: { id: 'A', name: 'Person 1', preferred_language: 'te' },
+      guests: [{ id: 'A', name: 'Twin', preferred_language: 'te' }],
+      max_people: 6,
+    }), { status: 200 }));
+
+    await expect(getRoom('r1', 'secret')).rejects.toThrow('invalid conversation');
   });
 
   it('loads the natural voices the backend finds live', async () => {
@@ -200,7 +215,7 @@ describe('frontend API calls', () => {
   });
 
   it('starts a two-device conversation and keeps the public link and any problem', async () => {
-    const created = { room_id: 'r1', host: { id: 'A', name: 'Person 1', preferred_language: 'te' }, guest: null, host_token: 'h', guest_token: 'g' };
+    const created = { room_id: 'r1', host: { id: 'A', name: 'Person 1', preferred_language: 'te' }, guests: [], max_people: 6, host_token: 'h', invite_token: 'g' };
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...created, public_url: 'https://fast-cloud.trycloudflare.com', public_url_problem: null }), { status: 201 }));
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...created, public_url: null, public_url_problem: 'No public link: cloudflared is not installed.' }), { status: 201 }));
 

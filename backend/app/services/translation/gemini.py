@@ -104,11 +104,18 @@ def _instructions(target_languages: list[str]) -> str:
     )
 
 
-def _request(target_languages: list[str], context: Sequence[str]) -> str:
+def _request(
+    target_languages: list[str], context: Sequence[str], speaker_language: str | None
+) -> str:
     request = (
         "Transcribe this utterance and translate it into the languages with"
         f" ISO 639 codes {', '.join(target_languages)}."
     )
+    if speaker_language:
+        request += (
+            f" The speaker chose the language with ISO 639 code {speaker_language}: they most"
+            " likely speak it, though they may switch to another language."
+        )
     earlier = "\n".join(f"- {sentence}" for sentence in context if sentence.strip())
     if not earlier:
         return request
@@ -153,11 +160,12 @@ class GeminiSpeechTranslator:
         target_languages: list[str],
         *,
         context: Sequence[str] = (),
+        speaker_language: str | None = None,
     ) -> SpeechTranslation:
         text = await self._generate(
             audio,
             mime_type,
-            _request(target_languages, context),
+            _request(target_languages, context, speaker_language),
             _instructions(target_languages),
             _Answer,
         )

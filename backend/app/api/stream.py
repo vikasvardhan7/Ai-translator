@@ -20,7 +20,7 @@ from app.models.protocol import ErrorCode
 from app.services.audio_ingestion.segment import AudioSegment
 from app.services.audio_ingestion.speech_detector import FrameRejected, SpeechDetector
 from app.services.audio_ingestion.wav import encode_wav
-from app.services.room_store import Room, RoomStore
+from app.services.room_store import HOST_ID, Room, RoomStore
 from app.services.session_store import Device, Session, SessionStore
 from app.services.translation.base import NothingRecognised, SpeechTranslator, TranslationFailed
 from app.services.voice.base import SpeechSynthesizer, VoiceFailed
@@ -46,7 +46,6 @@ CLOSE_ORIGIN_NOT_ALLOWED = 4403
 CLOSE_FORBIDDEN = 4401
 CLOSE_QUIET = 4408
 CLOSE_UNKNOWN_SESSION = 4404
-CLOSE_NOT_JOINED = 4409
 CLOSE_REPLACED = 4410
 
 BROADCAST_TYPES = frozenset(
@@ -594,11 +593,16 @@ class StreamHandler:
 
         participants = [p.model_copy() for p in self._session.participants]
         targets = list(dict.fromkeys(p.preferred_language for p in participants))
+        speaker = next((p for p in participants if p.id == segment.speaker_id), None)
         ended_at = self._ended_at.get(segment.utterance_id, _now())
         started = _now()
         try:
             result = await self._translator.translate_speech(
-                encode_wav(segment.pcm), "audio/wav", targets, context=list(self._recent_sentences)
+                encode_wav(segment.pcm),
+                "audio/wav",
+                targets,
+                context=list(self._recent_sentences),
+                speaker_language=speaker.preferred_language if speaker else None,
             )
         except NothingRecognised:
             await self._sender.send("utterance.ignored", utterance_id=segment.utterance_id)
@@ -832,6 +836,12 @@ def tell_others(room: Room, participant_id: str, message_type: str) -> None:
             device.post(message_type, participant_id=participant_id)
 
 
+def announce_people(room: Room) -> None:
+    participants = [p.model_dump() for p in room.conversation.participants]
+    for device in list(room.devices.values()):
+        device.post("participants.updated", participants=participants)
+
+
 async def handle_room_stream(
     websocket: WebSocket,
     rooms: RoomStore,
@@ -857,14 +867,6 @@ async def handle_room_stream(
     if participant_id is None:
         await websocket.close(code=CLOSE_FORBIDDEN)
         return
-    if room.guest is None:
-        await _refuse(
-            websocket,
-            ErrorCode.NOT_JOINED,
-            "The other person has not joined yet.",
-            CLOSE_NOT_JOINED,
-        )
-        return
 
     device = StreamSender(websocket)
     if (replaced := rooms.connect(room, participant_id, device)) is not None:
@@ -880,4 +882,6 @@ async def handle_room_stream(
     finally:
         if rooms.disconnect(room, participant_id, device, ended=handler.ended):
             tell_others(room, participant_id, "peer.left" if handler.ended else "peer.disconnected")
+            if handler.ended and participant_id != HOST_ID:
+                announce_people(room)
         await device.stop_posting()

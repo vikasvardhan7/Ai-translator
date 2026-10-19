@@ -2,7 +2,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.models.session import Participant, Person
+from app.models.session import Participant, ParticipantId, Person
 
 
 class Consented(BaseModel):
@@ -29,15 +29,17 @@ class RoomJoin(Consented):
 class RoomOut(BaseModel):
     room_id: str
     host: Participant
-    guest: Participant | None
+    guests: list[Participant]
+    max_people: int
 
 
 class RoomCreated(RoomOut):
     host_token: str
-    guest_token: str
+    invite_token: str
     public_url: str | None
     public_url_problem: str | None
 
 
 class RoomJoined(RoomOut):
     token: str
+    you: ParticipantId

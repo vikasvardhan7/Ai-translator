@@ -4,7 +4,7 @@ import { history, MAX_HISTORY, note, possibleActions, runActions } from './agent
 import { blocks, inline } from './markdown';
 
 function handlers() {
-  return { open: vi.fn(), close: vi.fn(), start: vi.fn() };
+  return { open: vi.fn(), close: vi.fn(), start: vi.fn(), theme: vi.fn() };
 }
 
 describe('assistant actions', () => {
@@ -18,16 +18,20 @@ describe('assistant actions', () => {
       { name: 'end_conversation', arguments: {} },
       { name: 'open_app', arguments: { app: 'files' } },
       { name: 'start_conversation', arguments: { where: 'meeting' } },
+      { name: 'set_theme', arguments: { theme: 'sunset' } },
+      { name: 'set_theme', arguments: { theme: 'neon' } },
     ], desktop, call);
 
     expect(desktop.open).toHaveBeenCalledWith('help');
     expect(call.run).toHaveBeenCalledWith('mute', {});
     expect(call.run).toHaveBeenCalledTimes(1);
     expect(desktop.start).toHaveBeenCalledWith('meeting');
+    expect(desktop.theme).toHaveBeenCalledExactlyOnceWith('sunset');
     expect(done).toEqual([
       'Opened Help',
       'Muted your microphone',
       "Ready to start meeting captions: press I agree, let's start",
+      'Changed the look to Sunset',
     ]);
   });
 
@@ -39,8 +43,8 @@ describe('assistant actions', () => {
 
   it('offers starting a conversation only when none is running', () => {
     const call = { available: ['mute' as const], run: vi.fn() };
-    expect(possibleActions(false, null)).toEqual(['open_app', 'close_app', 'start_conversation']);
-    expect(possibleActions(true, call)).toEqual(['open_app', 'close_app', 'mute']);
+    expect(possibleActions(false, null)).toEqual(['open_app', 'close_app', 'start_conversation', 'set_theme']);
+    expect(possibleActions(true, call)).toEqual(['open_app', 'close_app', 'set_theme', 'mute']);
   });
 
   it('sends only the latest trimmed chat turns', () => {

@@ -35,9 +35,9 @@ app can ask for the key only when it is needed.
 | `POST /api/assistant` | live | Answer a question about the conversation so far (host key or invite); see below |
 | `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
-| `POST /api/rooms` | live | Start a conversation across two devices; returns the room id and two tokens (host key) |
+| `POST /api/rooms` | live | Start a call that up to 6 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
 | `GET /api/rooms/{room_id}` | live | See who is in a room (token in the `X-Room-Token` header) |
-| `DELETE /api/rooms/{room_id}` | live | End a room from outside its live channel: the host cancels an invite, or a person whose connection is gone leaves (own token in `X-Room-Token`); the other device gets `peer.left`. `204`, `403` wrong token, `404` |
+| `DELETE /api/rooms/{room_id}` | live | Leave a room from outside its live channel (own token in `X-Room-Token`): the host ends it for everyone, a guest leaves alone; the others get `peer.left`. `204`, `403` wrong token, `404` |
 | `POST /api/rooms/{room_id}/join` | live | The invited person joins with the guest token |
 | `WS /api/rooms/{room_id}/stream?token=` | live | One device's live channel in a two-device conversation |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
@@ -74,12 +74,13 @@ language, the transcript it shows and the commands possible right now; the serve
 - `200` gives `{"answer": "...", "actions": [{"name": "mute", "arguments": {}}], "sources":
   [{"title": "...", "url": "https://..."}]}`. `answer` may be empty when only actions were taken.
   Every action is checked on the server: only names that were offered, with allowed arguments.
-- Commands: `open_app` and `close_app` (`app`: `translator`, `assistant`, `help`, `privacy`,
-  `terms`), `start_conversation` (`where`: `here`, `remote`, `meeting`; the person still presses
+- Commands: `open_app` and `close_app` (`app`: `translator`, `assistant`, `personalize`, `help`,
+  `privacy`, `terms`), `start_conversation` (`where`: `here`, `remote`, `meeting`; the person still presses
   the start button and says hello), `mute`, `unmute`, `voice_on`, `captions_only`,
   `connect_meeting_sound` (the person then presses Connect meeting, because the browser asks for
   the tab only after a click), `disconnect_meeting_sound`, `show_transcript`, `hide_transcript`,
-  `open_settings`, `download_transcript` (`format`: `text` or `subtitles`), `set_my_language`
+  `open_settings`, `show_people` (in a room: who is there and the invite link), `set_theme`
+  (`theme`: `ocean`, `sunset`, `mint`, `blossom`, `aurora`), `download_transcript` (`format`: `text` or `subtitles`), `set_my_language`
   (`language`: an ISO 639 code) and `end_conversation`.
 - One Gemini request decides between answering, taking actions and searching. A question that
   needs the web gets a second request with Google Search grounding, and its web sources come back
@@ -150,52 +151,58 @@ Rules (otherwise `422` with a readable `detail`):
 
 Sessions are held in memory only. A session leaves memory when its live channel ends with `session.stop`, or 10 minutes after it was created or its channel dropped without a device coming back. At most 100 sessions can wait for a device at once; beyond that `POST /api/sessions` returns `503` with a readable `detail`.
 
-### Conversations across two devices (rooms)
+### Calls across devices (rooms, up to 6 people)
 
-Person A starts a room and shares an invite link (`<public address>/#join/<room_id>/<guest_token>`).
-Person B opens it on their own phone or computer. `public_url` is the address the link must use:
-`PUBLIC_URL` from `backend/.env` when set; otherwise, when the request came through a tunnel or
-proxy, the address the page was opened from; otherwise, from a page on this computer, the backend
-starts `cloudflared tunnel --url http://localhost:<port>` itself (once, kept for as long as the
-backend runs; `CLOUDFLARED_PATH` names the program when it is not on the PATH or where winget puts
-it) and answers with the `https://...trycloudflare.com` address it printed, waiting up to 25 s for
-it. When there is no public address, `public_url` is `null` and `public_url_problem` says why in
-one sentence (cloudflared not installed, the frontend not built so the backend cannot serve the
-app, or the tunnel did not start); the link then only works on this computer. Each device then opens its own live channel with
-its own token, sends only its own microphone, and hears only the translations meant for it.
-The invite link works once: joining returns a new token for the guest's device and the invite
-token stops working, so a forwarded link cannot be used to listen in. Rooms live in memory only: a
-room nobody joined expires after 10 minutes, a joined room with no device connected after 30, and a
-room ends when either person leaves (`session.stop`) or the host cancels the invite; it is removed
-as soon as no device is connected to it. A device whose connection drops may come back with the
-same token for as long as the room lasts. At most 100 rooms can wait at once.
+The host (participant `A`) starts a room and shares one invite link
+(`<public address>/#join/<room_id>/<invite_token>`). Up to five more people open it on their own
+phone or computer; each gets the next free id, `B` to `F`, in the order they join. `public_url` is
+the address the link must use: `PUBLIC_URL` from `backend/.env` when set; otherwise, when the
+request came through a tunnel or proxy, the address the page was opened from; otherwise, from a
+page on this computer, the backend starts `cloudflared tunnel --url http://localhost:<port>`
+itself (once, kept for as long as the backend runs; `CLOUDFLARED_PATH` names the program when it
+is not on the PATH or where winget puts it) and answers with the `https://...trycloudflare.com`
+address it printed, waiting up to 25 s for it. When there is no public address, `public_url` is
+`null` and `public_url_problem` says why in one sentence (cloudflared not installed, the frontend
+not built so the backend cannot serve the app, or the tunnel did not start); the link then only
+works on this computer.
+
+The host goes into the call at once and waits there; people join while it runs. Each device opens
+its own live channel with its own token, sends only its own microphone, and hears only the
+translations meant for it. The invite token is for joining only: it never opens a live channel,
+and joining returns the device's own token. A guest who leaves (`session.stop` or `DELETE`) is
+gone for good: their place is not given to anyone else, so names in the transcript stay right.
+The call ends for everyone when the host leaves. Rooms live in memory only: a room nobody joined
+expires after 10 minutes, a joined room with no device connected after 30, and an ended room is
+removed as soon as no device is connected to it. A device whose connection drops may come back
+with the same token for as long as the room lasts. At most 100 rooms can wait at once.
 
 | Request | Body | Answers |
 | --- | --- | --- |
-| `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, guest_token, host, guest: null, public_url, public_url_problem}`; `422` bad body; `503` too many waiting rooms |
-| `GET /api/rooms/{room_id}` with header `X-Room-Token` | none | `200` `{room_id, host, guest}` (`guest` is `null` until someone joins); `403` wrong token; `404` unknown or expired |
-| `DELETE /api/rooms/{room_id}` with header `X-Room-Token` | none | `204` the room ends (an invite is cancelled, or this person leaves without a live channel) and any connected device gets `peer.left`; `403` wrong token; `404` |
-| `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": guest_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token`, the guest device's own token (the guest is participant `B`); `403` not the invite token; `404`; `409` someone already joined; `422` bad body |
+| `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, invite_token, host, guests: [], max_people: 6, public_url, public_url_problem}`; `422` bad body; `503` too many waiting rooms |
+| `GET /api/rooms/{room_id}` with header `X-Room-Token` | none | `200` `{room_id, host, guests, max_people}` for the host, a guest or the invite token; `403` wrong token; `404` unknown or expired |
+| `DELETE /api/rooms/{room_id}` with header `X-Room-Token` | none | `204`. With the host token the room ends and every connected device gets `peer.left` for `A`. With a guest's token that guest leaves; the others get `peer.left` and `participants.updated`. `403` wrong token; `404` |
+| `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": invite_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token` (this device's own) and `you` (its id, `B` to `F`); every connected device gets `participants.updated`. `403` not the invite token; `404` unknown or ended; `409` full (6 people) or no places left; `422` bad body |
 
 `WS /api/rooms/{room_id}/stream?token=` works like the session stream, with these differences:
 
-- Before the guest has joined it sends a `not_joined` error and closes with `4409`. A wrong or used
-  token closes with `4401`; an ended room gets `unknown_session` and `4404`. When a token's device
-  connects while an older connection with the same token is still open, the new one takes over and
-  the old one is closed with `4410`, so a page that lost its network can come straight back. The
-  token is part of the address, so share the app only over https (the tunnel does); the backend
-  hides tokens and session ids in its own request log.
-- `session.ready` has `mode: "remote"`, `you` (`A` or `B`, the person on this device) and
-  `connected`, the ids of the devices connected right now.
-- Audio frames are plain PCM (no source tag). Whatever this device hears is this person speaking;
-  the translation, and its voice, are made for the other person.
-- Both devices get `utterance.received`, `transcript.final`, `translation.final`,
-  `utterance.ignored`, `speech.activity` and sentence errors. `tts.audio` and `voice_unavailable`
-  go only to the listener's device. Everything else (`session.ready`, `pong`, other errors) goes
-  only to the device it concerns.
+- A wrong, used or empty token closes with `4401`; an ended room gets `unknown_session` and
+  `4404`. When a token's device connects while an older connection with the same token is still
+  open, the new one takes over and the old one is closed with `4410`, so a page that lost its
+  network can come straight back. The token is part of the address, so share the app only over
+  https (the tunnel does); the backend hides tokens and session ids in its own request log.
+- `session.ready` has `mode: "remote"`, `you` (the person on this device) and `connected`, the ids
+  of the devices connected right now.
+- Audio frames are plain PCM (no source tag). Whatever this device hears is this person speaking.
+  Each sentence is translated once into every language in the call and sent with the speaker's
+  own chosen language as a hint, so it is recognised well; each other person gets the
+  translation, and its voice, in their own language.
+- Every device gets `utterance.received`, `transcript.final`, `translation.final` (one per
+  listener), `utterance.ignored`, `speech.activity` and sentence errors. `tts.audio` and
+  `voice_unavailable` go only to the listener's device. Everything else (`session.ready`, `pong`,
+  other errors) goes only to the device it concerns.
 - `voice.settings` sets whether, and in which voice, the server makes voices for this device's own person.
-- `language.set` changes this device's person's language; both devices get `participants.updated`.
-- When one device leaves with `session.stop`, the other gets `{"type": "peer.left", "participant_id": "A" | "B"}` and the room ends. When a device's connection drops or goes quiet, the other gets `peer.disconnected`, and `peer.connected` when it is back (or when it connects for the first time), with the same field.
+- `language.set` changes this device's person's language; every device gets `participants.updated`.
+- When someone leaves with `session.stop`, the others get `{"type": "peer.left", "participant_id": "B"}`; for a guest they also get `participants.updated`, and for the host (`A`) the call has ended. When a device's connection drops or goes quiet, the others get `peer.disconnected`, and `peer.connected` when it is back (or when it connects for the first time), with the same field.
 
 When the backend serves the built frontend (`frontend/dist`, at `/`), the app and the API share one
 address, so a free tunnel such as `cloudflared tunnel --url http://localhost:8000` gives both
@@ -230,7 +237,6 @@ Close codes:
 | `4403` | The browser page's origin is neither the configured frontend address (`FRONTEND_ORIGIN`) nor the backend's own address (`localhost`, or the address a tunnel or proxy forwards to). To open the app from another address, such as a LAN address, set `FRONTEND_ORIGIN` to it. Connections that send no `Origin` header (not from a browser) are allowed |
 | `4404` | Unknown or ended session or room (an `unknown_session` error is sent first) |
 | `4408` | Nothing was received for 45 s; reconnect |
-| `4409` | The invited person has not joined yet (`not_joined` is sent first) |
 | `4410` | A newer connection with the same session or token took over |
 | `1011` | Unexpected failure of the live channel itself (an `internal_error` with `utterance_id: null` is sent first) |
 
@@ -241,8 +247,8 @@ Close codes:
 | binary audio frame | live | raw audio (section 4) | Microphone audio, sent continuously while listening |
 | `audio.pause` | live | `participant_id` (optional, meetings only) | The browser stopped sending audio (for example while a translation is being spoken). Any sentence in progress ends now; in a meeting, only that source's sentence when `participant_id` is given (`A` or `B`; anything else gets `invalid_message`; absent or `null` ends both) |
 | `voice.settings` | live | `listener_id` (a participant id), `server_voice` (`true` or `false`), `voice` (optional: a voice `id` from `GET /api/voices`, or `null` for automatic) | Whether the server should make voices for this listener, and in which voice. Send `false` when that person chose the browser's own voice or turned their voice off; the server then sends no `tts.audio` for them. Leaving `voice` out keeps the earlier choice. Every listener starts at `true` and automatic, except in a meeting, where voices are off until asked for. A bad listener, a value that is not a boolean, or a voice that is not 1 to 64 letters, digits, `_` or `-` gets `invalid_message` |
-| `language.set` | live | `participant_id` (a participant id; ignored across two devices, where it is always this device's person), `language` | Change that person's language during the conversation. The next sentence is translated into it, and every device gets `participants.updated`. A bad code or a missing person gets `invalid_message`. Both people may choose the same language; then nothing is translated between them |
-| `voice.played` | live | `utterance_id`, `listener_id` (ignored across two devices, where it is always this device's person), `seconds` (0 to 120) | A voice for that translation (the server's or the browser's own) just finished playing on this device after `seconds` of playback. The server uses it to recognise its own voice coming back through the microphone (section 5). Missing fields or bad `seconds` get `invalid_message`; a translation the server no longer remembers (it keeps the last 40) is ignored quietly |
+| `language.set` | live | `participant_id` (a participant id; ignored in a room, where it is always this device's person), `language` | Change that person's language during the conversation. The next sentence is translated into it, and every device gets `participants.updated`. A bad code or a missing person gets `invalid_message`. Both people may choose the same language; then nothing is translated between them |
+| `voice.played` | live | `utterance_id`, `listener_id` (ignored in a room, where it is always this device's person), `seconds` (0 to 120) | A voice for that translation (the server's or the browser's own) just finished playing on this device after `seconds` of playback. The server uses it to recognise its own voice coming back through the microphone (section 5). Missing fields or bad `seconds` get `invalid_message`; a translation the server no longer remembers (it keeps the last 40) is ignored quietly |
 | `ping` | live | none | Keep-alive; answered with `pong`. Send one every 5 s |
 | `session.stop` | live | none | End the conversation. A sentence in progress is ended and translated; sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
 
@@ -273,8 +279,8 @@ All include `type` and `seq`.
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
-| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode`; across two devices also `you`, `connected` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
-| `peer.connected`, `peer.disconnected`, `peer.left` | live | `participant_id` | Across two devices: the other device connected, dropped, or ended the conversation |
+| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode`; in a room also `you`, `connected` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
+| `peer.connected`, `peer.disconnected`, `peer.left` | live | `participant_id` | In a room: that person's device connected, dropped, or left (the host leaving ends the call) |
 | `pong` | live | none | Answer to `ping` |
 | `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`); `voice_unavailable` also has `listener_id` | Show `message` to the user |
 | `utterance.received` | live | `utterance_id`, `speaker_id` (`A`, `B`, or `null` until known), `duration_ms` | The server heard a sentence and is processing it. `utterance_id` is made by the server. In a meeting `speaker_id` is already known from the audio source |
@@ -350,7 +356,6 @@ Show `text` fields as plain text, never as HTML: they contain whatever the speak
 | --- | --- | --- | --- |
 | `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, too large, malformed audio frame |
 | `unknown_session` | live | no | The session or room does not exist, has expired or has ended (then close 4404) |
-| `not_joined` | live | no | The invited person has not joined this room yet (then close 4409) |
 | `provider_unavailable` | live | depends | Retryable: speech service unreachable, slow, erroring, returned an unreadable answer or did not translate the sentence, or 5 sentences are already waiting behind the one being translated. Not retryable: no key or model set up, key or model rejected, audio could not be processed, or the service refused the sentence |
 | `quota_exceeded` | live | yes, later | Free-tier limit reached; try again after a minute |
 | `voice_unavailable` | live | no | The server could not make the voice for this translation (free voice limit, service unreachable, too many waiting); use the browser voice or captions only |

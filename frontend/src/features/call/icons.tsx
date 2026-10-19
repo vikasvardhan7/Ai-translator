@@ -1,5 +1,5 @@
 interface IconProps {
-  name: 'mic' | 'mic-off' | 'voice' | 'voice-off' | 'meeting' | 'settings' | 'transcript' | 'assistant' | 'end';
+  name: 'mic' | 'mic-off' | 'voice' | 'voice-off' | 'meeting' | 'settings' | 'transcript' | 'assistant' | 'people' | 'end';
 }
 
 const PATHS: Record<IconProps['name'], string> = {
@@ -11,6 +11,7 @@ const PATHS: Record<IconProps['name'], string> = {
   settings: 'M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7 7 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7 7 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7 7 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7 7 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z',
   transcript: 'M4 5h16v2H4zm0 4h16v2H4zm0 4h10v2H4zm0 4h10v2H4z',
   assistant: 'M4 4h16v12H7.2L4 19.2zm2 2v8.4l.4-.4H18V6zm2 3h8v2H8z',
+  people: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM9 13c-3 0-6 1.5-6 4v2h12v-2c0-2.5-3-4-6-4zm7 0c-.6 0-1.2.1-1.8.2 1.1.9 1.8 2.1 1.8 3.8v2h5v-2c0-2.4-2.6-4-5-4z',
   end: 'M12 9c-1.6 0-3.2.3-4.6.7v3.1c0 .4-.2.7-.6.9-1 .5-1.8 1.1-2.6 1.8-.2.2-.4.3-.7.3s-.5-.1-.7-.3L.3 13c-.2-.2-.3-.4-.3-.7s.1-.5.3-.7A16.9 16.9 0 0 1 12 7c4.5 0 8.6 1.8 11.7 4.6.2.2.3.4.3.7s-.1.5-.3.7l-2.5 2.5c-.2.2-.4.3-.7.3s-.5-.1-.7-.3c-.8-.7-1.7-1.3-2.6-1.8-.3-.2-.6-.5-.6-.9V9.7C15.2 9.3 13.6 9 12 9z',
 };
 

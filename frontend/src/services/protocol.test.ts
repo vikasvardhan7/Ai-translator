@@ -22,7 +22,7 @@ describe('parseServerMessage', () => {
     })).toMatchObject({ type: 'session.ready', server_voice: true, mode: 'together', connected: null });
   });
 
-  it('reads a conversation across two devices and the other person leaving', () => {
+  it('reads a call across devices and people coming and going', () => {
     expect(parse({
       type: 'session.ready',
       session_id: 'room-1',
@@ -37,7 +37,8 @@ describe('parseServerMessage', () => {
     })).toMatchObject({ mode: 'remote', connected: ['B'] });
     for (const type of ['peer.connected', 'peer.disconnected', 'peer.left']) {
       expect(parse({ type, participant_id: 'A' })).toEqual({ type, seq: 1, participant_id: 'A' });
-      expect(parse({ type, participant_id: 'C' })).toBeNull();
+      expect(parse({ type, participant_id: 'F' })).toEqual({ type, seq: 1, participant_id: 'F' });
+      expect(parse({ type, participant_id: 'G' })).toBeNull();
     }
     expect(parse({
       type: 'participants.updated',
