@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, askAssistant, cancelMeeting, createRoom, getMeeting, joinMeeting, listMeetings, scheduleMeeting, startMeeting, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
+import { setRequestApiKey } from './apiKey';
+import { ApiError, askAssistant, cancelMeeting, createKey, createRoom, listKeys, revokeKey, getMeeting, joinMeeting, listMeetings, scheduleMeeting, startMeeting, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -335,5 +336,53 @@ describe('frontend API calls', () => {
     expect(headers.get('X-Meeting-Token')).toBe('secret');
     expect(headers.get('X-Meeting-Id')).toBe('m1');
     expect(headers.get('X-Room-Id')).toBeNull();
+  });
+
+  it('sends the app key instead of the host key inside an embedded app', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'K7QM-4XPA-2JRT', setItem: () => undefined });
+    setRequestApiKey('vt_embedded');
+    fetchMock.mockResolvedValueOnce(new Response('{"host":true}', { status: 200 }));
+
+    try {
+      await isHost();
+    } finally {
+      setRequestApiKey('');
+    }
+
+    const headers = new Headers(fetchMock.mock.calls[0]![1]!.headers);
+    expect([headers.get('X-Api-Key'), headers.get('X-Host-Key')]).toEqual(['vt_embedded', null]);
+  });
+
+  it('lists, creates and revokes keys for other apps', async () => {
+    const key = {
+      id: 'k1',
+      name: 'Shop',
+      shown: 'vt_AbCdEfG',
+      daily_limit: 1000,
+      used_today: 3,
+      created_at: '2026-10-20T09:00:00Z',
+      last_used_at: null,
+    };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ keys: [key], public_url: 'https://a.example', public_url_problem: null }), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ key, secret: 'vt_secret' }), { status: 201 }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await expect(listKeys()).resolves.toEqual({ keys: [key], public_url: 'https://a.example', public_url_problem: null });
+    await expect(createKey('Shop', 1000)).resolves.toEqual({ key, secret: 'vt_secret' });
+    await expect(revokeKey('k1')).resolves.toBeUndefined();
+
+    const calls = fetchMock.mock.calls;
+    expect(calls.map(([url, init]) => [url, init?.method ?? 'GET'])).toEqual([
+      ['http://localhost:8000/api/keys', 'GET'],
+      ['http://localhost:8000/api/keys', 'POST'],
+      ['http://localhost:8000/api/keys/k1', 'DELETE'],
+    ]);
+    expect(JSON.parse(String(calls[1]![1]!.body))).toEqual({ name: 'Shop', daily_limit: 1000 });
+  });
+
+  it('refuses a key list it cannot read', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"keys":[{"id":1}]}', { status: 200 }));
+
+    await expect(listKeys()).rejects.toThrow('invalid key');
   });
 });

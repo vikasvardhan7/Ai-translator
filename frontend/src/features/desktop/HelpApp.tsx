@@ -7,6 +7,7 @@ const ITEMS: Array<{ icon: IconName; title: string; text: string }> = [
   { icon: 'meeting', title: 'Live captions', text: 'For a Zoom, Teams or Meet call you are already in: press Connect meeting and share the call’s tab with its audio. You get captions and a transcript in your language.' },
   { icon: 'here', title: 'Talk here', text: 'Two people, one device. Each says hello once; after that just talk.' },
   { icon: 'assistant', title: 'Assistant', text: 'Ask anything. It searches the web when it needs to, knows what has been said in the running call, and does things for you.' },
+  { icon: 'developers', title: 'Developers', text: 'Use the translator from your own website or app. Make an API key, paste the one-line widget into a web page, or call the API from a server. Each key has its own daily limit and can be switched off at any time.' },
   { icon: 'personalize', title: 'Personalize', text: 'Five looks with their own live wallpapers: Ocean, Sunset, Mint, Blossom and Aurora night. Calm motion keeps everything still.' },
   { icon: 'privacy', title: 'Privacy and Terms', text: 'What is sent to Google and what is kept (nothing).' },
 ];

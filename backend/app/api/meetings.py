@@ -8,7 +8,7 @@ from app.api.dependencies import (
     get_meeting_store,
     get_public_address,
     get_room_store,
-    require_host,
+    require_owner,
 )
 from app.api.links import public_link
 from app.api.rooms import created, join_as_guest
@@ -89,7 +89,7 @@ def _find(meetings: MeetingStore, meeting_id: str, token: str, *, host: bool) ->
     "",
     response_model=MeetingCreated,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_host)],
+    dependencies=[Depends(require_owner)],
 )
 async def schedule(
     body: MeetingCreate, request: Request, meetings: Meetings, settings: AppSettings, public: Public
@@ -109,7 +109,7 @@ async def schedule(
     )
 
 
-@router.get("", response_model=MeetingList, dependencies=[Depends(require_host)])
+@router.get("", response_model=MeetingList, dependencies=[Depends(require_owner)])
 async def upcoming(
     request: Request, meetings: Meetings, rooms: Rooms, settings: AppSettings, public: Public
 ) -> MeetingList:

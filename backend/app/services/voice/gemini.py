@@ -8,7 +8,7 @@ from google import genai
 from google.genai import errors, types
 
 from app.services.audio_ingestion.wav import encode_wav
-from app.services.retry import with_one_retry
+from app.services.retry import with_retries
 from app.services.voice.base import VoiceFailed, VoiceOption
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class GeminiSpeechSynthesizer:
             response_modalities=["AUDIO"], speech_config=_speech_config(voice)
         )
         try:
-            response = await with_one_retry(
+            response = await with_retries(
                 lambda: self._client.aio.models.generate_content(
                     model=self._model, contents=text, config=config
                 )

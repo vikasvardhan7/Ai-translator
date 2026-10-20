@@ -13,6 +13,7 @@ export const APP_NAMES: Record<AppId, string> = {
   translator: 'Translator',
   meetings: 'Meetings',
   assistant: 'Assistant',
+  developers: 'Developers',
   personalize: 'Personalize',
   help: 'Help',
   privacy: 'Privacy',

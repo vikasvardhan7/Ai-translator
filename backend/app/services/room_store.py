@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.core.text import CONTEXT_SENTENCES, MAX_REMEMBERED, PlayedVoice
 from app.models.session import Participant, ParticipantId, Person
+from app.services.limits import Budget
 from app.services.session_store import Device, Session
 
 IDLE_ROOM_LIFETIME = timedelta(minutes=30)
@@ -81,13 +82,14 @@ class RoomStore:
     def __init__(self) -> None:
         self._rooms: dict[str, Room] = {}
 
-    def create(self, host: Person) -> Room:
+    def create(self, host: Person, budget: Budget | None = None) -> Room:
         self._drop_expired()
         if sum(not room.devices for room in self._rooms.values()) >= MAX_WAITING_ROOMS:
             raise RoomLimitReached
         room_id = str(uuid.uuid4())
         participant = Participant(id=HOST_ID, **host.model_dump())
-        room = Room(id=room_id, conversation=Session(room_id, [participant], "remote"))
+        conversation = Session(room_id, [participant], "remote", budget=budget)
+        room = Room(id=room_id, conversation=conversation)
         self._rooms[room.id] = room
         return room
 

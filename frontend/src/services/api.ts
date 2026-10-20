@@ -1,4 +1,5 @@
 import { getBackendUrl } from '../config';
+import { requestApiKey } from './apiKey';
 import { savedHostKey } from './hostKey';
 import {
   isParticipant,
@@ -63,7 +64,10 @@ function accessHeaders(access: RoomAccess | MeetingAccess | undefined): Record<s
 
 async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = savedHostKey()): Promise<T> {
   const headers = new Headers(init.headers);
-  if (hostKey && !headers.has('X-Host-Key')) {
+  const apiKey = requestApiKey();
+  if (apiKey) {
+    headers.set('X-Api-Key', apiKey);
+  } else if (hostKey && !headers.has('X-Host-Key')) {
     headers.set('X-Host-Key', hostKey);
   }
   const response = await fetch(`${getBackendUrl()}${path}`, { ...init, headers });
@@ -471,4 +475,61 @@ export async function joinMeeting(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ consent: true, token: access.token, guest }),
   }));
+}
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  shown: string;
+  daily_limit: number;
+  used_today: number;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+function readKey(value: unknown): ApiKeyInfo {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.shown !== 'string' ||
+    typeof value.daily_limit !== 'number' ||
+    typeof value.used_today !== 'number' ||
+    typeof value.created_at !== 'string'
+  ) {
+    throw new Error('The backend returned an invalid key.');
+  }
+  return {
+    id: value.id,
+    name: value.name,
+    shown: value.shown,
+    daily_limit: value.daily_limit,
+    used_today: value.used_today,
+    created_at: value.created_at,
+    last_used_at: textOrNull(value.last_used_at),
+  };
+}
+
+export async function listKeys(): Promise<{ keys: ApiKeyInfo[] } & PublicLink> {
+  const body = await requestJson<unknown>('/api/keys');
+  if (!isRecord(body) || !Array.isArray(body.keys)) {
+    throw new Error('The backend returned an invalid key list.');
+  }
+  return { keys: body.keys.map(readKey), ...readLink(body) };
+}
+
+export async function createKey(name: string, dailyLimit: number): Promise<{ key: ApiKeyInfo; secret: string }> {
+  const body = await requestJson<unknown>('/api/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, daily_limit: dailyLimit }),
+  });
+  if (!isRecord(body) || typeof body.secret !== 'string') {
+    throw new Error('The backend returned an invalid key.');
+  }
+  return { key: readKey(body.key), secret: body.secret };
+}
+
+export async function revokeKey(id: string): Promise<void> {
+  await requestJson<unknown>(`/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

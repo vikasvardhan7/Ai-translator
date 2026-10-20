@@ -30,7 +30,7 @@ async def translate(recorder: Recorder):
     ],
     ids=["busy-for-a-second", "busy-briefly", "busy", "server-problem", "offline"],
 )
-async def test_a_short_problem_is_tried_once_more(first, waited: list[float], waits) -> None:
+async def test_a_short_problem_is_tried_again(first, waited: list[float], waits) -> None:
     recorder = Recorder(first, answer())
 
     result = await translate(recorder)
@@ -57,16 +57,38 @@ async def test_a_long_or_lasting_problem_is_not_tried_again(response, code, wait
     assert (failed.value.code, len(recorder.requests), waits) == (code, 1, [])
 
 
-async def test_a_problem_that_lasts_fails_after_one_more_try(waits) -> None:
-    recorder = Recorder(error(500, "INTERNAL"), error(500, "INTERNAL"), answer())
+async def test_each_try_waits_longer_than_the_last(waits) -> None:
+    recorder = Recorder(*[error(500, "INTERNAL")] * 3, answer())
+
+    result = await translate(recorder)
+
+    assert result.text == "మీరు ఎలా ఉన్నారు?"
+    assert (len(recorder.requests), waits) == (4, [0.5, 1.0, 2.0])
+
+
+async def test_a_problem_that_lasts_fails_after_three_more_tries(waits) -> None:
+    recorder = Recorder(*[error(500, "INTERNAL")] * 4, answer())
 
     with pytest.raises(TranslationFailed):
         await translate(recorder)
 
-    assert (len(recorder.requests), waits) == (2, [0.5])
+    assert (len(recorder.requests), waits) == (4, [0.5, 1.0, 2.0])
 
 
-async def test_a_busy_voice_is_tried_once_more(waits) -> None:
+async def test_waiting_stops_once_the_total_would_be_too_long(waits) -> None:
+    recorder = Recorder(busy("7s"), busy("7s"), answer())
+
+    with pytest.raises(TranslationFailed) as failed:
+        await translate(recorder)
+
+    assert (failed.value.code, len(recorder.requests), waits) == (
+        ErrorCode.QUOTA_EXCEEDED,
+        2,
+        [7.0],
+    )
+
+
+async def test_a_busy_voice_is_tried_again(waits) -> None:
     pcm = b"\x01\x00" * 100
     recorder = Recorder(busy("1s"), audio(pcm, "audio/L16;codec=pcm;rate=24000"))
 

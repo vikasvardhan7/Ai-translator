@@ -27,6 +27,15 @@ on the last three, so
 joining needs no key. `GET /api/access` answers `{"host": true | false}` for the caller, so the
 app can ask for the key only when it is needed.
 
+Other apps use an API key instead (see [API.md](API.md)): an `X-Api-Key` header with a key made in
+the Developers app works like the host key for those five requests, from anywhere, and a wrong or
+revoked key answers `401` even from the backend's own computer. Each key may make 60 requests a
+minute and its own number a day; invited guests 20 a minute and 400 a day; the host has no limit.
+Every sentence translated in a conversation or call started with a key also counts against it.
+Past a limit the answer is `429` with a `Retry-After` header in seconds, and on the live channel a
+`quota_exceeded` error for that sentence. Keys and scheduled meetings are managed only by the host,
+never with a key.
+
 | Method and path | Status | Purpose |
 | --- | --- | --- |
 | `GET /health` | live | Backend is running: `{"status":"ok","version":"0.9.0"}` |
@@ -36,7 +45,10 @@ app can ask for the key only when it is needed.
 | `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
 | `POST /api/rooms` | live | Start a call that up to 6 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
-| `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list upcoming ones (host key); see "Scheduled meetings" |
+| `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list upcoming ones (host only); see "Scheduled meetings" |
+| `GET /api/keys` | live | The API keys (name, first characters, daily limit, used today, made, last used) and the public address other sites reach: `{"keys": [...], "public_url", "public_url_problem"}` (host only) |
+| `POST /api/keys` | live | Make a key: `{"name": "1 to 60 characters", "daily_limit": 10 to 100000}` (default 1000); answers `201` `{"key": {...}, "secret": "vt_..."}`, the only time the key itself is shown; `409` past 100 keys (host only) |
+| `DELETE /api/keys/{id}` | live | Revoke a key at once; `204`, `404` unknown (host only) |
 | `GET`/`DELETE /api/meetings/{id}`, `POST .../start`, `POST .../join` | live | Look at, cancel, start or join a scheduled meeting (token in `X-Meeting-Token` or the body) |
 | `GET /api/rooms/{room_id}` | live | See who is in a room (token in the `X-Room-Token` header) |
 | `DELETE /api/rooms/{room_id}` | live | Leave a room from outside its live channel (own token in `X-Room-Token`): the host ends it for everyone, a guest leaves alone; the others get `peer.left`. `204`, `403` wrong token, `404` |
@@ -44,9 +56,11 @@ app can ask for the key only when it is needed.
 | `WS /api/rooms/{room_id}/stream?token=` | live | One device's live channel in a two-device conversation |
 | `WS /api/sessions/{session_id}/stream` | live | Live channel: audio in, captions and events out |
 
-Every voice request to Gemini (speech, translation, voice) is tried once more after a short wait
-when Gemini is busy (`429` with a suggested wait of at most 2 s, or none), has a server problem
-or cannot be reached; a longer suggested wait, a bad request or a slow answer is not retried.
+Every voice request to Gemini (speech, translation, voice) is tried again up to three times when
+Gemini is busy (`429` with a suggested wait of at most 8 s, or none), has a server problem or
+cannot be reached. It waits the suggested time, or 0.5, 1 and then 2 s, and gives up once the waits
+would add up to more than 12 s; a longer suggested wait, a bad request or a slow answer is not
+retried.
 
 ### POST /api/assistant
 
@@ -92,7 +106,7 @@ language, the transcript it shows and the commands possible right now; the serve
   followed.
 - `503` with a `detail` when no `GEMINI_API_KEY` and model are set, the free limit is reached, or
   Gemini cannot be reached. The model is `GEMINI_ASSISTANT_MODEL`, or `GEMINI_MODEL` when that is
-  empty; each request is tried once more like the other Gemini requests.
+  empty; each request is tried again like the other Gemini requests.
 
 ### Language codes
 
@@ -385,7 +399,7 @@ Show `text` fields as plain text, never as HTML: they contain whatever the speak
 | `invalid_message` | live | no | Not valid JSON, not an object, missing or unknown `type`, too large, malformed audio frame |
 | `unknown_session` | live | no | The session or room does not exist, has expired or has ended (then close 4404) |
 | `provider_unavailable` | live | depends | Retryable: speech service unreachable, slow, erroring, returned an unreadable answer or did not translate the sentence, or 5 sentences are already waiting behind the one being translated. Not retryable: no key or model set up, key or model rejected, audio could not be processed, or the service refused the sentence |
-| `quota_exceeded` | live | yes, later | Free-tier limit reached; try again after a minute |
+| `quota_exceeded` | live | depends | Retryable: Gemini's free-tier limit, or the API key's per-minute limit, was reached; try again after a minute. Not retryable: the API key's daily limit is used up until midnight UTC |
 | `voice_unavailable` | live | no | The server could not make the voice for this translation (free voice limit, service unreachable, too many waiting); use the browser voice or captions only |
 | `internal_error` | live | yes | Unexpected server error; details only in the backend log. With an `utterance_id`: only that sentence failed and the connection stays open. With `utterance_id: null`: the live channel failed and closes with 1011 |
 

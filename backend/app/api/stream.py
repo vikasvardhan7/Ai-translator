@@ -20,6 +20,7 @@ from app.models.protocol import ErrorCode
 from app.services.audio_ingestion.segment import AudioSegment
 from app.services.audio_ingestion.speech_detector import FrameRejected, SpeechDetector
 from app.services.audio_ingestion.wav import encode_wav
+from app.services.limits import RateLimiter, TooManyRequests
 from app.services.room_store import HOST_ID, Room, RoomStore
 from app.services.session_store import Device, Session, SessionStore
 from app.services.translation.base import NothingRecognised, SpeechTranslator, TranslationFailed
@@ -591,6 +592,9 @@ class StreamHandler:
             )
             return
 
+        if not await self._within_budget(segment.utterance_id):
+            return
+
         participants = [p.model_copy() for p in self._session.participants]
         targets = list(dict.fromkeys(p.preferred_language for p in participants))
         speaker = next((p for p in participants if p.id == segment.speaker_id), None)
@@ -671,6 +675,29 @@ class StreamHandler:
             await self._queue_voice(
                 _VoiceRequest(segment.utterance_id, tuple(listener_ids), text, voice, ended_at)
             )
+
+    async def _within_budget(self, utterance_id: str) -> bool:
+        budget = self._session.budget
+        if budget is None:
+            return True
+        limiter: RateLimiter = self._websocket.app.state.limiter
+        try:
+            limiter.use(budget.identity, budget.allowance)
+        except TooManyRequests as exc:
+            message = (
+                f"This API key used up its {budget.allowance.per_day} requests for today."
+                " It starts again at midnight UTC."
+                if exc.daily
+                else f"This API key is sending sentences too quickly. Wait {exc.wait_seconds} s."
+            )
+            await self._sender.error(
+                ErrorCode.QUOTA_EXCEEDED,
+                message,
+                utterance_id=utterance_id,
+                retryable=not exc.daily,
+            )
+            return False
+        return True
 
     def _remember_translation(self, utterance_id: str, listener_id: str, text: str) -> None:
         self._translations[(utterance_id, listener_id)] = text
