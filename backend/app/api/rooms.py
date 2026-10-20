@@ -8,7 +8,7 @@ from app.api.dependencies import (
     get_room_store,
     get_speech_synthesizer,
     get_speech_translator,
-    key_budget,
+    request_budget,
     require_host,
 )
 from app.api.links import public_link
@@ -36,7 +36,7 @@ AppSettings = Annotated[Settings, Depends(get_app_settings)]
 Translator = Annotated[SpeechTranslator | None, Depends(get_speech_translator)]
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
 Public = Annotated[PublicAddress, Depends(get_public_address)]
-Spending = Annotated[Budget | None, Depends(key_budget)]
+Spending = Annotated[Budget | None, Depends(request_budget)]
 
 
 def _find(rooms: RoomStore, room_id: str) -> Room:

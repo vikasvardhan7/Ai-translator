@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from app.services.trainer.gemini import CoachAnswer
 from app.services.translation.base import DetectedLanguage, SpeechTranslation, Translation
 from app.services.voice.base import VoiceFailed, VoiceOption
 
@@ -92,3 +93,59 @@ class FakeSynthesizer:
 
 
 VOICE_LIMIT = VoiceFailed("The free voice limit was reached.")
+
+
+@dataclass
+class Letter:
+    to: str
+    subject: str
+    text: str
+
+
+@dataclass
+class FakeMailer:
+    letters: list[Letter] = field(default_factory=list)
+    failure: Exception | None = None
+
+    async def send(self, to: str, subject: str, text: str) -> None:
+        if self.failure:
+            raise self.failure
+        self.letters.append(Letter(to, subject, text))
+
+
+@dataclass
+class FakeTrainer:
+    workout: object = None
+    diet: object = None
+    food_items: list = field(default_factory=list)
+    answer: str = "Great work today."
+    logs: tuple = ()
+    failure: Exception | None = None
+    asked: list[tuple] = field(default_factory=list)
+
+    async def workout_plan(self, profile, targets, wishes, current, day):
+        self.asked.append(("workout", wishes, current, day))
+        if self.failure:
+            raise self.failure
+        return self.workout
+
+    async def diet_plan(self, profile, targets, wishes, current, day):
+        self.asked.append(("diet", wishes, current, day))
+        if self.failure:
+            raise self.failure
+        return self.diet
+
+    async def foods(self, text, profile):
+        self.asked.append(("foods", text))
+        if self.failure:
+            raise self.failure
+        return self.food_items
+
+    async def coach(self, context, messages, now):
+        self.asked.append(("coach", context, [m.text for m in messages], now))
+        if self.failure:
+            raise self.failure
+        return CoachAnswer(self.answer, self.logs)
+
+    async def aclose(self) -> None:
+        return None

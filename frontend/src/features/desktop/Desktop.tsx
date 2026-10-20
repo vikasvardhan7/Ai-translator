@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
-import { createSession, type HostedMeeting } from '../../services/api';
+import { createSession, type AccountUser, type HostedMeeting } from '../../services/api';
 import {
   inviteFromHash,
   meetingFromHash,
@@ -11,6 +11,7 @@ import {
   type MeetingFlow,
 } from '../../services/conversations';
 import type { Participant } from '../../services/protocol';
+import AccountApp from '../account/AccountApp';
 import AssistantApp, { type ChatEntry, type Prompt } from '../assistant/AssistantApp';
 import { APP_NAMES, type DesktopHandlers, type MeetingRequest, type Where } from '../assistant/agent';
 import ConsentScreen from '../consent/ConsentScreen';
@@ -24,6 +25,7 @@ import { CallBridge, CallBridgeContext } from './bridge';
 import DevelopersApp from '../developers/DevelopersApp';
 import DesktopWidget from './DesktopWidget';
 import HelpApp from './HelpApp';
+import TrainerApp from '../trainer/TrainerApp';
 import PersonalizeApp from './PersonalizeApp';
 import Taskbar, { APP_ICONS } from './Taskbar';
 import { applyLook, particles, savedCalm, savedTheme, saveLook, themeOf, type ThemeId } from './themes';
@@ -72,7 +74,7 @@ function firstApp(): AppId {
   if (hash === 'privacy' || hash === 'terms') {
     return hash;
   }
-  return hash === 'meetings' || hash === 'developers' ? hash : 'translator';
+  return hash === 'meetings' || hash === 'developers' || hash === 'trainer' ? hash : 'translator';
 }
 
 function conversationTitle(conversation: Conversation | null): string {
@@ -94,7 +96,14 @@ function clearLinkHash(): void {
   }
 }
 
-export default function Desktop() {
+interface DesktopProps {
+  user: AccountUser;
+  onUser: (user: AccountUser) => void;
+  onSignOut: () => void;
+  onDeleted: () => void;
+}
+
+export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopProps) {
   const [area, setArea] = useState<Area>(currentArea);
   const [desk, setDesk] = useState<Desk>(() => open(EMPTY_DESK, firstApp(), currentArea()));
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -235,6 +244,7 @@ export default function Desktop() {
   const shortcuts: Shortcut[] = [
     { label: 'Meet now', icon: 'remote', run: () => start('remote') },
     { label: 'Schedule', icon: 'schedule', run: () => openApp('meetings') },
+    { label: 'Gym Trainer', icon: 'trainer', run: () => openApp('trainer') },
     { label: 'Live captions', icon: 'meeting', run: () => start('meeting') },
     { label: 'Talk here', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
@@ -289,6 +299,10 @@ export default function Desktop() {
         );
       case 'developers':
         return <DevelopersApp />;
+      case 'trainer':
+        return <TrainerApp />;
+      case 'account':
+        return <AccountApp user={user} onUser={onUser} onSignOut={onSignOut} onDeleted={onDeleted} />;
       case 'personalize':
         return <PersonalizeApp theme={theme} calm={calm} onTheme={setTheme} onCalm={setCalm} />;
       case 'help':
@@ -396,6 +410,8 @@ export default function Desktop() {
           onOpen={openApp}
           onStart={start}
           onAsk={ask}
+          user={user}
+          onSignOut={onSignOut}
         />
       </div>
     </CallBridgeContext.Provider>

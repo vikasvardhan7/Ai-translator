@@ -8,7 +8,8 @@ from app.api.dependencies import (
     get_meeting_store,
     get_public_address,
     get_room_store,
-    require_owner,
+    is_owner,
+    require_member,
 )
 from app.api.links import public_link
 from app.api.rooms import created, join_as_guest
@@ -85,18 +86,21 @@ def _find(meetings: MeetingStore, meeting_id: str, token: str, *, host: bool) ->
     return meeting
 
 
-@router.post(
-    "",
-    response_model=MeetingCreated,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_owner)],
-)
+Member = Annotated[str | None, Depends(require_member)]
+
+
+@router.post("", response_model=MeetingCreated, status_code=status.HTTP_201_CREATED)
 async def schedule(
-    body: MeetingCreate, request: Request, meetings: Meetings, settings: AppSettings, public: Public
+    body: MeetingCreate,
+    request: Request,
+    meetings: Meetings,
+    settings: AppSettings,
+    public: Public,
+    member: Member,
 ) -> MeetingCreated:
     try:
         meeting = meetings.create(
-            body.title, body.starts_at, body.duration_minutes, body.agenda, body.host_name
+            body.title, body.starts_at, body.duration_minutes, body.agenda, body.host_name, member
         )
     except MeetingLimitReached as exc:
         raise HTTPException(
@@ -109,13 +113,18 @@ async def schedule(
     )
 
 
-@router.get("", response_model=MeetingList, dependencies=[Depends(require_owner)])
+@router.get("", response_model=MeetingList)
 async def upcoming(
-    request: Request, meetings: Meetings, rooms: Rooms, settings: AppSettings, public: Public
+    request: Request,
+    meetings: Meetings,
+    rooms: Rooms,
+    settings: AppSettings,
+    public: Public,
+    member: Member,
 ) -> MeetingList:
     found = [
         MeetingHosted(**_hosted(meeting, live_room(meetings, rooms, meeting)))
-        for meeting in meetings.upcoming()
+        for meeting in meetings.upcoming(member, with_unowned=is_owner(request))
     ]
     public_url, problem = await public_link(request, settings, public)
     return MeetingList(meetings=found, public_url=public_url, public_url_problem=problem)

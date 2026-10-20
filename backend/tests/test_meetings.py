@@ -255,7 +255,7 @@ def test_meetings_are_kept_in_a_file_and_old_ones_are_dropped(tmp_path: Path) ->
     reopened = MeetingStore(path)
     found = reopened.get(kept.id)
     assert found == kept
-    assert reopened.upcoming() == [kept]
+    assert reopened.upcoming(None, with_unowned=True) == [kept]
     assert reopened.get(old.id) is None
     reopened.close()
 

@@ -98,6 +98,9 @@ class MeetingStore:
                 target = str(self._path)
             self._connection = sqlite3.connect(target, check_same_thread=False)
             self._connection.execute(SCHEMA)
+            names = {row[1] for row in self._connection.execute("PRAGMA table_info(meetings)")}
+            if "owner_id" not in names:
+                self._connection.execute("ALTER TABLE meetings ADD COLUMN owner_id TEXT")
             self._connection.commit()
         return self._connection
 
@@ -114,6 +117,7 @@ class MeetingStore:
         duration_minutes: int,
         agenda: str,
         host_name: str,
+        owner_id: str | None = None,
     ) -> Meeting:
         meeting = Meeting(
             id=str(uuid.uuid4()),
@@ -133,7 +137,7 @@ class MeetingStore:
             if count >= MAX_MEETINGS:
                 raise MeetingLimitReached
             db.execute(
-                f"INSERT INTO meetings ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO meetings ({COLUMNS}, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     meeting.id,
                     meeting.title,
@@ -144,6 +148,7 @@ class MeetingStore:
                     meeting.host_token,
                     meeting.invite_token,
                     meeting.created_at.isoformat(),
+                    owner_id,
                 ),
             )
             db.commit()
@@ -158,13 +163,29 @@ class MeetingStore:
             )
         return _meeting(row) if row else None
 
-    def upcoming(self) -> list[Meeting]:
+    def upcoming(self, owner_id: str | None, *, with_unowned: bool) -> list[Meeting]:
         now = _now()
         with self._lock:
             db = self._db()
             self._drop_old(db)
-            rows = db.execute(f"SELECT {COLUMNS} FROM meetings ORDER BY starts_at").fetchall()
+            rows = db.execute(
+                f"SELECT {COLUMNS} FROM meetings WHERE owner_id IS ?"
+                " OR (? AND owner_id IS NULL) ORDER BY starts_at",
+                (owner_id, with_unowned),
+            ).fetchall()
         return [meeting for meeting in map(_meeting, rows) if not meeting.is_over(now)]
+
+    def forget_owner(self, owner_id: str) -> None:
+        with self._lock:
+            db = self._db()
+            gone = [
+                row[0]
+                for row in db.execute("SELECT id FROM meetings WHERE owner_id = ?", (owner_id,))
+            ]
+            db.execute("DELETE FROM meetings WHERE owner_id = ?", (owner_id,))
+            db.commit()
+        for meeting_id in gone:
+            self._rooms.pop(meeting_id, None)
 
     def cancel(self, meeting_id: str) -> None:
         with self._lock:
