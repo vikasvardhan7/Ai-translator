@@ -291,6 +291,8 @@ Close codes:
 | `voice.settings` | live | `listener_id` (a participant id), `server_voice` (`true` or `false`), `voice` (optional: a voice `id` from `GET /api/voices`, or `null` for automatic) | Whether the server should make voices for this listener, and in which voice. Send `false` when that person chose the browser's own voice or turned their voice off; the server then sends no `tts.audio` for them. Leaving `voice` out keeps the earlier choice. Every listener starts at `true` and automatic, except in a meeting, where voices are off until asked for. A bad listener, a value that is not a boolean, or a voice that is not 1 to 64 letters, digits, `_` or `-` gets `invalid_message` |
 | `language.set` | live | `participant_id` (a participant id; ignored in a room, where it is always this device's person), `language` | Change that person's language during the conversation. The next sentence is translated into it, and every device gets `participants.updated`. A bad code or a missing person gets `invalid_message`. Both people may choose the same language; then nothing is translated between them |
 | `voice.played` | live | `utterance_id`, `listener_id` (ignored in a room, where it is always this device's person), `seconds` (0 to 120) | A voice for that translation (the server's or the browser's own) just finished playing on this device after `seconds` of playback. The server uses it to recognise its own voice coming back through the microphone (section 5). Missing fields or bad `seconds` get `invalid_message`; a translation the server no longer remembers (it keeps the last 40) is ignored quietly |
+| `voice.fix` | live | `utterance_id`, `voice` (one of the conversation's voice names: `A` or `B` on one device, `1` to `6` in a meeting) | The sentence was matched to the wrong voice (section 5). The server moves that sentence's voice print to the right voice, so later sentences from that person are matched better, and sends nothing back; the browser relabels the sentence itself. Only the last 40 sentences can be moved; older ones are ignored quietly. A missing `utterance_id`, or a voice name this conversation does not have (any name in a room, which has no voice matching), gets `invalid_message` |
+| `words.live` | live | `text` (at most 500 characters) | The words the browser's own speech recognition hears while this person is still speaking (section 5). In a room the server passes them straight to the other devices as `words.live`; elsewhere it ignores them. Nothing is kept. Text that is not a string or is too long gets `invalid_message` |
 | `ping` | live | none | Keep-alive; answered with `pong`. Send one every 5 s |
 | `session.stop` | live | none | End the conversation. A sentence in progress is ended and translated; sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
 
@@ -329,7 +331,8 @@ All include `type` and `seq`.
 | `speech.activity` | live | `speaker_id` (`null` in together mode, the source in a meeting), `active` | Someone started (`true`) or stopped (`false`) speaking. Sent only when it changes. `false` also follows `audio.pause` or `session.stop` when a sentence was in progress |
 | `participants.updated` | live | `participants` | Someone changed their language. Use these people from now on |
 | `utterance.ignored` | live | `utterance_id` | No words were recognised (noise, coughing). Remove the pending turn quietly and keep listening |
-| `transcript.final` | live | `utterance_id`, `speaker_id` (`A`, `B` or `null`), `text`, `language`, `language_name` | What was said, in the words and script spoken, its detected language code and English language name |
+| `transcript.final` | live | `utterance_id`, `speaker_id` (`A`, `B` or `null`), `voice` (a voice name or `null`), `text`, `language`, `language_name` | What was said, in the words and script spoken, its detected language code and English language name. `voice` is set when the speaker was told apart by voice (below) |
+| `words.live` | live | `speaker_id`, `text` | In a room: the words another person's browser hears while they are still speaking, before their sentence ends. Show them until that person's `transcript.final` arrives; an empty `text` clears them |
 | `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text` | The sentence translated into this listener's chosen language |
 | `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
@@ -343,8 +346,19 @@ names (`tl` Tagalog and `fil` Filipino):
   (`speaker_id`), and the other person gets one `translation.final`.
 - It matches neither person (a third language): `speaker_id` is `null` and both people get a
   `translation.final` in their own language.
-- It matches both people (both chose that language): `speaker_id` is `null` and nobody needs a
-  translation, so only `transcript.final` is sent.
+- It matches both people (both chose that language): nobody needs a translation, so only
+  `transcript.final` is sent, and the speaker is told apart by voice (below).
+
+**Voices.** When the language cannot say who spoke, the server compares the sentence's voice with
+the voices already heard in the same conversation: on one device when both people chose the
+language spoken (voice names `A` and `B`, which are also the `speaker_id`), and for the meeting's
+sound in live captions (voice names `1` to `6`, while `speaker_id` stays `B`). A voice print is 19
+averages of the sound's spectrum shape over the sentence's louder half (mel-frequency cepstral
+coefficients), never the audio, kept only in memory for the conversation. A sentence joins the
+nearest voice when it is close enough (distance 5 or less), otherwise it starts a new voice while
+names are left, otherwise it joins the nearest. A sentence with under about 0.6 s of speech gets
+`voice: null`. On recordings of two people this named about 9 sentences in 10 correctly; similar
+voices and many short sentences do worse, which is why `voice.fix` exists.
 
 When a sentence was heard while a voice was playing to this person (the app hearing its own voice
 through the speakers), and it repeats that voice's words, it gets `utterance.ignored` instead of
@@ -386,7 +400,7 @@ Show `text` fields as plain text, never as HTML: they contain whatever the speak
 ```text
 -> (binary audio frames, about 100 ms each, continuously)
 <- {"type":"utterance.received","seq":2,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":null,"duration_ms":2100}
-<- {"type":"transcript.final","seq":3,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","text":"మీరు ఎలా ఉన్నారు?","language":"te","language_name":"Telugu"}
+<- {"type":"transcript.final","seq":3,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","voice":null,"text":"మీరు ఎలా ఉన్నారు?","language":"te","language_name":"Telugu"}
 <- {"type":"translation.final","seq":4,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","speaker_id":"B","listener_id":"A","target_language":"en","text":"How are you?"}
 <- {"type":"tts.audio","seq":5,"utterance_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","listener_id":"A","format":"wav","audio_base64":"UklGR..."}
 -> {"type":"audio.pause"}

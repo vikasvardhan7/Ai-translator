@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Participant } from '../../services/protocol';
 import { applyServerMessage, speakerNames, type Turn } from './conversation';
-import { MAX_ASSISTANT_LINES, assistantTranscript, transcriptSubtitles, transcriptText } from './transcript';
+import { MAX_ASSISTANT_LINES, assistantTranscript, transcriptEntries, transcriptSubtitles, transcriptText, transcriptWebVtt } from './transcript';
 
 const people: Participant[] = [
   { id: 'A', name: 'Person 1', preferred_language: 'en' },
@@ -17,6 +17,7 @@ function sentence(turns: Turn[], id: string, at: number): Turn[] {
     seq: 2,
     utterance_id: id,
     speaker_id: 'B',
+    voice: null,
     text: 'మీరు ఎలా ఉన్నారు?',
     language: 'te',
     language_name: 'Telugu',
@@ -59,11 +60,40 @@ describe('transcript downloads', () => {
   it('keeps each subtitle on one line so players do not cut it short', () => {
     const broken = applyServerMessage(
       applyServerMessage([], { type: 'utterance.received', seq: 1, utterance_id: 'u9', speaker_id: 'A', duration_ms: 1_000 }, 1_000),
-      { type: 'transcript.final', seq: 2, utterance_id: 'u9', speaker_id: 'A', text: 'One\n\nTwo', language: 'en', language_name: 'English' },
+      { type: 'transcript.final', seq: 2, utterance_id: 'u9', speaker_id: 'A', voice: null, text: 'One\n\nTwo', language: 'en', language_name: 'English' },
       1_000,
     );
 
     expect(transcriptSubtitles(broken, 'A', names)).toContain('Person 1: One Two\n');
+  });
+
+  it('writes WebVTT subtitles with each speaker as a voice', () => {
+    const tricky = applyServerMessage(
+      applyServerMessage([], { type: 'utterance.received', seq: 1, utterance_id: 'u8', speaker_id: 'A', duration_ms: 1_000 }, 1_000),
+      { type: 'transcript.final', seq: 2, utterance_id: 'u8', speaker_id: 'A', voice: null, text: 'Fish & <chips>', language: 'en', language_name: 'English' },
+      1_000,
+    );
+
+    expect(transcriptWebVtt(turns, 'A', names)).toBe([
+      'WEBVTT',
+      '',
+      '00:00:00.000 --> 00:00:02.000',
+      '<v Person 2>How are you?',
+      '',
+      '00:00:05.500 --> 00:00:07.500',
+      '<v Person 2>How are you?',
+      '',
+    ].join('\n'));
+    expect(transcriptWebVtt(tricky, 'A', names)).toContain('<v Person 1>Fish &amp; &lt;chips&gt;');
+  });
+
+  it('lists each sentence with what each person heard', () => {
+    expect(transcriptEntries(turns, people, names)[0]).toMatchObject({
+      speaker: 'Person 2',
+      languageName: 'Telugu',
+      text: 'మీరు ఎలా ఉన్నారు?',
+      heard: [{ who: 'Person 1', languageName: 'English', text: 'How are you?' }],
+    });
   });
 
   it('names the meeting and the person using the app in a meeting transcript', () => {

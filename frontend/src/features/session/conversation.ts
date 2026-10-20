@@ -1,6 +1,7 @@
-import { perSpeaker, SPEAKER_IDS, type ConversationMode, type Participant, type ServerMessage, type SpeakerId } from '../../services/protocol';
+import { isSpeakerId, perSpeaker, SPEAKER_IDS, type ConversationMode, type Participant, type ServerMessage, type SpeakerId } from '../../services/protocol';
 
 export const MAX_TURNS = 100;
+export const MEETING_VOICES = ['1', '2', '3', '4', '5', '6'] as const;
 
 type TurnStatus = 'processing' | 'done' | 'failed';
 export type Names = Record<SpeakerId, string>;
@@ -8,6 +9,7 @@ export type Names = Record<SpeakerId, string>;
 export interface Turn {
   utteranceId: string;
   speakerId: SpeakerId | null;
+  voice?: string | null;
   status: TurnStatus;
   startedAt: number;
   endedAt: number;
@@ -56,6 +58,7 @@ export function applyServerMessage(
       return update(turns, message.utterance_id, (turn) => ({
         ...turn,
         speakerId: message.speaker_id ?? turn.speakerId,
+        voice: message.voice,
         status: 'done',
         original: {
           text: message.text,
@@ -111,6 +114,42 @@ export function speakerName(names: Names, id: SpeakerId | null): string {
   return id ? names[id] : 'Someone';
 }
 
+function isMeetingVoice(voice: string | null | undefined): voice is string {
+  return typeof voice === 'string' && (MEETING_VOICES as readonly string[]).includes(voice);
+}
+
+export function turnSpeaker(names: Names, turn: Pick<Turn, 'speakerId' | 'voice'>): string {
+  return isMeetingVoice(turn.voice) ? `Speaker ${turn.voice}` : speakerName(names, turn.speakerId);
+}
+
+export interface VoiceChoice {
+  voice: string;
+  label: string;
+}
+
+export function voiceChoices(turns: readonly Turn[], turn: Turn, participants: readonly Participant[], names: Names): VoiceChoice[] {
+  if (!turn.voice) {
+    return [];
+  }
+  if (!isMeetingVoice(turn.voice)) {
+    return participants.map((person) => ({ voice: person.id, label: names[person.id] }));
+  }
+  const heard = MEETING_VOICES.filter((voice) => turns.some((item) => item.voice === voice));
+  const fresh = MEETING_VOICES.find((voice) => !heard.includes(voice));
+  return [
+    ...heard.map((voice) => ({ voice, label: `Speaker ${voice}` })),
+    ...(fresh ? [{ voice: fresh, label: `Someone new (Speaker ${fresh})` }] : []),
+  ];
+}
+
+export function fixVoice(turns: Turn[], utteranceId: string, voice: string): Turn[] {
+  return update(turns, utteranceId, (turn) => ({
+    ...turn,
+    voice,
+    speakerId: isSpeakerId(voice) ? voice : turn.speakerId,
+  }));
+}
+
 interface BubbleTranslation {
   listenerId: SpeakerId;
   text: string;
@@ -128,6 +167,19 @@ export type Bubble =
     translating: boolean;
   };
 
+function baseLanguage(code: string): string {
+  return code.trim().toLowerCase().split(/[-_]/)[0] ?? '';
+}
+
+export function awaitsTranslation(turn: Turn, person: Participant): boolean {
+  return (
+    turn.speakerId !== null &&
+    person.id !== turn.speakerId &&
+    !turn.translations[person.id] &&
+    (!turn.original || baseLanguage(turn.original.language) !== baseLanguage(person.preferred_language))
+  );
+}
+
 export function bubbleFor(turn: Turn, participants: readonly Participant[]): Bubble {
   const side = turn.speakerId;
   if (turn.status === 'failed') {
@@ -140,9 +192,7 @@ export function bubbleFor(turn: Turn, participants: readonly Participant[]): Bub
     const translation = turn.translations[person.id];
     return translation ? [{ listenerId: person.id, text: translation.text }] : [];
   });
-  const translating = side !== null && participants.some(
-    (person) => person.id !== side && !turn.translations[person.id],
-  );
+  const translating = participants.some((person) => awaitsTranslation(turn, person));
   return {
     kind: 'spoken',
     side,

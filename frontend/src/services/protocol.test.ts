@@ -56,7 +56,23 @@ describe('parseServerMessage', () => {
       text: 'नमस्ते',
       language: 'hi',
       language_name: 'Hindi',
-    })).toMatchObject({ type: 'transcript.final', speaker_id: null });
+    })).toMatchObject({ type: 'transcript.final', speaker_id: null, voice: null });
+  });
+
+  it('reads the voice a sentence was matched to, and words still being spoken', () => {
+    expect(parse({
+      type: 'transcript.final',
+      utterance_id: id,
+      speaker_id: 'B',
+      voice: '2',
+      text: 'Hello',
+      language: 'en',
+      language_name: 'English',
+    })).toMatchObject({ speaker_id: 'B', voice: '2' });
+    expect(parse({ type: 'words.live', speaker_id: 'C', text: 'How are' }))
+      .toEqual({ type: 'words.live', seq: 1, speaker_id: 'C', text: 'How are' });
+    expect(parse({ type: 'words.live', speaker_id: 'Z', text: 'How are' })).toBeNull();
+    expect(parse({ type: 'words.live', speaker_id: 'C', text: 5 })).toBeNull();
   });
 
   it('reads a translation exactly as the server sends it', () => {

@@ -7,6 +7,8 @@ export function PrivacyPolicy() {
       <section className="legal-section">
         <h2>What happens during a conversation</h2>
         <p>The microphone listens while a conversation is open and stops when it ends. Each spoken sentence is sent to Google's Gemini service to be transcribed, translated and, when available, spoken aloud. On Google's free tier, submitted data may be used to improve Google's products.</p>
+        <p>To show words while they are spoken, the app uses the browser's own speech recognition, which sends what the microphone hears to the browser's maker (Microsoft for Edge, Google for Chrome). It can be turned off in Settings during a conversation.</p>
+        <p>To tell apart people who share a language, the server compares a short set of numbers describing each sentence's voice (not the recording) with the voices heard earlier in the same conversation. They are kept only in memory and dropped when the conversation ends.</p>
       </section>
       <section className="legal-section">
         <h2>What is kept</h2>

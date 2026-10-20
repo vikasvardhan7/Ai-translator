@@ -20,12 +20,12 @@ export interface ListenerSettings {
 interface SettingsPanelProps {
   open: boolean;
   people: Participant[];
-  others: Participant[];
   you: SpeakerId | null;
   settings: Record<SpeakerId, ListenerSettings>;
   naturalAvailable: boolean;
   voiceShown: boolean;
   room: RoomAccess | null;
+  liveWords: { available: boolean; on: boolean; problem: string | null; onChange: (on: boolean) => void };
   onChange: (id: SpeakerId, settings: ListenerSettings) => void;
   onLanguage: (id: SpeakerId, language: string) => void;
   onClose: () => void;
@@ -38,7 +38,6 @@ function voiceLabel(voice: VoiceOption): string {
 
 function PersonSettings({
   person,
-  others,
   you,
   settings,
   naturalAvailable,
@@ -49,7 +48,6 @@ function PersonSettings({
   onLanguage,
 }: {
   person: Participant;
-  others: Participant[];
   you: SpeakerId | null;
   settings: ListenerSettings;
   naturalAvailable: boolean;
@@ -60,7 +58,6 @@ function PersonSettings({
   onLanguage: (language: string) => void;
 }) {
   const [browserVoices, setBrowserVoices] = useState<BrowserVoice[] | null>(null);
-  const [languageIssue, setLanguageIssue] = useState('');
   const name = person.id === you ? 'You' : person.name;
 
   useEffect(() => {
@@ -77,11 +74,6 @@ function PersonSettings({
   }, [person.preferred_language]);
 
   function chooseLanguage(code: string): void {
-    if (others.some((other) => other.preferred_language === code)) {
-      setLanguageIssue(`${languageName(code)} is the other person's language. Pick a different one.`);
-      return;
-    }
-    setLanguageIssue('');
     if (code && code !== person.preferred_language) {
       onLanguage(code);
     }
@@ -98,7 +90,6 @@ function PersonSettings({
       ) : (
         <p className="settings-hint">Loading languages</p>
       )}
-      {languageIssue && <p className="settings-error" role="alert">{languageIssue}</p>}
 
       {voiceShown && (
         <>
@@ -189,12 +180,12 @@ function PersonSettings({
 export default function SettingsPanel({
   open,
   people,
-  others,
   you,
   settings,
   naturalAvailable,
   voiceShown,
   room,
+  liveWords,
   onChange,
   onLanguage,
   onClose,
@@ -242,11 +233,27 @@ export default function SettingsPanel({
         </button>
       </header>
       {voicesIssue && <p className="settings-error" role="status">{voicesIssue}</p>}
+      <section className="settings-person settings-live-words" aria-label="Words while speaking">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={liveWords.available && liveWords.on}
+            disabled={!liveWords.available}
+            onChange={(event) => liveWords.onChange(event.currentTarget.checked)}
+          />
+          <span>Show words while they are spoken</span>
+        </label>
+        <p className="settings-hint">
+          {liveWords.available
+            ? "Uses this browser's own speech recognition, which sends what the microphone hears to the browser's maker (Microsoft for Edge, Google for Chrome). The final caption still comes from Gemini."
+            : 'This browser cannot show words while they are spoken. Captions still appear after each sentence.'}
+        </p>
+        {liveWords.problem && <p className="settings-error" role="status">{liveWords.problem}</p>}
+      </section>
       {people.map((person) => (
         <PersonSettings
           key={person.id}
           person={person}
-          others={[...others, ...people].filter((other) => other.id !== person.id)}
           you={you}
           settings={settings[person.id]}
           naturalAvailable={naturalAvailable}

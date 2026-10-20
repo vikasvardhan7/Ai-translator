@@ -1,13 +1,14 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import CallTiles, { type Tile } from '../call/CallTiles';
-import CaptionStrip from '../call/CaptionStrip';
+import CaptionStrip, { type LiveLine } from '../call/CaptionStrip';
 import ControlBar from '../call/ControlBar';
 import SettingsPanel, { type ListenerSettings } from '../call/SettingsPanel';
 import InvitePanel, { InviteCard } from '../call/InvitePanel';
 import TranscriptPanel from '../call/TranscriptPanel';
 import { CallBridgeContext, type CallAction } from '../desktop/bridge';
 import { leaveRoom } from '../../services/api';
+import { liveWordsSupported, liveWordsWanted, saveLiveWordsWanted, startLiveWords, type LiveWords } from '../../services/liveWords';
 import { languageLabel, languageName } from '../../services/languageNames';
 import {
   MicrophoneNeedsTap,
@@ -18,8 +19,8 @@ import {
 import type { Conversation } from '../../services/conversations';
 import { isSpeakerId, perSpeaker, SPEAKER_IDS, type Participant, type ServerMessage, type SpeakerId } from '../../services/protocol';
 import { SessionSocket } from '../../services/sessionSocket';
-import { abandonPending, applyServerMessage, MAX_TURNS, speakerName, speakerNames, type Turn } from './conversation';
-import { downloadSubtitles, downloadText } from './download';
+import { abandonPending, applyServerMessage, fixVoice, MAX_TURNS, speakerName, speakerNames, turnSpeaker, type Turn } from './conversation';
+import { downloadSubtitles, downloadText, downloadWord, printTranscript } from './download';
 import { tagFrame } from './pcm';
 import { assistantTranscript } from './transcript';
 import { createBrowserVoicePlayer, unlockBrowserAudio } from './voicePlayer';
@@ -39,6 +40,9 @@ type MeetingSound = 'off' | 'connecting' | 'on';
 const END_WAIT_MS = 45_000;
 const RESUME_AFTER_VOICE_MS = 600;
 const WIDE_SCREEN = '(min-width: 1100px)';
+const WORDS_EVERY_MS = 300;
+const WORDS_LINGER_MS = 6_000;
+const MAX_LIVE_WORDS = 500;
 const DROPPED = 'The connection dropped before this sentence was translated.';
 const RESTARTED = 'The conversation was started again before this sentence was translated.';
 
@@ -65,6 +69,21 @@ function closeIssue(code: number, remote: boolean): string {
     default:
       return 'The connection to the backend could not be restored. Check that it is running, then start again.';
   }
+}
+
+interface HeardWords {
+  speaker: SpeakerId | null;
+  text: string;
+}
+
+function liveWordsProblem(reason: string, language: string): string {
+  if (reason === 'language-not-supported') {
+    return `This browser cannot follow ${languageName(language)} while it is spoken, so words appear after each sentence.`;
+  }
+  if (reason === 'not-allowed' || reason === 'service-not-allowed') {
+    return "The browser did not allow its speech recognition, so words appear after each sentence.";
+  }
+  return "The browser's speech recognition cannot be reached, so words appear after each sentence.";
 }
 
 function errorText(error: unknown, fallback: string): string {
@@ -106,6 +125,9 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   const talkingRef = useRef(new Set<string>());
   const settingsRef = useRef<Record<SpeakerId, ListenerSettings>>(perSpeaker(DEFAULT_SETTINGS));
   const voiceOnRef = useRef(!meeting);
+  const liveWordsRef = useRef<LiveWords | null>(null);
+  const wordsSentRef = useRef(0);
+  const wordsHandlerRef = useRef<(text: string, final: boolean) => void>(() => undefined);
   const [participants, setParticipants] = useState<Participant[]>(conversation.participants);
   const [phase, setPhaseState] = useState<SessionPhase>('connecting');
   const [issue, setIssue] = useState<string | null>(null);
@@ -132,6 +154,10 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   const [liveSince, setLiveSince] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [restarting, setRestarting] = useState(false);
+  const [liveWordsOn, setLiveWordsOn] = useState(() => liveWordsSupported() && liveWordsWanted());
+  const [liveWordsIssue, setLiveWordsIssue] = useState<string | null>(null);
+  const [heardWords, setHeardWords] = useState<HeardWords | null>(null);
+  const [nextSpeaker, setNextSpeaker] = useState<SpeakerId | null>(conversation.participants[0]?.id ?? null);
 
   const listenerIds = useMemo(
     () => conversation.participants.map((person) => person.id).filter((id) => !you || id === you),
@@ -139,6 +165,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
   );
   const listeners = participants.filter((person) => listenerIds.includes(person.id));
   const names = useMemo(() => speakerNames(conversation.mode, everyone, you), [conversation.mode, everyone, you]);
+  const documentTitle = conversation.title || (meeting ? 'Meeting captions' : conversation.mode === 'remote' ? 'Meeting' : 'Conversation');
 
   const meetPeople = useCallback((people: Participant[]) => {
     setParticipants(people);
@@ -247,6 +274,16 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       case 'utterance.received':
         setIssue(null);
         break;
+      case 'transcript.final':
+        setHeardWords((current) => (current && (current.speaker === null || current.speaker === message.speaker_id) ? null : current));
+        if (conversation.mode === 'together' && message.speaker_id) {
+          const other = conversation.participants.find((person) => person.id !== message.speaker_id);
+          setNextSpeaker(other?.id ?? message.speaker_id);
+        }
+        break;
+      case 'words.live':
+        setHeardWords(message.text ? { speaker: message.speaker_id, text: message.text } : null);
+        break;
       case 'session.ready': {
         serverVoiceRef.current = message.server_voice;
         setServerVoice(message.server_voice);
@@ -323,7 +360,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       default:
         break;
     }
-  }, [applyVoice, clearTalking, listenerIds, meetPeople, setPhase, startListening, stopListening, you]);
+  }, [applyVoice, clearTalking, conversation.mode, conversation.participants, listenerIds, meetPeople, setPhase, startListening, stopListening, you]);
 
   const handleReconnecting = useCallback((reconnecting: boolean) => {
     if (!reconnecting || phaseRef.current === 'ending' || phaseRef.current === 'closed') {
@@ -426,6 +463,66 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
     return () => window.clearInterval(timer);
   }, [phase]);
 
+  const wordsPerson = meeting
+    ? participants[0]
+    : participants.find((person) => person.id === (you ?? nextSpeaker)) ?? participants[0];
+  const wordsLanguage = wordsPerson?.preferred_language ?? '';
+
+  wordsHandlerRef.current = (text: string, final: boolean) => {
+    setHeardWords(text ? { speaker: meeting ? 'A' : you, text } : null);
+    if (conversation.mode !== 'remote') {
+      return;
+    }
+    const at = Date.now();
+    if (final || at - wordsSentRef.current >= WORDS_EVERY_MS) {
+      wordsSentRef.current = at;
+      socketRef.current?.send({ type: 'words.live', text: text.slice(-MAX_LIVE_WORDS) });
+    }
+  };
+
+  useEffect(() => {
+    if (!liveWordsOn || phase !== 'live' || !listening || !wordsLanguage) {
+      liveWordsRef.current?.stop();
+      liveWordsRef.current = null;
+      return;
+    }
+    if (liveWordsRef.current) {
+      liveWordsRef.current.setLanguage(wordsLanguage);
+      return;
+    }
+    liveWordsRef.current = startLiveWords(
+      wordsLanguage,
+      (text, final) => wordsHandlerRef.current(text, final),
+      (reason) => {
+        liveWordsRef.current = null;
+        setLiveWordsOn(false);
+        setLiveWordsIssue(liveWordsProblem(reason, wordsLanguage));
+      },
+    );
+  }, [listening, liveWordsOn, phase, wordsLanguage]);
+
+  useEffect(() => {
+    const words = liveWordsRef.current;
+    if (muted || hearing !== null) {
+      words?.pause();
+    } else {
+      words?.resume();
+    }
+  }, [hearing, listening, liveWordsOn, muted, phase]);
+
+  useEffect(() => () => {
+    liveWordsRef.current?.stop();
+    liveWordsRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!heardWords) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setHeardWords(null), WORDS_LINGER_MS);
+    return () => window.clearTimeout(timer);
+  }, [heardWords]);
+
   function endSession(): void {
     const socket = socketRef.current;
     stopMeetingSound();
@@ -515,6 +612,20 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
     }
   }
 
+  function fixSpeaker(utteranceId: string, voice: string): void {
+    setTurns((current) => fixVoice(current, utteranceId, voice));
+    socketRef.current?.send({ type: 'voice.fix', utterance_id: utteranceId, voice });
+  }
+
+  function changeLiveWords(on: boolean): void {
+    saveLiveWordsWanted(on);
+    setLiveWordsIssue(null);
+    setLiveWordsOn(on && liveWordsSupported());
+    if (!on) {
+      setHeardWords(null);
+    }
+  }
+
   function changeLanguage(id: SpeakerId, language: string): void {
     socketRef.current?.send({ type: 'language.set', participant_id: id, language });
     changeSettings(id, { ...settingsRef.current[id], browserVoice: null });
@@ -553,8 +664,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         setPeopleOpen(true);
         break;
       case 'download_transcript':
-        if (args.format === 'subtitles' && reader) {
-          downloadSubtitles(turns, reader, names);
+        if ((args.format === 'subtitles' || args.format === 'vtt') && reader) {
+          downloadSubtitles(turns, reader, names, args.format === 'vtt' ? 'vtt' : 'srt');
+        } else if (args.format === 'word') {
+          downloadWord(documentTitle, turns, participants, names);
+        } else if (args.format === 'pdf') {
+          printTranscript(documentTitle, turns, participants, names);
         } else {
           downloadText(turns, participants, names);
         }
@@ -616,9 +731,9 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
 
   const shownTurns = turns.length > MAX_TURNS ? turns.slice(-MAX_TURNS) : turns;
   const latest = [...shownTurns].reverse().find((turn) => turn.original);
-  const announcement = latest?.original ? `${speakerName(names, latest.speakerId)}: ${latest.original.text}` : '';
+  const announcement = latest?.original ? `${turnSpeaker(names, latest)}: ${latest.original.text}` : '';
+  const liveLine: LiveLine | null = heardWords ? { name: speakerName(names, heardWords.speaker), text: heardWords.text } : null;
   const ended = phase === 'closed' || phase === 'ending';
-  const others = participants.filter((person) => !listenerIds.includes(person.id));
   const meetingLanguage = [...turns].reverse().find((turn) => turn.speakerId === 'B' && turn.original)?.original?.language ?? null;
   const tiles: Tile[] = participants.map((person) => ({
     id: person.id,
@@ -640,7 +755,7 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       away: meetingSound !== 'on',
     });
   }
-  let title = participants.map((person) => languageName(person.preferred_language)).join(' and ');
+  let title = languages.join(' and ');
   if (meeting && participants[0]) {
     title = `Live captions in ${languageName(participants[0].preferred_language)}`;
   } else if (remote) {
@@ -753,7 +868,8 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
           <CaptionStrip
             turns={shownTurns}
             names={names}
-            readers={listenerIds}
+            readers={listeners}
+            live={liveLine}
             emptyText={
               meeting
                 ? 'Captions of the meeting appear here in your language after each sentence.'
@@ -763,10 +879,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         </section>
         <TranscriptPanel
           open={transcriptOpen}
+          title={documentTitle}
           turns={turns}
           participants={participants}
           names={names}
           you={you}
+          onFixVoice={fixSpeaker}
           onClose={() => setTranscriptOpen(false)}
         />
       </div>
@@ -774,12 +892,12 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       <SettingsPanel
         open={settingsOpen}
         people={listeners}
-        others={others}
         you={you}
         settings={settings}
         naturalAvailable={serverVoice}
         voiceShown={!meeting}
         room={conversation.room}
+        liveWords={{ available: liveWordsSupported(), on: liveWordsOn, problem: liveWordsIssue, onChange: changeLiveWords }}
         onChange={changeSettings}
         onLanguage={changeLanguage}
         onClose={() => setSettingsOpen(false)}
