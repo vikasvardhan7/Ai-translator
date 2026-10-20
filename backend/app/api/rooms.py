@@ -115,7 +115,7 @@ async def leave_room(
         announce_people(room)
 
 
-@router.post("/{room_id}/join", response_model=RoomJoined)
+@router.post("/{room_id}/join", response_model=RoomJoined, dependencies=[Depends(require_host)])
 async def join_room(room_id: str, body: RoomJoin, rooms: Rooms) -> RoomJoined:
     room = _find(rooms, room_id)
     if not room.is_invite(body.token):

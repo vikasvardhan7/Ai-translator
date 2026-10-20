@@ -28,6 +28,7 @@ class FakeSmtp:
         self.steps.append("starttls")
 
     def login(self, username: str, password: str) -> None:
+        self.password = password
         if password == "wrong":
             raise smtplib.SMTPAuthenticationError(535, b"no")
         self.steps.append(f"login {username}")
@@ -55,6 +56,22 @@ async def test_gmail_is_reached_over_tls_and_the_letter_is_sent() -> None:
     assert smtp.steps == ["login me@gmail.com"]
     assert smtp.sent["To"] == "asha@example.com"
     assert smtp.sent["From"] == "Voice Translator <me@gmail.com>"
+    assert smtp.password == "abcdefghijklmnop"
+
+
+async def test_other_mail_servers_get_the_password_exactly_as_typed() -> None:
+    sender = build_mailer(
+        Settings(
+            _env_file=None,
+            smtp_host="smtp.example.com",
+            smtp_username="me@example.com",
+            smtp_password="pass with spaces",
+        )
+    )
+
+    await sender.send("asha@example.com", "Hi", "Hello")
+
+    assert FakeSmtp.made[0].password == "pass with spaces"
 
 
 async def test_port_587_upgrades_to_tls_first() -> None:

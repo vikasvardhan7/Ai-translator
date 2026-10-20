@@ -11,7 +11,6 @@ import {
   joinRoom,
   startMeeting as openScheduledMeeting,
   type DetectedLanguage,
-  type MeetingAccess,
   type MeetingInfo,
 } from '../../services/api';
 import {
@@ -94,11 +93,6 @@ function firstMessage(start: Start | null, flow: MeetingFlow | null): string {
 export default function SetupAssistant({ invite, start, flow, onConversation, onChooseManually, onLeaveInvite }: SetupAssistantProps) {
   const guestFlow = flow?.kind === 'guest' ? flow : null;
   const hostFlow = flow?.kind === 'host' ? flow : null;
-  const meetingAccess: MeetingAccess | null = guestFlow
-    ? guestFlow.invite
-    : hostFlow
-      ? { meetingId: hostFlow.meeting.id, token: hostFlow.meeting.host_token }
-      : null;
   const [messages, setMessages] = useState<Message[]>(() => (invite || guestFlow ? [] : [{
     id: 0,
     from: 'assistant',
@@ -407,10 +401,7 @@ export default function SetupAssistant({ invite, start, flow, onConversation, on
       }
       setPhase('checking');
       try {
-        const found = await detectLanguage(
-          detector.wav(),
-          invite ? { roomId: invite.roomId, token: invite.token } : meetingAccess ?? undefined,
-        );
+        const found = await detectLanguage(detector.wav());
         if (run !== runRef.current) {
           return;
         }
@@ -457,7 +448,7 @@ export default function SetupAssistant({ invite, start, flow, onConversation, on
         fail(problemText(error), { kind: 'listen', person });
       }
     }
-  }, [add, afterDetecting, fail, invite, meetingAccess, stopCapture]);
+  }, [add, afterDetecting, fail, stopCapture]);
 
   listenRef.current = listen;
 

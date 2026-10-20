@@ -23,8 +23,6 @@ class Settings(BaseSettings):
     speech_timeout_seconds: float = Field(default=30.0, gt=0)
     meetings_file: Path = BACKEND_DIR / "data" / "meetings.db"
     keys_file: Path = BACKEND_DIR / "data" / "keys.db"
-    guest_requests_per_minute: int = Field(default=20, ge=1)
-    guest_requests_per_day: int = Field(default=400, ge=1)
     key_requests_per_minute: int = Field(default=60, ge=1)
     accounts_file: Path = BACKEND_DIR / "data" / "accounts.db"
     trainer_file: Path = BACKEND_DIR / "data" / "trainer.db"
@@ -35,6 +33,12 @@ class Settings(BaseSettings):
     mail_from: str | None = None
     user_requests_per_minute: int = Field(default=30, ge=1)
     user_requests_per_day: int = Field(default=300, ge=1)
+    exercise_library_url: str = (
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json"
+    )
+    exercise_images_url: str = (
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/"
+    )
 
 
 def get_settings() -> Settings:

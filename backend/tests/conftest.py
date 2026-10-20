@@ -9,7 +9,7 @@ from app.services.key_store import KeyStore
 from app.services.meeting_store import MeetingStore
 from app.services.public_address import PublicAddress
 from app.services.trainer.store import TrainerStore
-from tests.fakes import FakeMailer, FakeTranslator
+from tests.fakes import FakeMailer, FakeTranslator, fake_library
 
 FRONTEND = "http://localhost:5173"
 HOST_KEY = "K7QM-4XPA-2JRT"
@@ -31,6 +31,7 @@ def make_client(
     synthesizer=None,
     client: tuple[str, int] = THIS_COMPUTER,
     mailer=None,
+    library=None,
 ) -> TestClient:
     app = create_app(
         settings or Settings(_env_file=None, frontend_origin=FRONTEND),
@@ -40,6 +41,7 @@ def make_client(
         account_store=AccountStore(None),
         mailer=mailer or FakeMailer(),
         trainer_store=TrainerStore(None),
+        exercise_library=library or fake_library(),
     )
     app.state.speech_translator = translator
     app.state.speech_synthesizer = synthesizer

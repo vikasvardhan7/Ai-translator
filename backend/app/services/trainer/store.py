@@ -1,7 +1,7 @@
 import sqlite3
 import threading
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -11,12 +11,17 @@ from app.models.trainer import (
     DietPlan,
     EntryData,
     EntryOut,
+    PhotoKind,
+    PhotoOut,
     PlanKind,
     Profile,
     WorkoutPlan,
 )
 
 MAX_ENTRIES_PER_DAY = 300
+MAX_PHOTOS_PER_DAY = 30
+MAX_PHOTOS = 600
+UNUSED_PHOTO_AGE = timedelta(days=1)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS profiles (
@@ -39,12 +44,34 @@ CREATE TABLE IF NOT EXISTS entries (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS entries_by_day ON entries (user_id, day);
+CREATE TABLE IF NOT EXISTS photos (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    data BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS photos_by_user ON photos (user_id, kind, day);
 """
 ENTRY = TypeAdapter(EntryData)
 PLANS: dict[str, type[WorkoutPlan] | type[DietPlan]] = {"workout": WorkoutPlan, "diet": DietPlan}
 
 
 class DayFull(Exception):
+    pass
+
+
+class TooManyPhotos(Exception):
+    pass
+
+
+class UnknownPhoto(Exception):
+    pass
+
+
+class PhotoInUse(Exception):
     pass
 
 
@@ -60,6 +87,25 @@ def _entry(row: tuple) -> EntryOut:
         data=ENTRY.validate_json(data),
         created_at=datetime.fromisoformat(created_at),
     )
+
+
+def _photo(row: tuple) -> PhotoOut:
+    id_, day, kind, created_at, size = row
+    return PhotoOut(
+        id=id_,
+        day=date.fromisoformat(day),
+        kind=kind,
+        created_at=datetime.fromisoformat(created_at),
+        size=size,
+    )
+
+
+PHOTO_COLUMNS = "id, day, kind, created_at, length(data)"
+USED_PHOTOS = (
+    "SELECT json_extract(data, '$.photo_id') FROM entries WHERE user_id = ?"
+    " AND json_extract(data, '$.photo_id') IS NOT NULL"
+)
+DROP_UNUSED_PHOTO = f"DELETE FROM photos WHERE id = ? AND user_id = ? AND id NOT IN ({USED_PHOTOS})"
 
 
 def summarise(day: date, entries: list[EntryOut]) -> DaySummary:
@@ -145,6 +191,7 @@ class TrainerStore:
 
     def add(self, user_id: str, day: date, data: EntryData) -> EntryOut:
         entry = EntryOut(id=str(uuid.uuid4()), day=day, data=data, created_at=_now())
+        photo_id = getattr(data, "photo_id", None)
         with self._lock:
             db = self._db()
             (count,) = db.execute(
@@ -153,6 +200,14 @@ class TrainerStore:
             ).fetchone()
             if count >= MAX_ENTRIES_PER_DAY:
                 raise DayFull
+            if (
+                photo_id
+                and not db.execute(
+                    "SELECT 1 FROM photos WHERE id = ? AND user_id = ? AND kind = 'meal'",
+                    (photo_id, user_id),
+                ).fetchone()
+            ):
+                raise UnknownPhoto
             db.execute(
                 "INSERT INTO entries VALUES (?, ?, ?, ?, ?)",
                 (
@@ -198,15 +253,86 @@ class TrainerStore:
     def remove(self, user_id: str, entry_id: str) -> bool:
         with self._lock:
             db = self._db()
-            removed = db.execute(
-                "DELETE FROM entries WHERE id = ? AND user_id = ?", (entry_id, user_id)
-            ).rowcount
+            row = db.execute(
+                "SELECT json_extract(data, '$.photo_id') FROM entries WHERE id = ? AND user_id = ?",
+                (entry_id, user_id),
+            ).fetchone()
+            if row is None:
+                return False
+            db.execute("DELETE FROM entries WHERE id = ? AND user_id = ?", (entry_id, user_id))
+            if row[0]:
+                db.execute(DROP_UNUSED_PHOTO, (row[0], user_id, user_id))
             db.commit()
-        return removed > 0
+        return True
+
+    def add_photo(
+        self, user_id: str, day: date, kind: PhotoKind, mime: str, data: bytes
+    ) -> PhotoOut:
+        now = _now()
+        photo = PhotoOut(id=uuid.uuid4().hex, day=day, kind=kind, created_at=now, size=len(data))
+        with self._lock:
+            db = self._db()
+            db.execute(
+                f"DELETE FROM photos WHERE user_id = ? AND kind = 'meal' AND created_at < ?"
+                f" AND id NOT IN ({USED_PHOTOS})",
+                (user_id, (now - UNUSED_PHOTO_AGE).isoformat(), user_id),
+            )
+            (today, everything) = db.execute(
+                "SELECT COUNT(CASE WHEN day = ? THEN 1 END), COUNT(*) FROM photos"
+                " WHERE user_id = ?",
+                (day.isoformat(), user_id),
+            ).fetchone()
+            if today >= MAX_PHOTOS_PER_DAY or everything >= MAX_PHOTOS:
+                db.commit()
+                raise TooManyPhotos
+            db.execute(
+                "INSERT INTO photos VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (photo.id, user_id, day.isoformat(), kind, mime, data, now.isoformat()),
+            )
+            db.commit()
+        return photo
+
+    def photo(self, user_id: str, photo_id: str) -> tuple[str, bytes] | None:
+        with self._lock:
+            row = (
+                self._db()
+                .execute(
+                    "SELECT mime, data FROM photos WHERE id = ? AND user_id = ?",
+                    (photo_id, user_id),
+                )
+                .fetchone()
+            )
+        return (row[0], bytes(row[1])) if row else None
+
+    def photos(self, user_id: str, kind: PhotoKind | None = None) -> list[PhotoOut]:
+        with self._lock:
+            rows = (
+                self._db()
+                .execute(
+                    f"SELECT {PHOTO_COLUMNS} FROM photos WHERE user_id = ?"
+                    " AND (? IS NULL OR kind = ?) ORDER BY day DESC, created_at DESC",
+                    (user_id, kind, kind),
+                )
+                .fetchall()
+            )
+        return [_photo(row) for row in rows]
+
+    def remove_photo(self, user_id: str, photo_id: str) -> bool:
+        with self._lock:
+            db = self._db()
+            if not db.execute(
+                "SELECT 1 FROM photos WHERE id = ? AND user_id = ?", (photo_id, user_id)
+            ).fetchone():
+                return False
+            removed = db.execute(DROP_UNUSED_PHOTO, (photo_id, user_id, user_id)).rowcount
+            db.commit()
+        if not removed:
+            raise PhotoInUse
+        return True
 
     def forget(self, user_id: str) -> None:
         with self._lock:
             db = self._db()
-            for table in ("profiles", "plans", "entries"):
+            for table in ("profiles", "plans", "entries", "photos"):
                 db.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
             db.commit()

@@ -4,7 +4,7 @@ A two-way, real-time voice translator. Two people who speak different languages 
 
 **Status:** working end to end. Three ways to use it: two people at one device, two people on their own devices through an invite link, and captions for an online meeting (Google Meet, Teams or Zoom) in your language. Hands-free listening finds each sentence by itself; speech is recognized and translated from any language (Gemini API free tier) and spoken by a Gemini voice or the browser's own; the Meet-style screen has live captions, a transcript with text and subtitle downloads, and settings for language, voice and speed. Connections that drop come back by themselves. There is no fixed language list: any ISO 639 code is accepted.
 
-People sign up and sign in with their email (a 6-digit code is emailed to them) and a password; only invite links and the website widget work without an account. The desktop also has a **Gym Trainer**: an AI-made weekly workout and meal plan you can edit, and daily tracking of workouts, meals, water, weight, sleep and steps.
+People sign up and sign in with their email (a 6-digit code is emailed to them) and a password; that includes people who open a meeting or call invite link. Only the website widget on other sites works without an account (it uses an API key). The desktop also has a **Gym Trainer**: an AI-made weekly workout and meal plan you can edit, animated demos of 870+ exercises with the muscles they work, a guided workout that talks you through every set, calories worked out from a photo of your food, progress photos, a voice coach, and daily tracking of workouts, meals, water, weight, sleep and steps.
 
 Nothing of a conversation is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
 
@@ -20,7 +20,8 @@ The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisio
 | Live words | The browser's own speech recognition (Edge and Chrome) |
 | Telling voices apart | NumPy (voice prints computed on the server, kept only in memory) |
 | Accounts | Email codes sent through Gmail (Python's own `smtplib`), scrypt passwords, an HttpOnly sign-in cookie |
-| Storage | No conversations: nothing said is recorded or saved. Accounts, Gym Trainer data, scheduled meetings and API keys are kept in SQLite files in `backend/data` |
+| Exercise library | Free Exercise DB (public domain), read live from GitHub |
+| Storage | No conversations: nothing said is recorded or saved. Accounts, Gym Trainer data and photos, scheduled meetings and API keys are kept in SQLite files in `backend/data` |
 
 ## Prerequisites (Windows)
 
@@ -104,12 +105,14 @@ If the connection drops, the screen says "Reconnecting" and comes back by itself
 
 ## Accounts
 
-Everyone signs in before the desktop opens; invited guests (meeting and call links) and the website widget do not need an account.
+Everyone signs in before using the app, including people who open a meeting or call invite link: they see the sign-in screen first, with a note that a call is waiting, and join it straight after signing in or creating their account. Only the website widget on other sites works without an account, because it uses an API key.
 
 - **Create account**: name and email, then the 6-digit code that arrives by email (it works for 10 minutes), then a password of at least 8 characters.
-- **Sign in**: email and password. You stay signed in for 30 days in that browser.
+- **Sign in**: email and password. You stay signed in until you close the browser or press **Sign out**, and at most 12 hours without using the app. (A browser set to reopen your last tabs at start-up may keep you signed in; **Sign out** always ends it.)
 - **Forgot password**: a code by email, then a new password; every other sign-in ends.
 - **Account** (Start menu, next to your name): change your name or password, sign out, or delete the account with everything in it.
+
+Every person uses their own email and chooses their own password; nothing is shared or built in. `SMTP_USERNAME` and `SMTP_PASSWORD` are only the Gmail account that sends the codes, never a sign-in. If sign-in says "The email or the password is wrong", that person either has not pressed **Create account** yet or typed a different password; the screen offers to create the account, and the backend window says which of the two it was (with the email shortened, for example `t***@gmail.com`). When the backend starts it also says whether codes can be emailed.
 
 Passwords are kept only as scrypt fingerprints, codes only as fingerprints, and sign-ins as a random number in an HttpOnly cookie, all in `backend/data/accounts.db` (Git ignores it). Each person may make 30 AI requests a minute and 300 a day (`USER_REQUESTS_PER_MINUTE`, `USER_REQUESTS_PER_DAY`); requests made on the computer that runs the backend are never limited. Scheduled meetings belong to the account that made them. API keys are still made only on the computer that runs the backend (or with the host key).
 
@@ -128,12 +131,15 @@ Phone numbers with SMS codes are not offered yet, because SMS costs money per me
 
 Double-click **Gym Trainer**. Fill in **Profile** once (age, height, weight, goal, experience, days a week, where you train, the food you eat and anything to avoid); it works out your daily calories, protein, carbohydrate, fat and water. Then:
 
-- **Workouts** and **Diet**: press **Make my workout plan** or **Make my meal plan** and Gemini makes a seven-day plan that fits your profile and targets. **Edit** changes any day by hand; **Make again…** remakes one day, and **Make a new week…** the whole week, with your wishes ("no running", "more paneer").
-- **Today**: today's planned workout (press **Done** for each exercise, with the weight you lifted), today's meals (**Ate this**), any food typed in your own words (the AI works out its calories), quick water buttons, weight, sleep, steps and a note. The arrows go to other days.
-- **Progress**: a tracking streak, workout days, averages and charts of weight, calories, protein, water, sets, sleep and steps for 7, 30 or 90 days, against your targets.
-- **Coach**: tell it what you did or ask anything ("I ran 3 km and had 2 chapatis"); it answers from your plans and log and logs what you tell it.
+- **Workouts** and **Diet**: press **Make my workout plan** or **Make my meal plan** and Gemini makes a seven-day plan that fits your profile and targets, choosing exercises from the exercise library. **Edit** changes any day by hand; **Make again…** remakes one day, and **Make a new week…** the whole week, with your wishes ("no running", "more paneer"). **How to** next to an exercise shows its demo.
+- **Exercises**: the whole exercise library (876 exercises for gym machines, free weights, home and no equipment). Search by name, or filter by where you train, the muscle and the type. Each one shows a looping animation of the start and end position, a body map with the main muscles in dark orange and the helping muscles in light orange, the steps, and **Read the steps aloud**.
+- **Today**: today's planned workout (press **Done** for each exercise, with the weight you lifted), or **Start guided workout**: it shows each exercise's demo, counts your sets, times your rests and says out loud what to do next; every finished exercise is logged with its weight. Today's meals (**Ate this**); food typed in your own words, or **Photo**: take or choose a photo of your plate and the AI works out each food's calories and macros, which you can correct before adding; the photo stays with that meal in the day's log. Quick water buttons, weight, sleep, steps and a note. The arrows go to other days.
+- **Progress**: a tracking streak, workout days, averages and charts of weight, calories, protein, water, sets, sleep and steps for 7, 30 or 90 days, against your targets. **Progress photos** keeps body photos by date and shows the first and the latest side by side.
+- **Coach**: type, or press the microphone and talk (Edge or Chrome; pick your language next to **Voice on**). It answers out loud and listens again until you stop talking. Tell it what you did ("I ran 3 km and had 2 chapatis") and it logs it; ask "how do I do a lat pulldown?" and it opens the demo; say "start my workout" and the guided workout begins.
 
-Everything is kept for your account only in `backend/data/trainer.db`. **Profile** can download all of it as a file or delete it. It uses `GEMINI_ASSISTANT_MODEL` (or `GEMINI_MODEL`). Plans and calorie numbers are AI estimates, not medical advice.
+Everything is kept for your account only in `backend/data/trainer.db`, photos included (shrunk to at most 1280 pixels, with location and camera details removed, before they leave the browser). **Profile** can download all of it as a file or delete it. It uses `GEMINI_ASSISTANT_MODEL` (or `GEMINI_MODEL`). Plans and calorie numbers are AI estimates, not medical advice.
+
+The exercise library is the [Free Exercise DB](https://github.com/yuhonas/free-exercise-db), which its makers have placed in the public domain. The backend reads its list from GitHub once a day (`EXERCISE_LIBRARY_URL`) and the browser loads the pictures from GitHub (`EXERCISE_IMAGES_URL`), so the library needs the internet; plans and tracking work without it. Each exercise has two photos, the start and the end position, which the app loops as a short animation; they are not full videos.
 
 ## Captions for an online meeting
 
@@ -163,19 +169,19 @@ The others can be on any phone or computer with Edge or Chrome, each speaking th
 2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
 3. Start the backend as above (`uvicorn ... --port 8000`).
 4. Open <http://localhost:8000>, double-click **Meet now**, type your name, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and your call opens straight away, showing the invite link (the public `https://...trycloudflare.com` link).
-5. Send that one link to up to 5 people. They need no key. Each opens it, types their name and says hello, and joins the running call. Everyone talks into their own device, sees the whole conversation and hears everyone else in their own language. **People** in the call shows who is there, who is connected, and the link again; you can also ask the assistant "who is in the call?".
+5. Send that one link to up to 5 people. Each opens it, signs in (or creates an account the first time), types their name and says hello, and joins the running call. Everyone talks into their own device, sees the whole conversation and hears everyone else in their own language. **People** in the call shows who is there, who is connected, and the link again; you can also ask the assistant "who is in the call?".
 
 A guest who presses End leaves alone and the call goes on; when the host presses End, the call ends for everyone.
 
 ### Scheduling a meeting
 
-Double-click **Schedule** (or tell the assistant "schedule a meeting tomorrow at 5 pm for 30 minutes about the budget"). Give it a name, a date and time, how long it lasts and what it is about, then press **Schedule and get the link**. Each meeting card has **Copy link**, **Copy invitation** (the text with time, length, agenda and link), **Email** (opens your mail app with it ready), **Share** and **Add to calendar** (a calendar file Outlook or Google Calendar opens). People who open the link early see the meeting details and wait in a lobby; when you press **Start meeting** and say hello, they are brought in automatically. Only the title, time, length, agenda and your name are kept, in `backend/data/meetings.db` on your laptop (Git ignores it).
+Double-click **Schedule** (or tell the assistant "schedule a meeting tomorrow at 5 pm for 30 minutes about the budget"). Give it a name, a date and time, how long it lasts and what it is about, then press **Schedule and get the link**. Each meeting card has **Copy link**, **Copy invitation** (the text with time, length, agenda and link), **Email** (opens your mail app with it ready), **Share** and **Add to calendar** (a calendar file Outlook or Google Calendar opens). People who open the link sign in first; if they are early they see the meeting details and wait in a lobby; when you press **Start meeting** and say hello, they are brought in automatically. Only the title, time, length, agenda and your name are kept, in `backend/data/meetings.db` on your laptop (Git ignores it).
 
 The link works while your laptop runs the app. A quick tunnel gets a new address every time the backend starts, so after a restart send the link again from the meeting card (it always shows the current one), or set `PUBLIC_URL` to a fixed address.
 
 If the app says there is no public link, it also says why: cloudflared is not installed, the frontend is not built, or the tunnel did not start (the backend window has the details). The backend looks for cloudflared on the PATH and where winget puts it; `CLOUDFLARED_PATH` in `backend/.env` names it directly, and `PUBLIC_URL` replaces the tunnel with an address of your own when the app is hosted somewhere. You can also open the app yourself through the public link (for example to be the host from your phone); then the app asks for the host key printed in the backend window, once per browser.
 
-The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation needs it, and invited guests are let in by their invite link. The tunnel address stays the same while the backend runs and changes when it starts again; the conversation stops when your laptop sleeps or the backend is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If someone's connection drops for a moment, the others see them as not connected and the call continues when they are back.
+The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation without an account needs it; everyone else signs in. The tunnel address stays the same while the backend runs and changes when it starts again; the conversation stops when your laptop sleeps or the backend is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If someone's connection drops for a moment, the others see them as not connected and the call continues when they are back.
 
 ## Using it from other websites and apps
 
@@ -184,7 +190,7 @@ Double-click **Developers** to make an API key for each website or app that shou
 - **A website**: paste the one-line widget from the Developers window before `</body>`. A Translate button appears in the corner and opens the translator in a panel.
 - **A server**: send the key in an `X-Api-Key` header to start a conversation, then stream audio over the WebSocket and receive captions and voices.
 
-The Developers window shows each key's use today and can revoke a key at once. Other sites reach the translator through the public link, so the tunnel (or `PUBLIC_URL`) must be working. Invited guests and keys have limits per minute and per day so nobody can use up the free Gemini quota; you are never limited. The full guide, with examples in curl, Python and JavaScript, is [docs/API.md](docs/API.md); the live reference of every call is at <http://localhost:8000/docs>.
+The Developers window shows each key's use today and can revoke a key at once. Other sites reach the translator through the public link, so the tunnel (or `PUBLIC_URL`) must be working. Signed-in people and keys have limits per minute and per day so nobody can use up the free Gemini quota; you are never limited. The full guide, with examples in curl, Python and JavaScript, is [docs/API.md](docs/API.md); the live reference of every call is at <http://localhost:8000/docs>.
 
 ## Project structure
 

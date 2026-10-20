@@ -91,13 +91,15 @@ describe('frontend API calls', () => {
     expect(new Headers(init!.headers).get('Content-Type')).toBe('audio/wav');
   });
 
-  it('lets an invited guest find their language with the invite', async () => {
+  it('finds an invited guest\'s language with their own sign-in, never the invite token', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{"language":"en","language_name":"English"}', { status: 200 }));
 
-    await detectLanguage(new ArrayBuffer(48), { roomId: 'r1', token: 'invite' });
+    await detectLanguage(new ArrayBuffer(48));
 
-    const headers = new Headers(fetchMock.mock.calls[0]![1]!.headers);
-    expect([headers.get('X-Room-Id'), headers.get('X-Room-Token')]).toEqual(['r1', 'invite']);
+    const [, init] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(init!.headers);
+    expect([headers.get('X-Room-Id'), headers.get('X-Room-Token'), headers.get('X-Meeting-Token')]).toEqual([null, null, null]);
+    expect(init!.credentials).toBe('include');
   });
 
   it('sends the saved host key with every request and checks a new one', async () => {
@@ -244,7 +246,7 @@ describe('frontend API calls', () => {
       now: '2026-10-19T22:10:00+05:30',
     };
 
-    await expect(askAssistant(request, { roomId: 'room-1', token: 'secret' })).resolves.toEqual({
+    await expect(askAssistant(request)).resolves.toEqual({
       answer: 'Muted.',
       actions: [{ name: 'mute', arguments: {} }, { name: 'open_app', arguments: { app: 'help' } }],
       sources: [{ title: 'Site', url: 'https://site.example' }],
@@ -254,8 +256,8 @@ describe('frontend API calls', () => {
     expect(url).toBe('http://localhost:8000/api/assistant');
     expect(init?.method).toBe('POST');
     expect(JSON.parse(String(init?.body))).toEqual(request);
-    expect(headers.get('X-Room-Id')).toBe('room-1');
-    expect(headers.get('X-Room-Token')).toBe('secret');
+    expect(headers.get('X-Room-Id')).toBeNull();
+    expect(init?.credentials).toBe('include');
   });
 
   it('passes on why the assistant could not answer and refuses a broken answer', async () => {
@@ -325,17 +327,6 @@ describe('frontend API calls', () => {
     expect(new Headers(calls[1]![1]!.headers).get('X-Meeting-Token')).toBe('secret');
     expect(JSON.parse(String(calls[2]![1]!.body))).toEqual({ consent: true, token: 'secret', guest: { name: 'Priya', preferred_language: 'hi' } });
     expect(calls[3]![1]!.method).toBe('DELETE');
-  });
-
-  it('lets a meeting guest find their language with the meeting link', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('{"language":"hi"}', { status: 200 }));
-
-    await detectLanguage(new ArrayBuffer(4), { meetingId: 'm1', token: 'secret' });
-
-    const headers = new Headers(fetchMock.mock.calls[0]![1]!.headers);
-    expect(headers.get('X-Meeting-Token')).toBe('secret');
-    expect(headers.get('X-Meeting-Id')).toBe('m1');
-    expect(headers.get('X-Room-Id')).toBeNull();
   });
 
   it('sends the app key instead of the host key inside an embedded app', async () => {

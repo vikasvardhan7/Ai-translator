@@ -54,17 +54,6 @@ export interface MeetingAccess {
   token: string;
 }
 
-function roomHeaders(room: RoomAccess | undefined): Record<string, string> {
-  return room ? { 'X-Room-Id': room.roomId, 'X-Room-Token': room.token } : {};
-}
-
-function accessHeaders(access: RoomAccess | MeetingAccess | undefined): Record<string, string> {
-  if (access && 'meetingId' in access) {
-    return { 'X-Meeting-Id': access.meetingId, 'X-Meeting-Token': access.token };
-  }
-  return roomHeaders(access);
-}
-
 export async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = savedHostKey()): Promise<T> {
   const headers = new Headers(init.headers);
   const apiKey = requestApiKey();
@@ -111,10 +100,10 @@ export interface DetectedLanguage {
   language: string;
 }
 
-export async function detectLanguage(wav: ArrayBuffer, access?: RoomAccess | MeetingAccess): Promise<DetectedLanguage> {
+export async function detectLanguage(wav: ArrayBuffer): Promise<DetectedLanguage> {
   const body = await requestJson<unknown>('/api/languages/detect', {
     method: 'POST',
-    headers: { 'Content-Type': 'audio/wav', ...accessHeaders(access) },
+    headers: { 'Content-Type': 'audio/wav' },
     body: wav,
   });
 
@@ -283,8 +272,8 @@ function readVoice(value: unknown): VoiceOption | null {
   };
 }
 
-export async function getVoices(room?: RoomAccess): Promise<VoiceOption[]> {
-  const body = await requestJson<unknown>('/api/voices', { headers: roomHeaders(room) });
+export async function getVoices(): Promise<VoiceOption[]> {
+  const body = await requestJson<unknown>('/api/voices');
   if (!isRecord(body) || !Array.isArray(body.voices)) {
     throw new Error('The backend returned an invalid voice list.');
   }
@@ -340,10 +329,10 @@ function readSource(value: unknown): Source | null {
   return { title: value.title, url: value.url };
 }
 
-export async function askAssistant(request: AssistantRequest, room?: RoomAccess): Promise<AssistantReply> {
+export async function askAssistant(request: AssistantRequest): Promise<AssistantReply> {
   const body = await requestJson<unknown>('/api/assistant', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...roomHeaders(room) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
   if (!isRecord(body) || typeof body.answer !== 'string' || !Array.isArray(body.actions) || !Array.isArray(body.sources)) {

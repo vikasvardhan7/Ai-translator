@@ -8,6 +8,7 @@ from app.services import meeting_store
 from app.services.meeting_store import MeetingStore
 from tests.conftest import ELSEWHERE, HOST_KEY, make_client, receive
 from tests.fakes import FakeSynthesizer, FakeTranslator
+from tests.test_account import sign_up
 
 HOST = {"name": "Vikas", "preferred_language": "en"}
 GUEST = {"name": "Priya", "preferred_language": "hi"}
@@ -216,33 +217,33 @@ def test_a_meeting_long_over_cannot_be_started_or_joined(client: TestClient, mon
     assert listed == []
 
 
-def test_an_invited_guest_can_find_their_language_before_joining() -> None:
+def test_an_invited_guest_signs_in_before_seeing_or_joining_the_meeting() -> None:
     client = make_client(translator=FakeTranslator(), client=ELSEWHERE)
     meeting = client.post(
         "/api/meetings",
         json={"title": "Sync", "starts_at": soon(), "duration_minutes": 30, "host_name": "V"},
         headers={"X-Host-Key": HOST_KEY},
     ).json()
-    headers = {"Content-Type": "audio/wav"}
+    invite = {"X-Meeting-Token": meeting["invite_token"]}
+    sound = {"Content-Type": "audio/wav", "X-Meeting-Id": meeting["id"], **invite}
+    join = {"consent": True, "token": meeting["invite_token"], "guest": GUEST}
 
-    refused = client.post("/api/languages/detect", content=b"RIFF", headers=headers)
-    wrong = client.post(
-        "/api/languages/detect",
-        content=b"RIFF",
-        headers={**headers, "X-Meeting-Id": meeting["id"], "X-Meeting-Token": "guess"},
+    before = [
+        client.get(f"/api/meetings/{meeting['id']}", headers=invite).status_code,
+        client.post("/api/languages/detect", content=b"RIFF", headers=sound).status_code,
+        client.post(f"/api/meetings/{meeting['id']}/join", json=join).status_code,
+    ]
+    sign_up(client, client.app.state.mailer)
+    seen = client.get(f"/api/meetings/{meeting['id']}", headers=invite)
+    detected = client.post(
+        "/api/languages/detect", content=b"RIFF", headers={"Content-Type": "audio/wav"}
     )
-    allowed = client.post(
-        "/api/languages/detect",
-        content=b"RIFF",
-        headers={
-            **headers,
-            "X-Meeting-Id": meeting["id"],
-            "X-Meeting-Token": meeting["invite_token"],
-        },
-    )
+    early = client.post(f"/api/meetings/{meeting['id']}/join", json=join)
 
-    assert (refused.status_code, wrong.status_code) == (401, 401)
-    assert allowed.status_code != 401
+    assert before == [401, 401, 401]
+    assert seen.json()["title"] == "Sync"
+    assert detected.status_code != 401
+    assert early.status_code == 409
 
 
 def test_meetings_are_kept_in_a_file_and_old_ones_are_dropped(tmp_path: Path) -> None:

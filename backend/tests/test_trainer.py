@@ -152,7 +152,8 @@ def test_one_day_can_be_made_again_with_a_wish() -> None:
 
     kind, wishes, current, day = coach.asked[-1]
     assert (kind, wishes, day) == ("workout", "Knee hurts", "monday")
-    assert current == workout_plan()
+    assert current.days[0].exercises[0].name == "Goblet squat"
+    assert current.days[0].focus == workout_plan().days[0].focus
 
 
 def test_the_person_can_edit_a_plan_but_it_must_cover_the_week() -> None:
@@ -306,7 +307,7 @@ def test_foods_are_estimated_by_the_ai() -> None:
     found = client.post("/api/trainer/foods", json={"text": "one masala dosa"}).json()
 
     assert found["items"][0]["calories"] == 170
-    assert coach.asked[-1] == ("foods", "one masala dosa")
+    assert coach.asked[-1] == ("foods", "one masala dosa", None)
 
 
 def test_the_coach_knows_today_and_logs_what_you_tell_it() -> None:

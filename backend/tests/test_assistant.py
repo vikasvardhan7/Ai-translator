@@ -19,6 +19,7 @@ from app.services.assistant.base import (
 from app.services.assistant.factory import build_meeting_assistant
 from app.services.assistant.gemini import MAX_TRANSCRIPT_CHARACTERS, GeminiMeetingAssistant
 from tests.conftest import ELSEWHERE, HOST_KEY, make_client
+from tests.test_account import sign_up
 
 API_KEY = "fake-key-for-tests"
 TRANSCRIPT = [
@@ -448,7 +449,7 @@ def test_failures_and_a_missing_assistant_are_explained() -> None:
     assert "GEMINI_API_KEY" in json.dumps(missing.json())
 
 
-def test_from_elsewhere_only_the_host_key_or_a_guest_may_ask() -> None:
+def test_from_elsewhere_only_the_host_key_or_a_signed_in_person_may_ask() -> None:
     fake = FakeAssistant()
 
     with client_with(fake, client=ELSEWHERE) as client:
@@ -459,10 +460,13 @@ def test_from_elsewhere_only_the_host_key_or_a_guest_may_ask() -> None:
             json={"consent": True, "host": {"name": "Host", "preferred_language": "en"}},
             headers={"X-Host-Key": HOST_KEY},
         ).json()
-        guest = client.post(
+        invite_only = client.post(
             "/api/assistant",
             json=BODY,
             headers={"X-Room-Id": room["room_id"], "X-Room-Token": room["invite_token"]},
         )
+        sign_up(client, client.app.state.mailer)
+        signed_in = client.post("/api/assistant", json=BODY)
 
-    assert (refused.status_code, allowed.status_code, guest.status_code) == (401, 200, 200)
+    assert (refused.status_code, allowed.status_code) == (401, 200)
+    assert (invite_only.status_code, signed_in.status_code) == (401, 200)

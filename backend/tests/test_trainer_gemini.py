@@ -1,3 +1,4 @@
+import base64
 import json
 
 import httpx
@@ -7,7 +8,9 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.models.trainer import CoachLine, Profile
 from app.services.trainer.gemini import GeminiTrainer, TrainerFailed, build_trainer
+from app.services.trainer.library import RawExercise, _exercise
 from app.services.trainer.targets import targets_for
+from tests.fakes import IMAGES_URL, LIBRARY
 from tests.test_assistant import Recorder, calls, error, text
 from tests.test_trainer import PROFILE, diet_plan, workout_plan
 
@@ -143,6 +146,9 @@ async def test_the_coach_logs_with_tools_and_answers() -> None:
         "log_sleep",
         "log_steps",
         "log_note",
+        "show_exercise",
+        "start_workout",
+        "open_page",
     ]
     assert "2026-10-20T13:00+05:30" in body["systemInstruction"]["parts"][0]["text"]
 
@@ -171,3 +177,76 @@ def test_the_trainer_needs_a_key_and_a_model() -> None:
         build_trainer(Settings(_env_file=None, gemini_api_key=SecretStr("k"), gemini_model="m"))
         is not None
     )
+
+
+async def test_plans_choose_from_the_exercise_library() -> None:
+    library = [_exercise(RawExercise.model_validate(entry), IMAGES_URL) for entry in LIBRARY[:2]]
+    recorder = Recorder(text(workout_plan().model_dump_json()))
+
+    await trainer(recorder).workout_plan(PERSON, TARGETS, "", None, None, library)
+
+    body = recorder.body()
+    asked = body["contents"][0]["parts"][0]["text"]
+    assert "Goblet_Squat | Goblet Squat | kettlebells | quadriceps" in asked
+    assert "copy its id exactly" in asked
+    schema = body["generationConfig"]["responseJsonSchema"]
+    exercise = schema["properties"]["days"]["items"]["properties"]["exercises"]["items"]
+    assert "library_id" in exercise["required"]
+
+
+async def test_without_the_library_the_plan_leaves_links_empty() -> None:
+    recorder = Recorder(text(workout_plan().model_dump_json()))
+
+    await trainer(recorder).workout_plan(PERSON, TARGETS, "", None, None)
+
+    assert "Leave library_id empty" in recorder.body()["contents"][0]["parts"][0]["text"]
+
+
+async def test_a_food_photo_is_sent_as_a_picture() -> None:
+    answer = {
+        "items": [
+            {
+                "food": "Rice",
+                "amount": "1 cup",
+                "calories": 200,
+                "protein_g": 4,
+                "carbs_g": 45,
+                "fat_g": 0.5,
+            }
+        ]
+    }
+    recorder = Recorder(text(json.dumps(answer)))
+
+    items = await trainer(recorder).foods("my lunch", PERSON, ("image/jpeg", b"\xff\xd8\xffpic"))
+
+    parts = recorder.body()["contents"][0]["parts"]
+    picture = parts[0]["inlineData"]
+    assert picture.get("mimeType", picture.get("mime_type")) == "image/jpeg"
+    assert base64.urlsafe_b64decode(picture["data"]) == b"\xff\xd8\xffpic"
+    assert "Find every food" in parts[1]["text"] and "my lunch" in parts[1]["text"]
+    assert "written in a photo" in recorder.body()["systemInstruction"]["parts"][0]["text"]
+    assert items[0].food == "Rice"
+
+
+async def test_the_coach_can_show_exercises_and_start_workouts() -> None:
+    recorder = Recorder(
+        calls(
+            ("show_exercise", {"name": "Goblet squat"}),
+            ("start_workout", {}),
+            ("open_page", {"page": "diet"}),
+        )
+    )
+
+    answer = await trainer(recorder).coach(
+        "Today is monday.", [CoachLine(role="user", text="Let's go")], None
+    )
+
+    assert answer.answer == ""
+    assert answer.logs == ()
+    assert answer.actions == (
+        {"kind": "show_exercise", "name": "Goblet squat"},
+        {"kind": "start_workout"},
+        {"kind": "open_page", "page": "diet"},
+    )
+    rules = recorder.body()["systemInstruction"]["parts"][0]["text"]
+    assert "read aloud" in rules and "show_exercise" in rules

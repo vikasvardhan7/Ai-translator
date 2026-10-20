@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-import type { RoomAccess, SaidLine } from '../../services/api';
+import type { SaidLine } from '../../services/api';
 
 export const CALL_ACTIONS = [
   'mute',
@@ -24,7 +24,6 @@ export interface CallControls {
   run: (name: CallAction, args: Record<string, string>) => void;
   transcript: () => SaidLine[];
   language: string;
-  room?: RoomAccess;
 }
 
 export function isCallAction(value: string): value is CallAction {

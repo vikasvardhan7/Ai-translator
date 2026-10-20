@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { currentUser, SIGNED_OUT_EVENT, signOut, type AccountUser } from '../../services/api';
+import { inviteFromHash, meetingFromHash } from '../../services/conversations';
 import Desktop from '../desktop/Desktop';
 import { PrivacyPolicy, TermsAndConditions } from '../legal/LegalPages';
-import GuestApp, { isGuestLink } from './GuestApp';
 import SignInScreen from './SignInScreen';
 
 type Phase = 'checking' | 'ready' | 'offline';
 type Legal = 'privacy' | 'terms' | null;
+
+export function isInviteLink(hash: string): boolean {
+  return inviteFromHash(hash) !== null || meetingFromHash(hash) !== null;
+}
 
 function legalFromHash(): Legal {
   const hash = window.location.hash.slice(1);
@@ -17,7 +21,7 @@ function legalFromHash(): Legal {
 export default function AccountGate() {
   const [phase, setPhase] = useState<Phase>('checking');
   const [user, setUser] = useState<AccountUser | null>(null);
-  const [guest, setGuest] = useState(() => isGuestLink(window.location.hash));
+  const [invited, setInvited] = useState(() => isInviteLink(window.location.hash));
   const [legal, setLegal] = useState<Legal>(legalFromHash);
 
   const check = useCallback(async () => {
@@ -38,9 +42,7 @@ export default function AccountGate() {
     const signedOut = (): void => setUser(null);
     const follow = (): void => {
       setLegal(legalFromHash());
-      if (isGuestLink(window.location.hash)) {
-        setGuest(true);
-      }
+      setInvited(isInviteLink(window.location.hash));
     };
     window.addEventListener(SIGNED_OUT_EVENT, signedOut);
     window.addEventListener('hashchange', follow);
@@ -83,10 +85,6 @@ export default function AccountGate() {
     return <Desktop user={user} onUser={setUser} onSignOut={() => void leave().catch(() => undefined)} onDeleted={() => setUser(null)} />;
   }
 
-  if (guest) {
-    return <GuestApp onSignIn={() => setGuest(false)} />;
-  }
-
   if (legal) {
     return (
       <div className="sign-in-legal">
@@ -105,5 +103,5 @@ export default function AccountGate() {
     );
   }
 
-  return <SignInScreen onSignedIn={setUser} />;
+  return <SignInScreen onSignedIn={setUser} invited={invited} />;
 }

@@ -2,7 +2,15 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 Goal = Literal["lose_fat", "build_muscle", "get_fit", "get_stronger", "endurance"]
 Level = Literal["beginner", "intermediate", "advanced"]
@@ -12,6 +20,9 @@ Equipment = Literal["gym", "home_dumbbells", "bodyweight"]
 Diet = Literal["vegetarian", "eggetarian", "non_vegetarian", "vegan"]
 Weekday = Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 PlanKind = Literal["workout", "diet"]
+PhotoKind = Literal["meal", "body"]
+Page = Literal["today", "workouts", "diet", "progress", "exercises", "profile"]
+PHOTO_ID = r"^[0-9a-f]{32}$"
 WEEKDAYS: tuple[Weekday, ...] = (
     "monday",
     "tuesday",
@@ -90,6 +101,7 @@ class Exercise(Strict):
     reps: limited_text(20) = Field(min_length=1)
     rest_seconds: bounded_int(0, 600)
     how: limited_text(200) = ""
+    library_id: limited_text(120) = ""
 
 
 class WorkoutDay(Strict):
@@ -164,6 +176,7 @@ class MealEaten(Strict):
     protein_g: float = Field(default=0, ge=0, le=500)
     carbs_g: float = Field(default=0, ge=0, le=800)
     fat_g: float = Field(default=0, ge=0, le=500)
+    photo_id: str | None = Field(default=None, pattern=PHOTO_ID)
 
 
 class WaterDrunk(Strict):
@@ -241,7 +254,14 @@ class ProgressOut(BaseModel):
 
 
 class FoodRequest(Strict):
-    text: str = Field(min_length=1, max_length=300)
+    text: str = Field(default="", max_length=300)
+    photo_id: str | None = Field(default=None, pattern=PHOTO_ID)
+
+    @model_validator(mode="after")
+    def something_to_estimate(self) -> "FoodRequest":
+        if not self.text and not self.photo_id:
+            raise ValueError("Describe the food or add a photo of it.")
+        return self
 
 
 class FoodOut(BaseModel):
@@ -264,9 +284,51 @@ class CoachRequest(Strict):
     now: AwareDatetime | None = None
 
 
+class CoachAction(BaseModel):
+    kind: Literal["show_exercise", "start_workout", "open"]
+    exercise_id: str | None = None
+    query: str | None = None
+    page: Page | None = None
+
+
 class CoachReply(BaseModel):
     answer: str
     logged: list[EntryOut]
+    actions: list[CoachAction] = Field(default_factory=list)
+
+
+class PhotoOut(BaseModel):
+    id: str
+    day: date
+    kind: PhotoKind
+    created_at: datetime
+    size: int
+
+
+class PhotoList(BaseModel):
+    photos: list[PhotoOut]
+
+
+class LibraryCard(BaseModel):
+    id: str
+    name: str
+    equipment: str
+    category: str
+    level: str
+    primary: list[str]
+    secondary: list[str]
+    images: list[str]
+
+
+class LibraryExercise(LibraryCard):
+    force: str | None
+    mechanic: str | None
+    instructions: list[str]
+
+
+class LibraryOut(BaseModel):
+    exercises: list[LibraryCard]
+    source: str
 
 
 class TrainerExport(BaseModel):
@@ -275,3 +337,4 @@ class TrainerExport(BaseModel):
     workout: WorkoutPlan | None
     diet: DietPlan | None
     entries: list[EntryOut]
+    photos: list[PhotoOut]

@@ -81,7 +81,7 @@ export default function AssistantApp({ chat, onChat, prompt, onPromptTaken, runn
         transcript: controls?.transcript() ?? [],
         actions: possibleActions(running, call),
         now: localIso(),
-      }, controls?.room);
+      });
       const latest = bridge?.get() ?? null;
       const notes = runActions(reply.actions, desktop, latest ? { available: latest.actions, run: latest.run } : null);
       onChat((current) => [...current, { id: nextIdRef.current++, role: 'assistant', text: reply.answer, notes, sources: reply.sources }]);

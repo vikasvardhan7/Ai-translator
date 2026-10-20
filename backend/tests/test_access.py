@@ -9,6 +9,7 @@ from app.services.audio_ingestion.wav import encode_wav
 from tests.audio import tone
 from tests.conftest import ELSEWHERE, FRONTEND, HOST_KEY, VALID_BODY, make_client
 from tests.fakes import FakeSynthesizer, FakeTranslator
+from tests.test_account import sign_up
 
 HOST = {"name": "Host", "preferred_language": "en"}
 HELLO = encode_wav(tone(1.0))
@@ -78,29 +79,32 @@ def test_starting_a_conversation_from_elsewhere_needs_the_host_key() -> None:
     assert [r.status_code for r in allowed] == [201, 201]
 
 
-def test_an_invited_guest_can_find_their_language_and_join_without_the_key() -> None:
+def test_an_invite_link_alone_lets_nobody_in_until_they_sign_in() -> None:
     client = from_elsewhere()
     room = client.post(
         "/api/rooms", json={"consent": True, "host": HOST}, headers={"X-Host-Key": HOST_KEY}
     ).json()
     invite = {"X-Room-Id": room["room_id"], "X-Room-Token": room["invite_token"]}
+    join = {"consent": True, "token": room["invite_token"], "guest": GUEST}
 
-    stranger = client.post("/api/languages/detect", content=HELLO)
+    before = [
+        client.post("/api/languages/detect", content=HELLO, headers=invite).status_code,
+        client.get("/api/voices", headers=invite).status_code,
+        client.post(f"/api/rooms/{room['room_id']}/join", json=join).status_code,
+    ]
+    sign_up(client, client.app.state.mailer)
+    after = [
+        client.post("/api/languages/detect", content=HELLO).status_code,
+        client.get("/api/voices").status_code,
+        client.post(f"/api/rooms/{room['room_id']}/join", json=join).status_code,
+    ]
     wrong = client.post(
-        "/api/languages/detect", content=HELLO, headers={**invite, "X-Room-Token": "x"}
-    )
-    detected = client.post("/api/languages/detect", content=HELLO, headers=invite)
-    voices = client.get("/api/voices", headers=invite)
-    joined = client.post(
-        f"/api/rooms/{room['room_id']}/join",
-        json={"consent": True, "token": room["invite_token"], "guest": GUEST},
-    )
-    device = {"X-Room-Id": room["room_id"], "X-Room-Token": joined.json()["token"]}
+        f"/api/rooms/{room['room_id']}/join", json={**join, "token": "guess"}
+    ).status_code
 
-    assert [stranger.status_code, wrong.status_code] == [401, 401]
-    assert [detected.status_code, voices.status_code, joined.status_code] == [200, 200, 200]
-    assert client.get("/api/voices", headers=device).status_code == 200
-    assert client.get("/api/voices").status_code == 401
+    assert before == [401, 401, 401]
+    assert after == [200, 200, 200]
+    assert wrong == 403
 
 
 def test_a_new_host_key_is_easy_to_type_and_shown_when_the_server_starts(caplog) -> None:

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { loadProgress, localDay, type DaySummary, type TrainerState } from '../../services/trainer';
 import Chart from './Chart';
+import ProgressPhotos from './ProgressPhotos';
 import { rounded } from './labels';
 import { problemText } from './problems';
 
@@ -93,6 +94,7 @@ export default function ProgressTab({ state, changed }: { state: TrainerState; c
         <Chart title="Sleep" unit="h" kind="bars" days={labels} values={days.map((day) => day.sleep_hours)} />
         <Chart title="Steps" unit="steps" kind="bars" days={labels} values={days.map((day) => day.steps)} />
       </div>
+      <ProgressPhotos />
     </div>
   );
 }
