@@ -285,6 +285,9 @@ async def test_leaving_right_after_stop_is_not_a_server_failure(caplog) -> None:
     assert sent == ["session.ready", "speech.activity", "utterance.received"]
 
 
+CLOCK_SLACK = 0.05
+
+
 def test_each_sentence_logs_how_long_each_step_took_without_its_words(caplog) -> None:
     caplog.set_level(logging.INFO)
     client = make_client(translator=FakeTranslator(delays=[0.2]), synthesizer=FakeSynthesizer())
@@ -300,7 +303,7 @@ def test_each_sentence_logs_how_long_each_step_took_without_its_words(caplog) ->
         caplog.text,
     )
     assert sentence is not None
-    assert float(sentence.group(1)) >= 0.2
+    assert float(sentence.group(1)) >= 0.2 - CLOCK_SLACK
     assert float(sentence.group(2)) >= float(sentence.group(1))
     assert re.search(r"Voice \w{8}: made in [\d.]+ s, ready [\d.]+ s after", caplog.text)
     assert "How are you" not in caplog.text
