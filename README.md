@@ -8,6 +8,8 @@ People sign up and sign in with their email (a 6-digit code is emailed to them) 
 
 Nothing of a conversation is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
 
+It runs on your laptop for testing, or online for everyone: [`docs/DEPLOY.md`](docs/DEPLOY.md) puts it on a free Oracle Cloud server with a free DuckDNS address and https, and people install it from the website as an app on Android, iPhone, Windows or Mac.
+
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx) is the original plan from the first day and is out of date; the protocol and decisions are current.
 
 ## Tech stack
@@ -110,7 +112,7 @@ Everyone signs in before using the app, including people who open a meeting or c
 - **Create account**: name and email, then the 6-digit code that arrives by email (it works for 10 minutes), then a password of at least 8 characters.
 - **Sign in**: email and password. You stay signed in until you close the browser or press **Sign out**, and at most 12 hours without using the app. (A browser set to reopen your last tabs at start-up may keep you signed in; **Sign out** always ends it.)
 - **Forgot password**: a code by email, then a new password; every other sign-in ends.
-- **Account** (Start menu, next to your name): change your name or password, sign out, or delete the account with everything in it.
+- **Account**: your initial sits at the right end of the taskbar; press it to see who is signed in, open **Account settings** or **Sign out** from anywhere, even with apps open. The **Account** icon on the desktop and the Start menu open the same settings: change your name or password, sign out, or delete the account with everything in it.
 
 Every person uses their own email and chooses their own password; nothing is shared or built in. `SMTP_USERNAME` and `SMTP_PASSWORD` are only the Gmail account that sends the codes, never a sign-in. If sign-in says "The email or the password is wrong", that person either has not pressed **Create account** yet or typed a different password; the screen offers to create the account, and the backend window says which of the two it was (with the email shortened, for example `t***@gmail.com`). When the backend starts it also says whether codes can be emailed.
 
@@ -135,7 +137,7 @@ Double-click **Gym Trainer**. Fill in **Profile** once (age, height, weight, goa
 
 - **Workouts** and **Diet**: press **Make my workout plan** or **Make my meal plan** and Gemini makes a seven-day plan that fits your profile and targets, choosing exercises from the exercise library. **Edit** changes any day by hand; **Make again…** remakes one day, and **Make a new week…** the whole week, with your wishes ("no running", "more paneer"). **How to** next to an exercise shows its demo.
 - **Exercises**: the whole exercise library (876 exercises for gym machines, free weights, home and no equipment). Search by name, or filter by where you train, the muscle and the type. Each one shows a looping animation of the start and end position, a body map with the main muscles in dark orange and the helping muscles in light orange, the steps, and **Read the steps aloud**.
-- **Today**: today's planned workout (press **Done** for each exercise, with the weight you lifted), or **Start guided workout**: it shows each exercise's demo, counts your sets, times your rests and says out loud what to do next; every finished exercise is logged with its weight. Today's meals (**Ate this**); food typed in your own words, or **Photo**: take or choose a photo of your plate and the AI works out each food's calories and macros, which you can correct before adding; the photo stays with that meal in the day's log. Quick water buttons, weight, sleep, steps and a note. The arrows go to other days.
+- **Today** opens with your day at a glance, and it keeps itself up to date (every 30 seconds while it is on screen, and whenever you come back to it): the calories left for today in big type, then protein, water (in glasses, with **+1 glass**) and workout sets still to go. Under that, a line runs through the day from 06:00 to 23:00 with each planned meal on it (green when eaten, dashed when its time passed without it, highlighted when it is due) and a mark for the time now. One box says what to do next, in this order: the meal that is due (**I ate this**), the rest of the workout (**Start guided workout**), a glass of water if you are behind for the time of day, or the next meal. A strip of the last seven days shows which ones have food and a workout logged; press a day to open it. Below that is today's planned workout (press **Done** for each exercise, with the weight you lifted), or **Start guided workout**: it shows each exercise's demo, counts your sets, times your rests and says out loud what to do next; every finished exercise is logged with its weight. Today's meals (**Ate this**); food typed in your own words, or **Photo**: take or choose a photo of your plate and the AI works out each food's calories and macros, which you can correct before adding; the photo stays with that meal in the day's log. Quick water buttons, weight, sleep, steps and a note. The arrows go to other days.
 - **Progress**: a tracking streak, workout days, averages and charts of weight, calories, protein, water, sets, sleep and steps for 7, 30 or 90 days, against your targets. **Progress photos** keeps body photos by date and shows the first and the latest side by side.
 - **Coach**: type, or press the microphone and talk (Edge or Chrome; pick your language next to **Voice on**). It answers out loud and listens again until you stop talking. Tell it what you did ("I ran 3 km and had 2 chapatis") and it logs it; ask "how do I do a lat pulldown?" and it opens the demo; say "start my workout" and the guided workout begins.
 
@@ -194,6 +196,12 @@ Double-click **Developers** to make an API key for each website or app that shou
 
 The Developers window shows each key's use today and can revoke a key at once. Other sites reach the translator through the public link, so the tunnel (or `PUBLIC_URL`) must be working. Signed-in people and keys have limits per minute and per day so nobody can use up the free Gemini quota; you are never limited. The full guide, with examples in curl, Python and JavaScript, is [docs/API.md](docs/API.md); the live reference of every call is at <http://localhost:8000/docs>.
 
+## Putting it online for everyone
+
+[`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step guide: a free Oracle Cloud server, a free DuckDNS address, then `bash setup.sh` on the server, which opens the firewall, installs Docker and starts three containers: the app (backend and built website together, with every database in a Docker volume), Caddy (free https certificates, renewed by itself) and a small DuckDNS updater. `bash update.sh` brings the server up to date with `main`, and `bash backup.sh` saves a consistent copy of every database.
+
+The website is also an installable app (a web app manifest, icons and a small service worker). On the desktop, **Install app** installs it in Chrome and Edge, and on iPhone and iPad it explains Safari's **Share**, then **Add to Home Screen**; the icon disappears once the app is installed. The installed app always runs the version on the server and shows a short offline page when there is no internet. On Android, long-press the app icon (on Windows, right-click it) for **Gym Trainer** and **Schedule a meeting**.
+
 ## Project structure
 
 ```
@@ -210,11 +218,13 @@ Ai-translator/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes), meetings, Gym Trainer, developers, embedded widget view, assistant, setup, call screens
-│   ├── public/widget.js     the one-line website widget
+│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes, installing the app), meetings, Gym Trainer, developers, embedded widget view, assistant, setup, call screens
+│   ├── public/              the one-line website widget, app manifest, icons, service worker and offline page
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                    protocol, API guide for other apps, decisions, developer handbook
+├── deploy/                  server setup: compose file, Caddy, DuckDNS updater, setup, update and backup scripts, settings example
+├── docs/                    protocol, API guide for other apps, decisions, putting it online, developer handbook
+├── Dockerfile               builds the website and the backend into one image
 └── README.md
 ```
 
@@ -230,4 +240,5 @@ Every pull request and every push to `main` runs the backend tests and lint (on 
 - The sign-in cookie is HttpOnly (scripts cannot read it), SameSite=Lax, and Secure when the app is opened over https.
 - API keys for other apps are kept only as SHA-256 fingerprints in `backend/data/keys.db` (Git ignores it). A key written into a web page can be read by anyone who sees that page, so give the widget its own key with a modest daily limit and revoke it if it is misused.
 - Through a public link, starting conversations needs the host key printed by the backend; the backend's request log hides tokens and session ids. If you put your own proxy in front of the backend instead of cloudflared, set `HOST_KEY_EVERYWHERE=true` in `backend/.env` so requests through it are never mistaken for local ones.
+- On the server, every secret lives only in `deploy/.env` (Git ignores it; `setup.sh` makes it readable by its owner only), the build never sees `.env` files or databases, the app runs as an unprivileged user, and `HOST_KEY_EVERYWHERE` is on. Caddy serves https only (port 80 redirects), adds HSTS, `nosniff` and a strict referrer policy, removes any client-sent `Cf-Connecting-Ip`, and sets `X-Forwarded-For` to the real visitor, so per-device sign-in limits cannot be dodged by faking it.
 - `.git/info/exclude` is the place for your own editor and agent folders; `.gitignore` covers build output, caches, Word lock files and coverage reports.

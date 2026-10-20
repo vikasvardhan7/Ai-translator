@@ -1,4 +1,5 @@
 import AppIcon, { type IconName } from './AppIcon';
+import { askToInstall, INSTALL_STEPS, useInstallWay } from './install';
 
 const ITEMS: Array<{ icon: IconName; title: string; text: string }> = [
   { icon: 'translator', title: 'Translator', text: 'Every conversation runs here. Say hello and it finds your language, then each sentence appears as a caption in the other language and can be spoken aloud. Words show while they are spoken, and Transcript downloads the conversation as a Word document, a PDF, text or subtitles.' },
@@ -28,9 +29,31 @@ const COMMANDS = [
   'End the call',
 ];
 
+function InstallSection() {
+  const way = useInstallWay();
+  if (way === 'installed') {
+    return null;
+  }
+  return (
+    <section className="help-install" aria-labelledby="help-install-title">
+      <AppIcon name="install" size="large" />
+      <div>
+        <h3 id="help-install-title">Install the app</h3>
+        <p>{INSTALL_STEPS[way]}</p>
+        {way === 'button' && (
+          <button className="button button-primary button-small" type="button" onClick={() => void askToInstall()}>
+            Install the app
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function HelpApp({ onTry }: { onTry: (text: string) => void }) {
   return (
     <div className="help-app">
+      <InstallSection />
       <p className="help-lead">Double-click an icon on the desktop, pick it from Start, or just tell the assistant what you want.</p>
       <ul className="help-list">
         {ITEMS.map((item) => (

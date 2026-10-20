@@ -1,4 +1,4 @@
-export type IconName = 'translator' | 'trainer' | 'meeting' | 'remote' | 'here' | 'assistant' | 'schedule' | 'personalize' | 'developers' | 'account' | 'help' | 'privacy' | 'terms' | 'start';
+export type IconName = 'translator' | 'trainer' | 'meeting' | 'remote' | 'here' | 'assistant' | 'schedule' | 'personalize' | 'developers' | 'account' | 'help' | 'privacy' | 'terms' | 'start' | 'install';
 
 const PATHS: Record<IconName, string> = {
   translator: 'M4 4h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm4 2-2.6 6h1.5l.5-1.3h2.2l.5 1.3h1.5L9.1 6zm.5 2.2.6 1.4H7.9zM18 8h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-1v3l-4-3h-4a2 2 0 0 1-2-2v-1h5a3 3 0 0 0 3-3V8zm-2.5 7.5c.9 0 1.8-.3 2.5-.8.7.5 1.6.8 2.5.8v-1.2c-.5 0-1-.1-1.5-.4.5-.6.8-1.3.9-2.1h.6v-1.2h-1.9V10h-1.2v.6h-1.9v1.2h.6c.1.8.4 1.5.9 2.1-.5.3-1 .4-1.5.4z',
@@ -14,6 +14,7 @@ const PATHS: Record<IconName, string> = {
   help: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 14.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zM12 5.5c-2.2 0-3.9 1.4-4 3.6h2.3c.1-1 .8-1.6 1.7-1.6 1 0 1.7.6 1.7 1.5 0 .7-.4 1.1-1.3 1.7-1.1.7-1.6 1.4-1.6 2.6v.6h2.2v-.4c0-.7.3-1.1 1.3-1.7 1.1-.7 1.8-1.6 1.8-2.9 0-2-1.7-3.4-4.1-3.4z',
   privacy: 'M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5zm0 5a2.5 2.5 0 0 0-2.5 2.5V11H8.5v5h7v-5h-1V9.5A2.5 2.5 0 0 0 12 7zm0 1.5a1 1 0 0 1 1 1V11h-2V9.5a1 1 0 0 1 1-1z',
   terms: 'M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V8h4.5zM7 11v1.6h10V11zm0 3.2v1.6h10v-1.6zm0 3.2V19h6.5v-1.6z',
+  install: 'M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3zM4 15h2v3h12v-3h2v5H4z',
   start: 'M2 12c2.2-3.2 4.4-3.2 6.6 0s4.4 3.2 6.8 0 4.4-3.2 6.6 0v3c-2.2-3.2-4.4-3.2-6.6 0s-4.6 3.2-6.8 0S4.2 11.8 2 15zm0-6c2.2-3.2 4.4-3.2 6.6 0s4.4 3.2 6.8 0 4.4-3.2 6.6 0v3c-2.2-3.2-4.4-3.2-6.6 0s-4.6 3.2-6.8 0S4.2 5.8 2 9z',
 };
 

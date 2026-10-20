@@ -34,3 +34,6 @@ coverage/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Server backups made by deploy/backup.sh
+deploy/backups/

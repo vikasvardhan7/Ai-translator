@@ -1,0 +1,58 @@
+name: voice-translator
+
+x-logs: &logs
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  app:
+    build:
+      context: ..
+    image: voice-translator
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PUBLIC_URL: https://${DOMAIN:?Set DOMAIN in deploy/.env}
+      FRONTEND_ORIGIN: https://${DOMAIN}
+      HOST_KEY_EVERYWHERE: "true"
+    volumes:
+      - app-data:/data
+    logging: *logs
+
+  web:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: *logs
+
+  duckdns:
+    image: voice-translator
+    restart: on-failure
+    depends_on:
+      - app
+    command: ["python", "/duckdns.py"]
+    environment:
+      DUCKDNS_SUBDOMAIN: ${DUCKDNS_SUBDOMAIN:-}
+      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN:-}
+    volumes:
+      - ./duckdns.py:/duckdns.py:ro
+    healthcheck:
+      disable: true
+    logging: *logs
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:

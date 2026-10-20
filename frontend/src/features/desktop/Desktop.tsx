@@ -25,6 +25,7 @@ import { CallBridge, CallBridgeContext } from './bridge';
 import DevelopersApp from '../developers/DevelopersApp';
 import DesktopWidget from './DesktopWidget';
 import HelpApp from './HelpApp';
+import { askToInstall, useInstallWay } from './install';
 import TrainerApp from '../trainer/TrainerApp';
 import PersonalizeApp from './PersonalizeApp';
 import Taskbar, { APP_ICONS } from './Taskbar';
@@ -248,6 +249,8 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
     [closeApp, openApp, schedule, start],
   );
 
+  const installWay = useInstallWay();
+
   const shortcuts: Shortcut[] = [
     { label: 'Meet now', icon: 'remote', run: () => start('remote') },
     { label: 'Schedule', icon: 'schedule', run: () => openApp('meetings') },
@@ -256,10 +259,14 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
     { label: 'Talk here', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
     { label: 'Developers', icon: 'developers', run: () => openApp('developers') },
+    { label: 'Account', icon: 'account', run: () => openApp('account') },
     { label: 'Personalize', icon: 'personalize', run: () => openApp('personalize') },
     { label: 'Help', icon: 'help', run: () => openApp('help') },
     { label: 'Privacy', icon: 'privacy', run: () => openApp('privacy') },
     { label: 'Terms', icon: 'terms', run: () => openApp('terms') },
+    ...(installWay === 'installed'
+      ? []
+      : [{ label: 'Install app', icon: 'install' as const, run: () => (installWay === 'button' ? void askToInstall() : openApp('help')) }]),
   ];
 
   function iconKey(event: KeyboardEvent<HTMLButtonElement>, shortcut: Shortcut): void {

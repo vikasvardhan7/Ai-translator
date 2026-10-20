@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#eaf6ff" />
+    <title>Voice Translator is offline</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #eaf6ff;
+        --text: #0b2236;
+        --muted: #3f5b73;
+        --button: #14659f;
+        --button-text: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #06223a;
+          --text: #eaf5fd;
+          --muted: #a9c3d7;
+          --button: #5bb4ea;
+          --button-text: #08141f;
+        }
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        box-sizing: border-box;
+        background: var(--page);
+        color: var(--text);
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        text-align: center;
+      }
+      main {
+        max-width: 26rem;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+      }
+      h1 {
+        margin: 18px 0 8px;
+        font-size: 1.5rem;
+      }
+      p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      button {
+        padding: 12px 22px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--button);
+        color: var(--button-text);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="" />
+      <h1>You are offline</h1>
+      <p>Voice Translator needs the internet to translate, to sign you in and to load your Gym Trainer days. It opens by itself as soon as you are back online.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+    <script>
+      window.addEventListener('online', () => location.reload());
+    </script>
+  </body>
+</html>
