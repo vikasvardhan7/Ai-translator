@@ -65,7 +65,7 @@ const REGIONS: Record<string, string> = {
   zh: 'zh-CN',
 };
 
-function recognitionClass(): RecognitionClass | null {
+export function recognitionClass(): RecognitionClass | null {
   const scope = globalThis as unknown as { SpeechRecognition?: RecognitionClass; webkitSpeechRecognition?: RecognitionClass };
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 }

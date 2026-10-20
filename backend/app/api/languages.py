@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.dependencies import get_speech_translator, require_host_or_guest
+from app.api.dependencies import get_speech_translator, require_host
 from app.models.language import DetectedLanguageOut
 from app.models.protocol import ErrorCode
 from app.services.audio_ingestion.segment import BYTES_PER_SECOND
@@ -44,7 +44,7 @@ def _provider_error(failure: TranslationFailed) -> HTTPException:
 @router.post(
     "/detect",
     response_model=DetectedLanguageOut,
-    dependencies=[Depends(require_host_or_guest)],
+    dependencies=[Depends(require_host)],
 )
 async def detect_language(request: Request, translator: Translator) -> DetectedLanguageOut:
     recording = await _read_recording(request)

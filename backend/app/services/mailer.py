@@ -8,6 +8,7 @@ from app.core.config import Settings
 
 SMTP_TIMEOUT_SECONDS = 20
 IMPLICIT_TLS_PORT = 465
+GOOGLE_HOSTS = ("smtp.gmail.com", "smtp.googlemail.com")
 
 
 class MailFailed(Exception):
@@ -61,6 +62,8 @@ class SmtpMailer:
 
 def build_mailer(settings: Settings) -> Mailer | None:
     password = settings.smtp_password.get_secret_value() if settings.smtp_password else ""
+    if settings.smtp_host.lower() in GOOGLE_HOSTS:
+        password = "".join(password.split())
     if not (settings.smtp_host and settings.smtp_username and password):
         return None
     sender = settings.mail_from or f"{settings.app_name} <{settings.smtp_username}>"

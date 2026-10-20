@@ -176,17 +176,6 @@ def test_the_owner_is_never_limited() -> None:
     assert statuses == {200}
 
 
-def test_invited_guests_are_limited() -> None:
-    client = server(guest_requests_per_minute=2)
-    room = client.post("/api/rooms", json={"consent": True, "host": HOST}).json()
-    client = from_elsewhere(client)
-    headers = {"X-Room-Id": room["room_id"], "X-Room-Token": room["invite_token"]}
-
-    statuses = [client.get("/api/voices", headers=headers).status_code for _ in range(3)]
-
-    assert statuses == [200, 200, 429]
-
-
 @pytest.mark.parametrize(
     "body",
     [

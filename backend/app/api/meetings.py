@@ -9,6 +9,7 @@ from app.api.dependencies import (
     get_public_address,
     get_room_store,
     is_owner,
+    require_host,
     require_member,
 )
 from app.api.links import public_link
@@ -130,7 +131,7 @@ async def upcoming(
     return MeetingList(meetings=found, public_url=public_url, public_url_problem=problem)
 
 
-@router.get("/{meeting_id}", response_model=MeetingOut)
+@router.get("/{meeting_id}", response_model=MeetingOut, dependencies=[Depends(require_host)])
 async def look(
     meeting_id: str, token: MeetingToken, meetings: Meetings, rooms: Rooms
 ) -> MeetingOut:
@@ -176,7 +177,7 @@ async def start(
     return created(room, public_url, problem)
 
 
-@router.post("/{meeting_id}/join", response_model=RoomJoined)
+@router.post("/{meeting_id}/join", response_model=RoomJoined, dependencies=[Depends(require_host)])
 async def join(meeting_id: str, body: MeetingJoin, meetings: Meetings, rooms: Rooms) -> RoomJoined:
     meeting = _find(meetings, meeting_id, body.token, host=False)
     room = live_room(meetings, rooms, meeting)

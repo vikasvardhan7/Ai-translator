@@ -1,3 +1,4 @@
+import { getBackendUrl } from '../config';
 import { requestJson } from './api';
 
 export const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
@@ -8,6 +9,8 @@ export type Activity = 'sitting' | 'light' | 'moderate' | 'very_active';
 export type Equipment = 'gym' | 'home_dumbbells' | 'bodyweight';
 export type Diet = 'vegetarian' | 'eggetarian' | 'non_vegetarian' | 'vegan';
 export type PlanKind = 'workout' | 'diet';
+export type PhotoKind = 'meal' | 'body';
+export type Page = 'today' | 'workouts' | 'diet' | 'progress' | 'exercises' | 'profile';
 
 export interface Profile {
   name: string;
@@ -46,6 +49,7 @@ export interface Exercise {
   reps: string;
   rest_seconds: number;
   how: string;
+  library_id?: string;
 }
 
 export interface WorkoutDay {
@@ -89,7 +93,7 @@ export interface DietPlan {
 
 export type EntryData =
   | { kind: 'exercise'; name: string; sets: number; reps: number; weight_kg: number | null; minutes: number | null }
-  | { kind: 'meal'; meal: string; food: string; calories: number; protein_g: number; carbs_g: number; fat_g: number }
+  | { kind: 'meal'; meal: string; food: string; calories: number; protein_g: number; carbs_g: number; fat_g: number; photo_id?: string | null }
   | { kind: 'water'; ml: number }
   | { kind: 'weight'; kg: number }
   | { kind: 'sleep'; hours: number }
@@ -134,6 +138,44 @@ export interface TrainerState {
 export interface CoachLine {
   role: 'user' | 'assistant';
   text: string;
+}
+
+export interface CoachAction {
+  kind: 'show_exercise' | 'start_workout' | 'open';
+  exercise_id: string | null;
+  query: string | null;
+  page: Page | null;
+}
+
+export interface CoachReply {
+  answer: string;
+  logged: Entry[];
+  actions: CoachAction[];
+}
+
+export interface Photo {
+  id: string;
+  day: string;
+  kind: PhotoKind;
+  created_at: string;
+  size: number;
+}
+
+export interface ExerciseCard {
+  id: string;
+  name: string;
+  equipment: string;
+  category: string;
+  level: string;
+  primary: string[];
+  secondary: string[];
+  images: string[];
+}
+
+export interface ExerciseDetail extends ExerciseCard {
+  force: string | null;
+  mechanic: string | null;
+  instructions: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -194,12 +236,68 @@ export async function loadProgress(until: string, days: number): Promise<DaySumm
   return body.days;
 }
 
-export async function estimateFoods(text: string): Promise<FoodItem[]> {
-  return checked<{ items: FoodItem[] }>(await requestJson<unknown>('/api/trainer/foods', sendJson({ text })), ['items'], 'food list').items;
+export async function estimateFoods(text: string, photoId: string | null = null): Promise<FoodItem[]> {
+  const body = photoId ? { text, photo_id: photoId } : { text };
+  return checked<{ items: FoodItem[] }>(await requestJson<unknown>('/api/trainer/foods', sendJson(body)), ['items'], 'food list').items;
 }
 
-export async function askCoach(messages: CoachLine[], day: string, now: string): Promise<{ answer: string; logged: Entry[] }> {
-  return checked(await requestJson<unknown>('/api/trainer/coach', sendJson({ messages, day, now })), ['answer', 'logged'], 'answer');
+export async function askCoach(messages: CoachLine[], day: string, now: string): Promise<CoachReply> {
+  const reply = checked<CoachReply>(await requestJson<unknown>('/api/trainer/coach', sendJson({ messages, day, now })), ['answer', 'logged'], 'answer');
+  return { ...reply, actions: Array.isArray(reply.actions) ? reply.actions : [] };
+}
+
+export async function uploadPhoto(picture: Blob, day: string, kind: PhotoKind): Promise<Photo> {
+  return checked(
+    await requestJson<unknown>(`/api/trainer/photos?day=${encodeURIComponent(day)}&kind=${kind}`, {
+      method: 'POST',
+      headers: { 'Content-Type': picture.type || 'image/jpeg' },
+      body: picture,
+    }),
+    ['id', 'day', 'kind'],
+    'photo',
+  );
+}
+
+export async function listPhotos(kind: PhotoKind): Promise<Photo[]> {
+  return checked<{ photos: Photo[] }>(await requestJson<unknown>(`/api/trainer/photos?kind=${kind}`), ['photos'], 'photo list').photos;
+}
+
+export async function deletePhoto(id: string): Promise<void> {
+  await requestJson<unknown>(`/api/trainer/photos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function photoUrl(id: string): string {
+  return `${getBackendUrl()}/api/trainer/photos/${encodeURIComponent(id)}`;
+}
+
+let library: Promise<ExerciseCard[]> | null = null;
+
+export function loadExercises(): Promise<ExerciseCard[]> {
+  library ??= requestJson<unknown>('/api/trainer/exercises').then(
+    (body) => checked<{ exercises: ExerciseCard[] }>(body, ['exercises'], 'exercise library').exercises,
+    (error: unknown) => {
+      library = null;
+      throw error;
+    },
+  );
+  return library;
+}
+
+const details = new Map<string, Promise<ExerciseDetail>>();
+
+export function loadExercise(id: string): Promise<ExerciseDetail> {
+  let found = details.get(id);
+  if (!found) {
+    found = requestJson<unknown>(`/api/trainer/exercises/${encodeURIComponent(id)}`).then(
+      (body) => checked<ExerciseDetail>(body, ['id', 'name', 'instructions', 'images'], 'exercise'),
+      (error: unknown) => {
+        details.delete(id);
+        throw error;
+      },
+    );
+    details.set(id, found);
+  }
+  return found;
 }
 
 export async function exportTrainer(): Promise<unknown> {

@@ -16,8 +16,8 @@ CODE_DIGITS = 6
 CODE_LIFETIME = timedelta(minutes=10)
 CODE_GAP = timedelta(seconds=60)
 CODE_TRIES = 5
-SESSION_LIFETIME = timedelta(days=30)
-TOUCH_EVERY = timedelta(hours=1)
+SESSION_LIFETIME = timedelta(hours=12)
+TOUCH_EVERY = timedelta(minutes=10)
 SCRYPT_N = 2**14
 SCRYPT_R = 8
 SCRYPT_P = 1
@@ -76,6 +76,11 @@ def _now() -> datetime:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def masked_email(email: str) -> str:
+    name, _, domain = email.partition("@")
+    return f"{name[:1]}***@{domain}" if domain else "***"
 
 
 def normal_email(email: str) -> str:

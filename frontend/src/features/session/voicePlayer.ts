@@ -37,7 +37,7 @@ export function pickVoice<T extends { lang: string; localService: boolean; voice
     ?? null;
 }
 
-function loadVoices(): Promise<SpeechSynthesisVoice[]> {
+export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   const voices = speechSynthesis.getVoices();
   if (voices.length > 0) {
     return Promise.resolve(voices);

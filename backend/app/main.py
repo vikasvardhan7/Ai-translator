@@ -24,7 +24,7 @@ from app.api import (
 from app.core.access import new_host_key
 from app.core.config import BACKEND_DIR, Settings, get_settings
 from app.core.errors import install_error_handlers
-from app.services.account_store import AccountStore
+from app.services.account_store import AccountStore, masked_email
 from app.services.assistant.factory import build_meeting_assistant
 from app.services.key_store import KeyStore
 from app.services.limits import RateLimiter
@@ -34,6 +34,7 @@ from app.services.public_address import PublicAddress, find_cloudflared
 from app.services.room_store import RoomStore
 from app.services.session_store import SessionStore
 from app.services.trainer.gemini import build_trainer
+from app.services.trainer.library import ExerciseLibrary
 from app.services.trainer.store import TrainerStore
 from app.services.translation.factory import build_speech_translator
 from app.services.voice.factory import build_speech_synthesizer
@@ -81,6 +82,7 @@ def create_app(
     account_store: AccountStore | None = None,
     mailer: Mailer | None = None,
     trainer_store: TrainerStore | None = None,
+    exercise_library: ExerciseLibrary | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -90,9 +92,19 @@ def create_app(
             "Host key: %s (needed only when the app is opened through a public link)",
             app.state.host_key,
         )
+        if app.state.mailer is None:
+            logger.warning(
+                "Email codes are not set up, so nobody can create an account yet: add"
+                " SMTP_USERNAME and SMTP_PASSWORD to backend/.env and start the backend again."
+            )
+        elif settings.smtp_username:
+            logger.info(
+                "Sign-up and reset codes are emailed from %s", masked_email(settings.smtp_username)
+            )
         yield
         async with AsyncExitStack() as services:
             services.push_async_callback(app.state.public_address.aclose)
+            services.push_async_callback(app.state.exercise_library.aclose)
             services.callback(app.state.meetings.close)
             services.callback(app.state.keys.close)
             services.callback(app.state.accounts.close)
@@ -118,6 +130,9 @@ def create_app(
     app.state.mailer = mailer or build_mailer(settings)
     app.state.trainer_store = trainer_store or TrainerStore(settings.trainer_file)
     app.state.trainer_ai = build_trainer(settings)
+    app.state.exercise_library = exercise_library or ExerciseLibrary(
+        settings.exercise_library_url, settings.exercise_images_url
+    )
     app.state.forget_user = [app.state.trainer_store.forget]
     app.state.speech_translator = build_speech_translator(settings)
     app.state.speech_synthesizer = build_speech_synthesizer(settings)

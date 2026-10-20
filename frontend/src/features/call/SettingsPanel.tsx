@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { getVoices, type RoomAccess, type VoiceOption } from '../../services/api';
+import { getVoices, type VoiceOption } from '../../services/api';
 import { languageLabel, languageName } from '../../services/languageNames';
 import type { Participant, SpeakerId } from '../../services/protocol';
 import LanguageSelect from '../consent/LanguageSelect';
@@ -24,7 +24,6 @@ interface SettingsPanelProps {
   settings: Record<SpeakerId, ListenerSettings>;
   naturalAvailable: boolean;
   voiceShown: boolean;
-  room: RoomAccess | null;
   liveWords: { available: boolean; on: boolean; problem: string | null; onChange: (on: boolean) => void };
   onChange: (id: SpeakerId, settings: ListenerSettings) => void;
   onLanguage: (id: SpeakerId, language: string) => void;
@@ -184,7 +183,6 @@ export default function SettingsPanel({
   settings,
   naturalAvailable,
   voiceShown,
-  room,
   liveWords,
   onChange,
   onLanguage,
@@ -202,11 +200,11 @@ export default function SettingsPanel({
       return;
     }
     voicesAskedRef.current = true;
-    getVoices(room ?? undefined).then(setNaturalVoices, (error: unknown) => {
+    getVoices().then(setNaturalVoices, (error: unknown) => {
       setNaturalVoices([]);
       setVoicesIssue(error instanceof Error ? error.message : 'The voice list could not be loaded.');
     });
-  }, [naturalAvailable, open, room, voiceShown]);
+  }, [naturalAvailable, open, voiceShown]);
 
   useEffect(() => {
     if (!open || languages.length > 0) {

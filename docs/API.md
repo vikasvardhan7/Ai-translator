@@ -29,7 +29,6 @@ daily limit and when it was made and last used), so they survive a restart. Set 
 | Who | Per minute | Per day |
 | --- | --- | --- |
 | An API key | 60 (`KEY_REQUESTS_PER_MINUTE`) | The limit chosen for the key (10 to 100 000) |
-| An invited guest (meeting or call link) | 20 (`GUEST_REQUESTS_PER_MINUTE`) | 400 (`GUEST_REQUESTS_PER_DAY`) |
 | A person signed in to the app | 30 (`USER_REQUESTS_PER_MINUTE`) | 300 (`USER_REQUESTS_PER_DAY`) |
 | The person running the translator | none | none |
 

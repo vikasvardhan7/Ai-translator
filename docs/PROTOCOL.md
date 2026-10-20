@@ -27,17 +27,17 @@ computer without adding `X-Forwarded-For` (a bare nginx `proxy_pass`, an SSH tun
 such requests look local. Through a tunnel or any other address, the requests that spend the
 Gemini quota need the key in an `X-Host-Key` header (case, spaces and dashes do not matter):
 `POST /api/sessions`, `POST /api/rooms`, `POST /api/languages/detect`, `GET /api/voices` and
-`POST /api/assistant`. Without it, and without a signed-in account, they answer `401` with a `detail` that starts with
-"Sign in first". An invited guest
-sends `X-Room-Id` and `X-Room-Token` (the invite token, or the device token after joining) instead
-on the last three, so
-joining needs no key. `GET /api/access` answers `{"host": true | false}` for the caller, so the
+`POST /api/assistant`, as do joining a call or a scheduled meeting and looking at a meeting
+(`POST /api/rooms/{id}/join`, `POST /api/meetings/{id}/join`, `GET /api/meetings/{id}`). Without
+it, and without a signed-in account, they answer `401` with a `detail` that starts with
+"Sign in first". An invite token alone never lets anyone in: invited people sign in or create an
+account first, then join with the invite token. `GET /api/access` answers `{"host": true | false}` for the caller, so the
 app can ask for the key only when it is needed.
 
 Other apps use an API key instead (see [API.md](API.md)): an `X-Api-Key` header with a key made in
 the Developers app works like the host key for those five requests, from anywhere, and a wrong or
 revoked key answers `401` even from the backend's own computer. Each key may make 60 requests a
-minute and its own number a day; invited guests 20 a minute and 400 a day; the host has no limit.
+minute and its own number a day; the host has no limit.
 Every sentence translated in a conversation or call started with a key also counts against it.
 Past a limit the answer is `429` with a `Retry-After` header in seconds, and on the live channel a
 `quota_exceeded` error for that sentence. Keys are managed only by the host, never with a key or an
@@ -49,8 +49,8 @@ the meetings made that way), never to a key.
 | `GET /health` | live | Backend is running: `{"status":"ok","version":"0.9.0"}` |
 | `GET /api/access` | live | Whether this caller is the host: `{"host": true}` from the backend's own computer or with the right `X-Host-Key`, otherwise `{"host": false}` |
 | `GET /api/voices` | live | The natural (Gemini) voices a person can choose, listed live from Google: `{"voices": [{id, display_name, description, gender, language_code, pitch, accent}]}`. Empty when no voice model is set up; `503` when Google cannot be reached or the free limit is used up |
-| `POST /api/assistant` | live | Answer a question about the conversation so far (host key or invite); see below |
-| `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
+| `POST /api/assistant` | live | Answer a question about the conversation so far (signed in, or host key); see below |
+| `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (signed in, or host key) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
 | `POST /api/rooms` | live | Start a call that up to 6 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
 | `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list your upcoming ones (signed in, or the host); see "Scheduled meetings" |
@@ -251,8 +251,8 @@ opened the link early waits in a lobby and joins as soon as it is live.
 | `POST /api/meetings/{id}/start` with the host token | `{"consent": true, "host": {"name", "preferred_language"}}` | `200` as `POST /api/rooms` (the host's room token and the room); starting again while it is live gives the same room. `410` more than 2 hours after it ended |
 | `POST /api/meetings/{id}/join` | `{"consent": true, "token": invite_token, "guest": {"name", "preferred_language"}}` | `200` as `POST /api/rooms/{room_id}/join`; `409` not started yet (wait and try again) or full; `410` over; `403`; `404` |
 
-Before joining, an invited guest finds their language with `POST /api/languages/detect` and the
-headers `X-Meeting-Id` and `X-Meeting-Token`. With a quick tunnel the public address changes each
+Before joining, an invited guest signs in and finds their language with
+`POST /api/languages/detect` like anyone else. With a quick tunnel the public address changes each
 time the backend starts, so a link sent earlier stops working after a restart; the Meetings app
 always shows the current link to send again, and `PUBLIC_URL` gives a fixed address.
 
@@ -267,7 +267,8 @@ answers `503`. A code works once, for 10 minutes, with 5 tries; a new one can be
 60 s. At most 10 000 accounts.
 
 Signing up, signing in and resetting set an HttpOnly cookie `vt_session` (SameSite=Lax, Secure over
-https, path `/`) that lasts 30 days from the last use. The browser sends it with
+https, path `/`) with no expiry date, so it ends when the browser closes; the backend also ends a
+sign-in after 12 hours without use. The browser sends it with
 `credentials: 'include'`; the backend allows credentials from `FRONTEND_ORIGIN`. A request
 without a valid cookie on a route that needs an account answers `401` "Sign in first."
 
@@ -287,7 +288,8 @@ code requests a minute and 40 a day, and 5 sign-in attempts a minute and 30 a da
 | `PUT /api/account/name` (signed in) | `{"name"}` | `200` the account |
 | `POST /api/account/delete` (signed in) | `{"password"}` | `204`; the account, its sign-ins, its scheduled meetings and its Gym Trainer data are deleted; `401` wrong password |
 
-Invite links (`#join/...`, `#meet/...`) and the website widget work without an account.
+Invite links (`#join/...`, `#meet/...`) show the sign-in screen first and join the call once the
+person is signed in. Only the website widget works without an account, because it uses an API key.
 
 ### Gym Trainer
 
@@ -297,6 +299,16 @@ coach) count against the account's limit and answer `503` when no Gemini model i
 when Gemini gave no usable answer. They use `GEMINI_ASSISTANT_MODEL`, or `GEMINI_MODEL`, with
 JSON-schema output (plans, foods) and function calling (coach); everything the model returns is
 checked against the same models as a person's own edits.
+
+Workout plans choose exercises from the exercise library: the AI is given the exercises the
+person's equipment allows (id, name, equipment, main muscles) and returns each one's `library_id`.
+Any exercise without a known id, including ones typed in by hand, is matched to the library by its
+name (shared words, preferring the person's equipment and common equipment); `library_id` is empty
+when nothing matches. The library is the Free Exercise DB, read from `EXERCISE_LIBRARY_URL` once a
+day and kept in memory (the last good copy is kept when a refresh fails); image addresses start with
+`EXERCISE_IMAGES_URL`.
+
+Meal photos that no logged meal uses are deleted a day after they were added.
 
 Daily targets come from the profile, not from the AI: Mifflin-St Jeor resting calories times an
 activity factor (1.2, 1.375, 1.55 or 1.725), then -20 % to lose fat (never below resting calories,
@@ -315,13 +327,20 @@ endurance; protein 1.4 to 2.0 g per kg by goal, fat 25 % of calories, carbohydra
 | `POST /api/trainer/days/{YYYY-MM-DD}/entries` | `{"data": one of the entries below}` | `201` the entry; `409` more than 300 entries that day |
 | `DELETE /api/trainer/entries/{id}` | none | `204`; `404` not yours or gone |
 | `GET /api/trainer/progress?until=YYYY-MM-DD&days=30` | none | `{days: [summary, ...]}`, one per day (1 to 366 days), oldest first |
-| `POST /api/trainer/foods` | `{"text": "2 dosa and coconut chutney"}` | `{items: [{food, amount, calories, protein_g, carbs_g, fat_g}]}` (nothing is logged until the browser adds it) |
-| `POST /api/trainer/coach` | `{messages: [{role: "user" \| "assistant", text}] (1 to 30), day, now}` | `{answer, logged: [entry, ...]}`; what the coach logged is stored for `day`; the chat itself is not kept |
-| `GET /api/trainer/export` | none | `{exported_at, profile, workout, diet, entries}` |
+| `POST /api/trainer/foods` | `{"text": "2 dosa and coconut chutney"}`, or `{"photo_id", "text"}` with a meal photo (the text is optional then) | `{items: [{food, amount, calories, protein_g, carbs_g, fat_g}]}` (nothing is logged until the browser adds it, with the meal's `photo_id`) |
+| `POST /api/trainer/coach` | `{messages: [{role: "user" \| "assistant", text}] (1 to 30), day, now}` | `{answer, logged: [entry, ...], actions: [...]}`; what the coach logged is stored for `day`; the chat itself is not kept. `actions` (at most 3) ask the app to show an exercise (`{"kind": "show_exercise", "exercise_id", "query"}`, `exercise_id` null when the library has no match, then the app searches for `query`), start today's guided workout (`{"kind": "start_workout"}`) or open a page (`{"kind": "open", "page": "today" \| "workouts" \| "diet" \| "progress" \| "exercises" \| "profile"}`) |
+| `GET /api/trainer/exercises` | none | `{exercises: [{id, name, equipment, category, level, primary, secondary, images}], source}`: the whole exercise library; `503` when it cannot be read |
+| `GET /api/trainer/exercises/{id}` | none | the same plus `force`, `mechanic` and `instructions` (steps); `404` unknown |
+| `POST /api/trainer/photos?day=YYYY-MM-DD&kind=meal\|body` | the picture's bytes (`image/jpeg`, `image/png` or `image/webp`, at most 3 MB) | `201` `{id, day, kind, created_at, size}`; `413` too big; `415` not a picture; `409` more than 30 that day or 600 in all |
+| `GET /api/trainer/photos?kind=body` | none | `{photos: [...]}`, newest first |
+| `GET /api/trainer/photos/{id}` | none | the picture (`Cache-Control: private`); `404` not yours |
+| `DELETE /api/trainer/photos/{id}` | none | `204`; `409` while a logged meal uses it (removing the meal removes the photo) |
+| `GET /api/trainer/export` | none | `{exported_at, profile, workout, diet, entries, photos}` (photos as their details; each picture is at its address) |
 | `DELETE /api/trainer` | none | `204`; profile, plans and every entry are deleted |
 
 Entries (`data`): `{"kind": "exercise", name, sets, reps, weight_kg, minutes}`,
-`{"kind": "meal", meal, food, calories, protein_g, carbs_g, fat_g}`, `{"kind": "water", ml}`,
+`{"kind": "meal", meal, food, calories, protein_g, carbs_g, fat_g, photo_id}` (`photo_id` is
+optional and must be one of your own meal photos), `{"kind": "water", ml}`,
 `{"kind": "weight", kg}`, `{"kind": "sleep", hours}`, `{"kind": "steps", count}`,
 `{"kind": "note", text}`. A day's `summary` adds them up: `{day, calories, protein_g, carbs_g,
 fat_g, water_ml, exercises, sets, weight_kg (the last), sleep_hours, steps (the highest)}`.

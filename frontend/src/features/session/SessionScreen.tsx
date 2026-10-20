@@ -720,7 +720,6 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
       run: runCommand,
       transcript: () => assistantTranscript(turns, names),
       language: (listeners[0] ?? participants[0])?.preferred_language ?? 'en',
-      room: conversation.room ?? undefined,
     });
   });
 
@@ -896,7 +895,6 @@ export default function SessionScreen({ conversation, initialTurns, onReturnToSt
         settings={settings}
         naturalAvailable={serverVoice}
         voiceShown={!meeting}
-        room={conversation.room}
         liveWords={{ available: liveWordsSupported(), on: liveWordsOn, problem: liveWordsIssue, onChange: changeLiveWords }}
         onChange={changeSettings}
         onLanguage={changeLanguage}

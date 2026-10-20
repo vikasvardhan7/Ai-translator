@@ -8,6 +8,13 @@ import { problemText } from './problems';
 interface WorkoutTabProps {
   state: TrainerState;
   onState: (state: TrainerState) => void;
+  onShow: (id: string) => void;
+  onLookUp: (name: string) => void;
+}
+
+interface Looking {
+  onShow: (id: string) => void;
+  onLookUp: (name: string) => void;
 }
 
 const BLANK: Exercise = { name: '', sets: 3, reps: '10', rest_seconds: 60, how: '' };
@@ -61,7 +68,7 @@ function DayEditor({ day, onSave, onCancel }: { day: WorkoutDay; onSave: (day: W
           <ul className="plan-edit-list">
             {draft.exercises.map((exercise, index) => (
               <li key={index} className="plan-edit-row">
-                <input className="text-input" aria-label="Exercise" placeholder="Exercise" value={exercise.name} maxLength={80} onChange={(event) => change(index, { name: event.currentTarget.value })} />
+                <input className="text-input" aria-label="Exercise" placeholder="Exercise" value={exercise.name} maxLength={80} onChange={(event) => change(index, { name: event.currentTarget.value, library_id: '' })} />
                 <input className="text-input" aria-label="Sets" type="number" min={1} max={10} value={exercise.sets} onChange={(event) => change(index, { sets: Number(event.currentTarget.value) })} />
                 <input className="text-input" aria-label="Reps" placeholder="Reps" value={exercise.reps} maxLength={20} onChange={(event) => change(index, { reps: event.currentTarget.value })} />
                 <input className="text-input" aria-label="Rest seconds" type="number" min={0} max={600} step={15} value={exercise.rest_seconds} onChange={(event) => change(index, { rest_seconds: Number(event.currentTarget.value) })} />
@@ -90,7 +97,7 @@ function DayEditor({ day, onSave, onCancel }: { day: WorkoutDay; onSave: (day: W
   );
 }
 
-function DayCard({ day, plan, ready, onState }: { day: WorkoutDay; plan: WorkoutPlan; ready: boolean; onState: (state: TrainerState) => void }) {
+function DayCard({ day, plan, ready, onState, onShow, onLookUp }: { day: WorkoutDay; plan: WorkoutPlan; ready: boolean; onState: (state: TrainerState) => void } & Looking) {
   const [mode, setMode] = useState<'view' | 'edit' | 'redo'>('view');
 
   async function saveDay(next: WorkoutDay): Promise<void> {
@@ -121,7 +128,17 @@ function DayCard({ day, plan, ready, onState }: { day: WorkoutDay; plan: Workout
             <ol className="plan-exercises">
               {day.exercises.map((exercise, index) => (
                 <li key={`${exercise.name}-${index}`}>
-                  <span className="plan-exercise-name">{exercise.name}</span>
+                  <span className="plan-exercise-name">
+                    {exercise.name}
+                    <button
+                      className="button button-link plan-how"
+                      type="button"
+                      aria-label={`How to do ${exercise.name}`}
+                      onClick={() => (exercise.library_id ? onShow(exercise.library_id) : onLookUp(exercise.name))}
+                    >
+                      How to
+                    </button>
+                  </span>
                   <span className="plan-exercise-dose">{exercise.sets} × {exercise.reps}{exercise.rest_seconds ? ` · rest ${exercise.rest_seconds} s` : ''}</span>
                   {exercise.how && <small>{exercise.how}</small>}
                 </li>
@@ -141,7 +158,7 @@ function DayCard({ day, plan, ready, onState }: { day: WorkoutDay; plan: Workout
   );
 }
 
-export default function WorkoutTab({ state, onState }: WorkoutTabProps) {
+export default function WorkoutTab({ state, onState, onShow, onLookUp }: WorkoutTabProps) {
   const [remaking, setRemaking] = useState(false);
   const plan = state.workout;
 
@@ -167,7 +184,7 @@ export default function WorkoutTab({ state, onState }: WorkoutTabProps) {
       </section>
       <ul className="plan-days">
         {plan.days.map((day) => (
-          <DayCard key={day.day} day={day} plan={plan} ready={state.coach_ready} onState={onState} />
+          <DayCard key={day.day} day={day} plan={plan} ready={state.coach_ready} onState={onState} onShow={onShow} onLookUp={onLookUp} />
         ))}
       </ul>
     </div>

@@ -12,12 +12,12 @@ export function PrivacyPolicy() {
       </section>
       <section className="legal-section">
         <h2>Your account</h2>
-        <p>Signing in needs an account: your email address, your name and a password. The password is never stored, only a scrambled fingerprint of it that cannot be turned back into the password. To prove the email is yours, a 6-digit code is emailed to you; it works once, for 10 minutes. After you sign in, the browser keeps one cookie that holds a random sign-in number, so you stay signed in for 30 days unless you sign out. Everything is kept on the computer that runs the app, never sold or shared.</p>
+        <p>Signing in needs an account: your email address, your name and a password. The password is never stored, only a scrambled fingerprint of it that cannot be turned back into the password. To prove the email is yours, a 6-digit code is emailed to you; it works once, for 10 minutes. After you sign in, the browser keeps one cookie that holds a random sign-in number until you close the browser or sign out; it also stops working after 12 hours without use. Everything is kept on the computer that runs the app, never sold or shared.</p>
         <p>In Account (Start menu) you can change your name or password, sign out, or delete the account, which removes your sign-ins, your scheduled meetings and everything in Gym Trainer at once.</p>
       </section>
       <section className="legal-section">
         <h2>Gym Trainer</h2>
-        <p>Gym Trainer keeps what you give it for your account only: your profile (age, body, height, weight, goals, food you eat, allergies and health notes), your workout and meal plans, and every day you track. Making a plan, working out the calories of a food you typed, and the coach chat send your profile and recent days to Google's Gemini service. The coach chat itself is not saved, only what it logs for you. In Profile you can download all of it or delete it.</p>
+        <p>Gym Trainer keeps what you give it for your account only: your profile (age, body, height, weight, goals, food you eat, allergies and health notes), your workout and meal plans, every day you track, and the photos you add. Making a plan, working out the calories of a food you typed or photographed, and the coach chat send your profile, recent days or that food photo to Google's Gemini service. Progress photos of your body are never sent to it. Photos are shrunk in your browser first, which also removes their location and camera details. The coach chat itself is not saved, only what it logs for you. When you talk to the coach, your browser's own speech service turns your voice into words (Microsoft for Edge, Google for Chrome), and answers are read aloud by your device. Exercise pictures load from GitHub, which hosts the free exercise library. In Profile you can download your data or delete all of it.</p>
       </section>
       <section className="legal-section">
         <h2>What is kept</h2>

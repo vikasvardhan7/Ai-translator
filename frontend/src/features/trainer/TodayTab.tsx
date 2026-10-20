@@ -1,27 +1,40 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 
 import {
   addEntry,
+  deletePhoto,
   estimateFoods,
   firstNumber,
   loadDay,
   localDay,
+  photoUrl,
   removeEntry,
   shiftDay,
+  uploadPhoto,
   weekdayOf,
   type DayLog,
   type Entry,
   type EntryData,
+  type Exercise,
   type FoodItem,
   type TrainerState,
 } from '../../services/trainer';
 import { dayName, rounded } from './labels';
+import { shrinkPhoto } from './photos';
 import { problemText } from './problems';
 
 interface TodayTabProps {
   state: TrainerState;
   changed: number;
   onPlans: () => void;
+  onStart: (day: string) => void;
+  onShow: (id: string) => void;
+  onLookUp: (name: string) => void;
+}
+
+interface MealPhoto {
+  id: string;
+  preview: string;
 }
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
@@ -47,7 +60,7 @@ function Meter({ label, value, target, unit }: { label: string; value: number; t
 function describe(data: EntryData): string {
   switch (data.kind) {
     case 'exercise':
-      return `${data.name}: ${data.sets} sets${data.reps ? ` × ${data.reps}` : ''}${data.weight_kg ? ` at ${rounded(data.weight_kg)} kg` : ''}${data.minutes ? `, ${data.minutes} min` : ''}`;
+      return `${data.name}: ${data.sets} ${data.sets === 1 ? 'set' : 'sets'}${data.reps ? ` × ${data.reps}` : ''}${data.weight_kg ? ` at ${rounded(data.weight_kg)} kg` : ''}${data.minutes ? `, ${data.minutes} min` : ''}`;
     case 'meal':
       return `${data.meal}: ${data.food} · ${data.calories} kcal · P ${rounded(data.protein_g)} g`;
     case 'water':
@@ -63,7 +76,7 @@ function describe(data: EntryData): string {
   }
 }
 
-export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
+export default function TodayTab({ state, changed, onPlans, onStart, onShow, onLookUp }: TodayTabProps) {
   const today = localDay();
   const [day, setDay] = useState(today);
   const [log, setLog] = useState<DayLog | null>(null);
@@ -75,6 +88,15 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
   const [found, setFound] = useState<FoodItem[] | null>(null);
   const [body, setBody] = useState({ weight: '', sleep: '', steps: '', note: '' });
   const [extra, setExtra] = useState({ name: '', sets: '3', reps: '10', weight: '', minutes: '' });
+  const [photo, setPhoto] = useState<MealPhoto | null>(null);
+  const picker = useRef<HTMLInputElement | null>(null);
+  const preview = useRef<string | null>(null);
+
+  useEffect(() => () => {
+    if (preview.current) {
+      URL.revokeObjectURL(preview.current);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -115,15 +137,50 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
     }
   }
 
-  async function workOutFood(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (!foodText.trim()) {
+  async function workOutFood(event?: FormEvent<HTMLFormElement>, photoId = photo?.id ?? null): Promise<void> {
+    event?.preventDefault();
+    if (!foodText.trim() && !photoId) {
       return;
     }
     setBusy(true);
     setProblem('');
     try {
-      setFound(await estimateFoods(foodText.trim()));
+      setFound(await estimateFoods(foodText.trim(), photoId));
+    } catch (error) {
+      setProblem(problemText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function clearPhoto(keepOnServer: boolean): void {
+    if (photo && !keepOnServer) {
+      void deletePhoto(photo.id).catch(() => undefined);
+    }
+    if (preview.current) {
+      URL.revokeObjectURL(preview.current);
+      preview.current = null;
+    }
+    setPhoto(null);
+  }
+
+  async function pickPhoto(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) {
+      return;
+    }
+    setBusy(true);
+    setProblem('');
+    setFound(null);
+    try {
+      const small = await shrinkPhoto(file);
+      const saved = await uploadPhoto(small, day, 'meal');
+      clearPhoto(false);
+      preview.current = URL.createObjectURL(small);
+      setPhoto({ id: saved.id, preview: preview.current });
+      setBusy(false);
+      await workOutFood(undefined, saved.id);
     } catch (error) {
       setProblem(problemText(error));
     } finally {
@@ -143,10 +200,20 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
       protein_g: item.protein_g,
       carbs_g: item.carbs_g,
       fat_g: item.fat_g,
+      photo_id: photo?.id ?? null,
     }));
     if (await add(...meals)) {
       setFound(null);
       setFoodText('');
+      clearPhoto(true);
+    }
+  }
+
+  function howTo(exercise: Exercise): void {
+    if (exercise.library_id) {
+      onShow(exercise.library_id);
+    } else {
+      onLookUp(exercise.name);
     }
   }
 
@@ -202,6 +269,7 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
   const eatenMeals = new Set(entries.flatMap((entry) => (entry.data.kind === 'meal' ? [entry.data.meal.toLowerCase()] : [])));
   const plannedSets = workout?.exercises.reduce((total, exercise) => total + exercise.sets, 0) ?? 0;
   const label = day === today ? 'Today' : day === shiftDay(today, -1) ? 'Yesterday' : dayName(weekday);
+  const shownPhotos = new Set<string>();
   const pretty = new Date(`${day}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
@@ -237,6 +305,12 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
           <p className="form-help">Rest day. A walk and some stretching help you recover.</p>
         ) : (
           <>
+            {workout.exercises.length > 0 && (
+              <div className="today-guided">
+                <button className="button button-primary" type="button" onClick={() => onStart(day)}>Start guided workout</button>
+                <span className="form-help">Shows each exercise, counts your rests and talks you through every set.</span>
+              </div>
+            )}
             {workout.warmup && <p className="plan-note"><strong>Warm-up:</strong> {workout.warmup}</p>}
             <ul className="today-list">
               {workout.exercises.map((exercise, index) => {
@@ -247,6 +321,7 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
                       <strong>{exercise.name}</strong>
                       <small>{exercise.sets} × {exercise.reps}{exercise.rest_seconds ? ` · rest ${exercise.rest_seconds} s` : ''}{exercise.how ? ` · ${exercise.how}` : ''}</small>
                     </span>
+                    <button className="button button-link" type="button" aria-label={`How to do ${exercise.name}`} onClick={() => howTo(exercise)}>How to</button>
                     <input
                       className="text-input today-weight"
                       aria-label={`Weight used for ${exercise.name}, kg`}
@@ -328,12 +403,25 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
             {MEALS.map((meal) => <option key={meal}>{meal}</option>)}
           </select>
           <input className="text-input plan-edit-wide" aria-label="What did you eat?" placeholder="What you ate, like 2 dosa and coconut chutney" value={foodText} maxLength={300} onChange={(event) => setFoodText(event.currentTarget.value)} />
-          <button className="button button-secondary button-small" type="submit" disabled={busy || !foodText.trim() || !state.coach_ready}>Work out calories</button>
+          <input ref={picker} className="visually-hidden" type="file" accept="image/*" tabIndex={-1} aria-hidden="true" onChange={(event) => void pickPhoto(event)} />
+          <button className="button button-secondary button-small" type="button" disabled={busy || !state.coach_ready} onClick={() => picker.current?.click()}>Photo</button>
+          <button className="button button-secondary button-small" type="submit" disabled={busy || (!foodText.trim() && !photo) || !state.coach_ready}>
+            {busy && photo && !found ? 'Looking at the photo' : 'Work out calories'}
+          </button>
         </form>
+        {photo && (
+          <div className="today-photo">
+            <img src={photo.preview} alt="Your food photo" />
+            <p className="form-help">
+              {found ? 'Calories worked out from your photo. They are estimates: correct any number you know better.' : busy ? 'Looking at your photo' : 'Photo ready. Press Work out calories.'}
+            </p>
+            {!found && <button className="button button-link" type="button" disabled={busy} onClick={() => clearPhoto(false)}>Remove photo</button>}
+          </div>
+        )}
         {found && (
           <div className="today-found">
             {found.length === 0 ? (
-              <p className="form-help">No food was recognised. Try describing it differently.</p>
+              <p className="form-help">No food was recognised. {photo ? 'Try another photo, or describe it in words.' : 'Try describing it differently.'}</p>
             ) : (
               <ul className="today-list">
                 {found.map((item, index) => (
@@ -359,7 +447,7 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
             )}
             <div className="meeting-actions">
               <button className="button button-primary button-small" type="button" disabled={busy || found.length === 0} onClick={() => void addFound()}>Add to {foodMeal}</button>
-              <button className="button button-link" type="button" onClick={() => setFound(null)}>Cancel</button>
+              <button className="button button-link" type="button" onClick={() => { setFound(null); clearPhoto(false); }}>Cancel</button>
             </div>
           </div>
         )}
@@ -403,13 +491,22 @@ export default function TodayTab({ state, changed, onPlans }: TodayTabProps) {
           <p className="form-help">Nothing yet. Everything you log shows up here.</p>
         ) : (
           <ul className="today-entries">
-            {entries.map((entry) => (
+            {entries.map((entry) => {
+              const picture = entry.data.kind === 'meal' && entry.data.photo_id && !shownPhotos.has(entry.data.photo_id) ? entry.data.photo_id : null;
+              if (picture) {
+                shownPhotos.add(picture);
+              }
+              return (
               <li key={entry.id}>
                 <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-                <span dir="auto">{describe(entry.data)}</span>
+                <span dir="auto" className="today-entry-text">
+                  {picture && <img className="today-entry-photo" src={photoUrl(picture)} alt="" loading="lazy" />}
+                  {describe(entry.data)}
+                </span>
                 <button className="button button-link" type="button" aria-label={`Remove ${describe(entry.data)}`} onClick={() => void remove(entry)}>Remove</button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </section>

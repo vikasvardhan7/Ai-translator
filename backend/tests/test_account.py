@@ -5,9 +5,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import Settings
+from app.main import create_app
 from app.services import account_store
 from app.services.account_store import AccountStore, password_matches
 from app.services.mailer import MailFailed
+from app.services.meeting_store import MeetingStore
 from tests.conftest import ELSEWHERE, TEST_HOST, VALID_BODY, make_client
 from tests.fakes import FakeMailer, FakeTranslator
 
@@ -145,6 +148,58 @@ def test_sign_in_needs_the_right_password_and_says_the_same_for_a_wrong_email() 
     assert (wrong.status_code, nobody.status_code, right.status_code) == (401, 401, 200)
     assert wrong.json() == nobody.json()
     assert client.get("/api/account").status_code == 200
+
+
+def test_the_backend_window_says_why_a_sign_in_failed(caplog: pytest.LogCaptureFixture) -> None:
+    client, mailer = setup()
+    sign_up(client, mailer)
+    caplog.set_level("INFO", logger="app.api.account")
+
+    client.post("/api/account/sign-in", json={"email": EMAIL, "password": "nope-nope"})
+    client.post("/api/account/sign-in", json={"email": "ravi@example.com", "password": PASSWORD})
+
+    lines = [record.getMessage() for record in caplog.records]
+    assert "Sign-in refused for a***@example.com: wrong password" in lines
+    assert any(
+        line.startswith("Sign-in refused for r***@example.com: no account") for line in lines
+    )
+    assert not any(PASSWORD in line or "nope-nope" in line or EMAIL in line for line in lines)
+
+
+def test_codes_and_new_accounts_are_noted_without_full_emails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="app.api.account")
+    client, mailer = setup()
+
+    sign_up(client, mailer)
+
+    lines = [record.getMessage() for record in caplog.records]
+    assert "Account email sent to a***@example.com: a code" in lines
+    assert "Account created for a***@example.com" in lines
+    assert not any(EMAIL in line or code_in(mailer) in line for line in lines)
+
+
+def test_the_backend_window_says_whether_codes_can_be_emailed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="app.main")
+    missing = create_app(Settings(_env_file=None), meeting_store=MeetingStore(None))
+    ready = create_app(
+        Settings(_env_file=None, smtp_username="owner@gmail.com", smtp_password="abcd"),
+        meeting_store=MeetingStore(None),
+    )
+
+    with TestClient(missing), TestClient(ready):
+        lines = [record.getMessage() for record in caplog.records]
+
+    assert any(line.startswith("Email codes are not set up") for line in lines)
+    assert "Sign-up and reset codes are emailed from o***@gmail.com" in lines
+
+
+def test_emails_are_shortened_for_the_log() -> None:
+    assert account_store.masked_email("thanos@gmail.com") == "t***@gmail.com"
+    assert account_store.masked_email("broken") == "***"
 
 
 def test_guessing_passwords_is_slowed_down() -> None:
@@ -352,3 +407,27 @@ def test_the_session_cookie_is_secure_through_the_public_link() -> None:
     )
 
     assert "Secure" in response.headers["set-cookie"]
+
+
+def test_signing_in_lasts_until_the_browser_closes() -> None:
+    client, mailer = setup()
+
+    cookie = sign_up(client, mailer).headers["set-cookie"].lower()
+
+    assert "vt_session=" in cookie and "httponly" in cookie
+    assert "max-age" not in cookie and "expires" not in cookie
+
+
+def test_an_unused_sign_in_ends_after_twelve_hours(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, mailer = setup()
+    sign_up(client, mailer)
+    started = datetime.now(UTC)
+
+    monkeypatch.setattr(account_store, "_now", lambda: started + timedelta(hours=11))
+    still = client.get("/api/account").status_code
+    monkeypatch.setattr(account_store, "_now", lambda: started + timedelta(hours=22))
+    kept_alive = client.get("/api/account").status_code
+    monkeypatch.setattr(account_store, "_now", lambda: started + timedelta(hours=35))
+    ended = client.get("/api/account").status_code
+
+    assert (still, kept_alive, ended) == (200, 200, 401)

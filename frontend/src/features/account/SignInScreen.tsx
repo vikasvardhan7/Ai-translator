@@ -16,12 +16,19 @@ type Step = 'email' | 'code';
 
 interface SignInScreenProps {
   onSignedIn: (user: AccountUser) => void;
+  invited?: boolean;
 }
 
 const TITLES: Record<Mode, string> = {
   'sign-in': 'Sign in',
   'sign-up': 'Create your account',
   reset: 'Set a new password',
+};
+
+const LEADS: Record<Mode, string> = {
+  'sign-in': 'Everyone signs in with their own email and their own password. First time here? Choose Create account.',
+  'sign-up': 'Use your own email. We email you a 6-digit code to check it is yours, then you choose your own password.',
+  reset: 'We email a 6-digit code to your address, then you choose a new password.',
 };
 
 function problemText(error: unknown): string {
@@ -34,7 +41,7 @@ function problemText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Try again.';
 }
 
-export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
+export default function SignInScreen({ onSignedIn, invited = false }: SignInScreenProps) {
   const [mode, setMode] = useState<Mode>('sign-in');
   const [step, setStep] = useState<Step>('email');
   const [name, setName] = useState('');
@@ -45,6 +52,7 @@ export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
   const [shown, setShown] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState('');
+  const [refused, setRefused] = useState(false);
   const [notice, setNotice] = useState('');
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -67,6 +75,7 @@ export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
     setConfirm('');
     setCode('');
     setProblem('');
+    setRefused(false);
     setNotice('');
     window.setTimeout(() => headingRef.current?.focus(), 0);
   }
@@ -77,10 +86,12 @@ export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
     }
     setBusy(true);
     setProblem('');
+    setRefused(false);
     try {
       await action();
     } catch (error) {
       setProblem(problemText(error));
+      setRefused(mode === 'sign-in' && error instanceof ApiError && error.status === 401);
     } finally {
       setBusy(false);
     }
@@ -93,7 +104,7 @@ export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
     setStep('code');
     setNotice(
       purpose === 'sign_up'
-        ? `We emailed a 6-digit code to ${email.trim()}. It works for ${Math.round(sent.expiresIn / 60)} minutes; check Spam if you do not see it.`
+        ? `We emailed a 6-digit code to ${email.trim()}. It works for ${Math.round(sent.expiresIn / 60)} minutes; check Spam if you do not see it. If this email already has an account, the email says so instead: then sign in, or choose Forgot password.`
         : `If ${email.trim()} has an account, we emailed it a 6-digit code. Check Spam if you do not see it.`,
     );
   }
@@ -138,6 +149,12 @@ export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
       <section className="sign-in-card" aria-labelledby="sign-in-title">
         <p className="sign-in-brand">Voice Translator</p>
         <h1 id="sign-in-title" ref={headingRef} tabIndex={-1}>{TITLES[mode]}</h1>
+        {invited && (
+          <p className="sign-in-invite" role="status">
+            You were invited to a call. Sign in, or create your account, and you join it straight after.
+          </p>
+        )}
+        <p className="sign-in-lead">{LEADS[mode]}</p>
         {mode !== 'reset' && (
           <div className="sign-in-tabs" role="tablist" aria-label="Account">
             <button type="button" role="tab" aria-selected={mode === 'sign-in'} onClick={() => switchTo('sign-in')}>
@@ -238,6 +255,14 @@ export default function SignInScreen({ onSignedIn }: SignInScreenProps) {
 
           {notice && <p className="sign-in-notice" role="status">{notice}</p>}
           {problem && <p className="notice notice-danger" role="alert">{problem}</p>}
+          {refused && (
+            <div className="sign-in-refused">
+              <p>No account with this email yet? Each person creates their own first.</p>
+              <button className="button button-secondary button-small" type="button" onClick={() => switchTo('sign-up')}>
+                Create an account with this email
+              </button>
+            </div>
+          )}
 
           <button className="button button-primary sign-in-submit" type="submit" disabled={busy} aria-busy={busy}>
             {busy && <span className="spinner" aria-hidden="true" />}

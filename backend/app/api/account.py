@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import Annotated
 
@@ -27,18 +28,19 @@ from app.models.account import (
 from app.services.account_store import (
     CODE_GAP,
     CODE_LIFETIME,
-    SESSION_LIFETIME,
     AccountExists,
     AccountLimitReached,
     AccountStore,
     CodeRefused,
     CodeTooSoon,
     User,
+    masked_email,
 )
 from app.services.limits import Allowance
 from app.services.mailer import Mailer, MailFailed
 from app.services.meeting_store import MeetingStore
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/account", tags=["account"])
 
 Accounts = Annotated[AccountStore, Depends(get_account_store)]
@@ -58,6 +60,10 @@ NO_EMAIL = (
     " to backend/.env and start the backend again."
 )
 SAME_AS_EMAIL = "Choose a password that is not your email address."
+
+
+def _kind_of(subject: str) -> str:
+    return "they already have an account" if subject.startswith("You already") else "a code"
 
 
 def _guard(request: Request, email: str, kind: str = "code") -> None:
@@ -83,7 +89,6 @@ def _signed_in(request: Request, response: Response, accounts: AccountStore, use
     response.set_cookie(
         SESSION_COOKIE,
         accounts.start_session(user.id),
-        max_age=int(SESSION_LIFETIME.total_seconds()),
         httponly=True,
         samesite="lax",
         secure=_secure(request),
@@ -108,6 +113,7 @@ async def send_code(
 ) -> CodeSent:
     _guard(request, body.email)
     if mailer is None:
+        logger.warning("Code not sent to %s: email is not set up", masked_email(body.email))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_EMAIL)
     existing = accounts.find_by_email(body.email)
     minutes = int(CODE_LIFETIME / timedelta(minutes=1))
@@ -132,6 +138,7 @@ async def send_code(
                 " If you did not ask for it, ignore this email; nobody can sign in without it."
             )
         await mailer.send(body.email, subject, text)
+        logger.info("Account email sent to %s: %s", masked_email(body.email), _kind_of(subject))
     except CodeTooSoon as exc:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -139,6 +146,7 @@ async def send_code(
             headers={"Retry-After": str(exc.wait_seconds)},
         ) from exc
     except MailFailed as exc:
+        logger.warning("Code not sent to %s: %s", masked_email(body.email), exc)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return CodeSent(sent=True, resend_after=int(CODE_GAP.total_seconds()), expires_in=minutes * 60)
 
@@ -153,6 +161,7 @@ async def sign_up(
         accounts.use_code(body.email, "sign_up", body.code)
         user = accounts.create(body.email, body.name, body.password)
     except CodeRefused as exc:
+        logger.info("Sign-up refused for %s: wrong or old code", masked_email(body.email))
         raise HTTPException(status.HTTP_400_BAD_REQUEST, WRONG_CODE) from exc
     except AccountExists as exc:
         raise HTTPException(
@@ -162,6 +171,7 @@ async def sign_up(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "No more accounts can be made on this app."
         ) from exc
+    logger.info("Account created for %s", masked_email(user.email))
     return _signed_in(request, response, accounts, user)
 
 
@@ -172,6 +182,12 @@ async def sign_in(
     _guard(request, body.email, "sign-in")
     user = accounts.check_password(body.email, body.password)
     if user is None:
+        reason = (
+            "no account has this email yet (Create account first)"
+            if accounts.find_by_email(body.email) is None
+            else "wrong password"
+        )
+        logger.info("Sign-in refused for %s: %s", masked_email(body.email), reason)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, WRONG_PASSWORD)
     return _signed_in(request, response, accounts, user)
 

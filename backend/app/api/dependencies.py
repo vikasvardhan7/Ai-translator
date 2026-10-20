@@ -1,17 +1,7 @@
-import hashlib
-
 from fastapi import HTTPException, status
 from starlette.requests import HTTPConnection
 
-from app.core.access import (
-    API_KEY_HEADER,
-    MEETING_ID_HEADER,
-    MEETING_TOKEN_HEADER,
-    ROOM_ID_HEADER,
-    ROOM_TOKEN_HEADER,
-    SESSION_COOKIE,
-    is_host,
-)
+from app.core.access import API_KEY_HEADER, SESSION_COOKIE, is_host
 from app.core.config import Settings
 from app.services.account_store import AccountStore, User
 from app.services.assistant.base import MeetingAssistant
@@ -128,16 +118,6 @@ def key_identity(key: ApiKey) -> str:
     return f"key:{key.id}"
 
 
-def _guest_token(connection: HTTPConnection) -> str | None:
-    room = get_room_store(connection).get(connection.headers.get(ROOM_ID_HEADER, ""))
-    token = connection.headers.get(ROOM_TOKEN_HEADER, "")
-    if room is not None and token and room.allows(token):
-        return token
-    meeting = get_meeting_store(connection).get(connection.headers.get(MEETING_ID_HEADER, ""))
-    meeting_token = connection.headers.get(MEETING_TOKEN_HEADER, "")
-    return meeting_token if meeting is not None and meeting.allows(meeting_token) else None
-
-
 def use_allowance(
     connection: HTTPConnection, identity: str, allowance: Allowance, who: str
 ) -> None:
@@ -219,15 +199,3 @@ def require_host(connection: HTTPConnection) -> None:
     if _check_key(connection) or is_owner(connection) or _check_user(connection):
         return
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, HOST_KEY_NEEDED)
-
-
-def require_host_or_guest(connection: HTTPConnection) -> None:
-    if _check_key(connection) or is_owner(connection) or _check_user(connection):
-        return
-    token = _guest_token(connection)
-    if token is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, HOST_KEY_NEEDED)
-    settings = get_app_settings(connection)
-    allowance = Allowance(settings.guest_requests_per_minute, settings.guest_requests_per_day)
-    identity = "guest:" + hashlib.sha256(token.encode()).hexdigest()[:24]
-    use_allowance(connection, identity, allowance, "This invitation")
