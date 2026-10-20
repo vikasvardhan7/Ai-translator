@@ -1,8 +1,11 @@
 import asyncio
 import smtplib
+import socket
 import ssl
 from email.message import EmailMessage
 from typing import Protocol
+
+import certifi
 
 from app.core.config import Settings
 
@@ -12,7 +15,13 @@ GOOGLE_HOSTS = ("smtp.gmail.com", "smtp.googlemail.com")
 
 
 class MailFailed(Exception):
-    pass
+    def __init__(self, message: str, cause: BaseException | None = None) -> None:
+        super().__init__(message)
+        self.detail = f"{type(cause).__name__}: {str(cause)[:200]}" if cause else message
+
+
+def secure_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 class Mailer(Protocol):
@@ -28,7 +37,7 @@ class SmtpMailer:
         self._sender = sender
 
     def _send_now(self, message: EmailMessage) -> None:
-        context = ssl.create_default_context()
+        context = secure_context()
         try:
             if self._port == IMPLICIT_TLS_PORT:
                 with smtplib.SMTP_SSL(
@@ -44,11 +53,31 @@ class SmtpMailer:
         except smtplib.SMTPAuthenticationError as exc:
             raise MailFailed(
                 "The email account refused the login. Check SMTP_USERNAME and the app password"
-                " in backend/.env."
+                " in backend/.env.",
+                exc,
+            ) from exc
+        except smtplib.SMTPRecipientsRefused as exc:
+            raise MailFailed(
+                "The mail server would not send to this address. Check that it is typed correctly.",
+                exc,
+            ) from exc
+        except ssl.SSLCertVerificationError as exc:
+            raise MailFailed(
+                "This computer could not check the mail server's security certificate. Check"
+                " that the computer's date and time are right, and that no antivirus or company"
+                " network is inspecting secure connections.",
+                exc,
+            ) from exc
+        except (TimeoutError, ConnectionError, socket.gaierror) as exc:
+            raise MailFailed(
+                f"The mail server {self._host} could not be reached on port {self._port}. Check the"
+                " internet connection; if this network blocks it, set SMTP_PORT=587 in"
+                " backend/.env and start the backend again.",
+                exc,
             ) from exc
         except (smtplib.SMTPException, OSError) as exc:
             raise MailFailed(
-                "The email could not be sent. Check the internet connection and the SMTP settings."
+                "The email could not be sent. The backend window says why.", exc
             ) from exc
 
     async def send(self, to: str, subject: str, text: str) -> None:

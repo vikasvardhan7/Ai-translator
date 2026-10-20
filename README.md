@@ -91,7 +91,7 @@ npm run typecheck
 npm run dev
 ```
 
-With the backend running, open <http://localhost:5173> in Edge or Chrome. First sign in (see "Accounts" below). The app looks like a desktop: icons on the left (Meet now, Schedule, Gym Trainer, Live captions, Talk here, Assistant, Developers, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
+With the backend running, open <http://localhost:5173> in Edge or Chrome. First sign in (see "Accounts" below). The app looks like a desktop: icons on the left (Meet now, Schedule, Gym Trainer, Live captions, Talk here, Assistant, Developers, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. After you sign in, the desktop opens with no window open; double-click an icon (tap on a phone) to open one. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
 
 ### Looks
 
@@ -124,6 +124,8 @@ The codes are emailed from a Gmail account through an app password, which is fre
 2. Open <https://myaccount.google.com/apppasswords>, type a name such as `Voice Translator` and press **Create**. Copy the 16 letters it shows.
 3. In `backend/.env` set `SMTP_USERNAME=` to that Gmail address and `SMTP_PASSWORD=` to the 16 letters (spaces do not matter). Never commit `.env`.
 4. Start the backend again.
+
+If a code does not arrive, the sign-up screen says why and the backend window adds the technical reason (`Code not sent to ...`). "Refused the login" means the app password or `SMTP_USERNAME` is wrong. "Could not be reached on port 465" means the network blocks it: set `SMTP_PORT=587` and start the backend again. The backend checks Gmail's certificate against the certifi list, so it works even where Python's own certificate store is missing (common with Python from python.org on a Mac).
 
 Phone numbers with SMS codes are not offered yet, because SMS costs money per message.
 

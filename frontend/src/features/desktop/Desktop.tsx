@@ -69,12 +69,19 @@ function currentArea(): Area {
   return { width: window.innerWidth, height: Math.max(320, window.innerHeight - TASKBAR_HEIGHT) };
 }
 
-function firstApp(): AppId {
-  const hash = window.location.hash.slice(1);
-  if (hash === 'privacy' || hash === 'terms') {
-    return hash;
+const LINKED_APPS: readonly AppId[] = ['meetings', 'developers', 'trainer', 'privacy', 'terms'];
+
+export function firstApp(hash: string): AppId | null {
+  if (inviteFromHash(hash) || meetingFromHash(hash)) {
+    return 'translator';
   }
-  return hash === 'meetings' || hash === 'developers' || hash === 'trainer' ? hash : 'translator';
+  const named = LINKED_APPS.find((app) => `#${app}` === hash);
+  return named ?? null;
+}
+
+function firstDesk(): Desk {
+  const app = firstApp(window.location.hash);
+  return app ? open(EMPTY_DESK, app, currentArea()) : EMPTY_DESK;
 }
 
 function conversationTitle(conversation: Conversation | null): string {
@@ -105,7 +112,7 @@ interface DesktopProps {
 
 export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopProps) {
   const [area, setArea] = useState<Area>(currentArea);
-  const [desk, setDesk] = useState<Desk>(() => open(EMPTY_DESK, firstApp(), currentArea()));
+  const [desk, setDesk] = useState<Desk>(firstDesk);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [carriedTurns, setCarriedTurns] = useState<Turn[]>([]);
   const [invite, setInvite] = useState<Invite | null>(() => inviteFromHash(window.location.hash));

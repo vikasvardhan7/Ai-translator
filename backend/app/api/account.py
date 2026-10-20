@@ -146,7 +146,7 @@ async def send_code(
             headers={"Retry-After": str(exc.wait_seconds)},
         ) from exc
     except MailFailed as exc:
-        logger.warning("Code not sent to %s: %s", masked_email(body.email), exc)
+        logger.warning("Code not sent to %s: %s (%s)", masked_email(body.email), exc, exc.detail)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return CodeSent(sent=True, resend_after=int(CODE_GAP.total_seconds()), expires_in=minutes * 60)
 

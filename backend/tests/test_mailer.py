@@ -1,5 +1,8 @@
 import smtplib
+import socket
+import ssl
 
+import certifi
 import pytest
 
 from app.core.config import Settings
@@ -11,8 +14,12 @@ pytestmark = pytest.mark.anyio
 
 class FakeSmtp:
     made: list["FakeSmtp"] = []
+    connect_error: BaseException | None = None
+    refused: set[str] = set()
 
     def __init__(self, host: str, port: int, timeout: float, context=None) -> None:
+        if FakeSmtp.connect_error is not None:
+            raise FakeSmtp.connect_error
         self.host, self.port, self.secure_from_start = host, port, context is not None
         self.steps: list[str] = []
         self.sent = None
@@ -34,12 +41,16 @@ class FakeSmtp:
         self.steps.append(f"login {username}")
 
     def send_message(self, message) -> None:
+        if message["To"] in FakeSmtp.refused:
+            raise smtplib.SMTPRecipientsRefused({message["To"]: (550, b"no such user")})
         self.sent = message
 
 
 @pytest.fixture(autouse=True)
 def fake_smtp(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeSmtp.made = []
+    FakeSmtp.connect_error = None
+    FakeSmtp.refused = set()
     monkeypatch.setattr(mailer.smtplib, "SMTP_SSL", FakeSmtp)
     monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSmtp)
 
@@ -94,3 +105,47 @@ async def test_a_refused_login_is_explained() -> None:
 def test_no_mailer_without_a_login() -> None:
     assert build_mailer(Settings(_env_file=None)) is None
     assert build_mailer(Settings(_env_file=None, smtp_username="me@gmail.com")) is None
+
+
+@pytest.mark.parametrize(
+    ("error", "said"),
+    [
+        (
+            ssl.SSLCertVerificationError("certificate verify failed"),
+            "security certificate",
+        ),
+        (TimeoutError("timed out"), "SMTP_PORT=587"),
+        (socket.gaierror(-2, "Name or service not known"), "could not be reached on port 465"),
+        (ConnectionRefusedError("refused"), "could not be reached"),
+        (smtplib.SMTPServerDisconnected("gone"), "backend window says why"),
+    ],
+    ids=["certificate", "timeout", "no-dns", "refused", "dropped"],
+)
+async def test_each_kind_of_failure_is_named(error: BaseException, said: str) -> None:
+    FakeSmtp.connect_error = error
+
+    with pytest.raises(MailFailed) as failed:
+        await SmtpMailer("smtp.gmail.com", 465, "me", "pw", "me").send("a@example.com", "Hi", "x")
+
+    assert said in str(failed.value)
+    assert failed.value.detail.startswith(type(error).__name__)
+
+
+async def test_a_refused_address_is_explained() -> None:
+    FakeSmtp.refused = {"nobody@example.com"}
+
+    with pytest.raises(MailFailed) as failed:
+        await SmtpMailer("smtp.gmail.com", 465, "me", "pw", "me").send(
+            "nobody@example.com", "Hi", "x"
+        )
+
+    assert "typed correctly" in str(failed.value)
+
+
+def test_certificates_come_from_a_known_good_list() -> None:
+    context = mailer.secure_context()
+
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+    assert context.cert_store_stats()["x509_ca"] > 50
+    assert certifi.where().endswith("cacert.pem")
