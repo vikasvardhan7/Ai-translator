@@ -1,6 +1,95 @@
 # Putting the app online
 
-This guide puts the app on a free Oracle Cloud server with a free web address from DuckDNS and free https. When it is done, anyone can open `https://<your name>.duckdns.org`, create an account and install the app on their phone or computer. It takes about an hour the first time.
+There are two free ways. Both give a fixed https address that anyone can open, create an account on and install as an app.
+
+- **Way 1, no card needed: your laptop.** The laptop runs the app, a free domain from DigitalPlat gives it a fixed name, and Cloudflare carries visitors to it. It works whenever the laptop is on, awake and online.
+- **Way 2, needs a card: a free Oracle Cloud server.** Always on, even when the laptop is off. Oracle checks a Visa or Mastercard card with a small refunded hold; RuPay, prepaid and virtual cards are refused.
+
+# Way 1: your laptop, a free domain and Cloudflare (no card)
+
+It takes about 30 minutes, plus up to a day for the domain to become active.
+
+## 1. Make a free Cloudflare account
+
+Go to https://dash.cloudflare.com/sign-up and sign up with your email. No card is needed.
+
+## 2. Get a free domain and give it to Cloudflare
+
+1. In Cloudflare, choose **Add a domain** (or **Add a site**), type the name you want, such as `vikas-translator.dpdns.org`, and choose the **Free** plan. Cloudflare shows two nameservers, such as `anna.ns.cloudflare.com` and `bob.ns.cloudflare.com`. Keep that page open.
+2. Go to https://dash.domain.digitalplat.org, make an account and sign in.
+3. Register the same name under **.dpdns.org**. Where it asks for nameservers, choose external nameservers only and paste Cloudflare's two into NS1 and NS2.
+4. Back in Cloudflare, press **Check nameservers now**. The domain shows **Active** after a few minutes, at most a day.
+
+DigitalPlat domains are free for a year at a time: renew yours in its dashboard when it asks, or it is released.
+
+## 3. Connect the domain to your laptop
+
+1. In Cloudflare, open **Networking**, then **Tunnels** (on older dashboards **Zero Trust**, then **Networks**, then **Tunnels**), and press **Create a tunnel**. Choose **Cloudflared**, name it `voice-translator`, and choose **Windows**.
+2. Copy the command it shows; it starts with `cloudflared.exe service install` followed by a long token. Open PowerShell **as administrator** (right-click PowerShell, **Run as administrator**) and paste it. This makes Cloudflare's connector a Windows service that starts with the laptop. The tunnel turns **Healthy**.
+3. Press **Next** (or **Add route**, then **Published application**): leave **Subdomain** empty, pick your domain, set **Type** to **HTTP** and **URL** to `localhost:8000`, and save.
+
+If Cloudflare asks for a card at any step, stop there: the domain and the tunnel are free, and there is a way to do the same with commands only.
+
+## 4. Point the app at its address
+
+Open `C:\dev\Ai-translator\backend\.env` in Notepad and set these lines with your domain, keeping each name only once:
+
+```
+PUBLIC_URL=https://vikas-translator.dpdns.org
+FRONTEND_ORIGIN=http://localhost:5173
+HOST_KEY_EVERYWHERE=true
+```
+
+`SMTP_USERNAME`, `SMTP_PASSWORD`, `GEMINI_API_KEY` and `GEMINI_MODEL` must be filled in too (see the README). Close any quick tunnel window (`cloudflared tunnel --url ...`); it is not needed any more.
+
+## 5. Start the app, and start it by itself from now on
+
+Build the website once, and again after every update:
+
+```
+cd C:\dev\Ai-translator\frontend
+npm run build
+```
+
+Double-click `start-server.cmd` in `C:\dev\Ai-translator` to try it. It first stops any backend that is still running (no more port 8000 errors), then starts it; closing that window stops the website. Open your domain on your phone, using mobile data, and sign in.
+
+When it works, close that window and make the backend start by itself whenever you sign in to Windows (PowerShell):
+
+```
+cd C:\dev\Ai-translator
+powershell -ExecutionPolicy Bypass -File .\start-server.ps1 -AtSignIn
+```
+
+It runs in the background from then on. Its messages, the host key included, go to `backend\data\server.log`. Double-clicking `start-server.cmd` later stops the background copy and runs the backend in that window instead; run the line above again to go back to the background. To stop it starting by itself: `Unregister-ScheduledTask -TaskName 'Voice Translator' -Confirm:$false`.
+
+## 6. Keep the laptop available
+
+```
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+```
+
+Also set **Control Panel**, **Power Options**, **Choose what closing the lid does** to **Do nothing** when plugged in, and keep the laptop plugged in and online. After a restart, sign in to Windows once: the tunnel is already running, and the backend starts at sign-in.
+
+## Updating
+
+After a pull request is merged:
+
+```
+cd C:\dev\Ai-translator
+git switch main
+git pull
+cd frontend
+npm run build
+cd ..
+powershell -ExecutionPolicy Bypass -File .\start-server.ps1 -AtSignIn
+```
+
+The last line restarts the background backend with the new version. Everyone keeps their account and data, which stay in `backend\data`.
+
+# Way 2: a free Oracle Cloud server (needs a card)
+
+This puts the app on a free Oracle Cloud server with a free web address from DuckDNS and free https. When it is done, anyone can open `https://<your name>.duckdns.org`, even when your laptop is off. It takes about an hour the first time.
 
 What runs on the server:
 
@@ -8,7 +97,7 @@ What runs on the server:
 - **web**: Caddy, which gets and renews the https certificate by itself and passes everything, live channels included, to the app.
 - **duckdns**: checks every 5 minutes that the DuckDNS address still points to the server.
 
-You need a card to sign up for Oracle Cloud. It is used only to check who you are; the Always Free server below is not charged. Oracle may hold and refund a small amount.
+You need a Visa or Mastercard card to sign up for Oracle Cloud; a family member's works too. It is used only to check who you are; the Always Free server below is not charged. Oracle holds and refunds a small amount.
 
 ## 1. Create the Oracle Cloud account
 

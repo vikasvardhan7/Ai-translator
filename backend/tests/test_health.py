@@ -95,6 +95,27 @@ def test_the_built_frontend_is_served_beside_the_api(tmp_path) -> None:
     assert client.post("/api/rooms", json={"consent": False}).status_code == 422
 
 
+def test_pages_are_always_checked_and_built_files_kept_for_a_year(tmp_path) -> None:
+    (tmp_path / "index.html").write_text("<main>app</main>")
+    (tmp_path / "sw.js").write_text("self")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app-1a2b.js").write_text("start()")
+    client = TestClient(create_app(Settings(_env_file=None), frontend_dist=tmp_path))
+
+    built = client.get("/assets/app-1a2b.js")
+    again = client.get("/assets/app-1a2b.js", headers={"If-None-Match": built.headers["etag"]})
+
+    assert built.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert again.status_code == 304
+    assert again.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    assert client.get("/sw.js").headers["cache-control"] == "no-cache"
+    gone = client.get("/assets/gone-9z8y.js")
+    assert gone.status_code == 404
+    assert "immutable" not in gone.headers.get("cache-control", "")
+    assert "cache-control" not in client.get("/health").headers
+
+
 def test_without_a_built_frontend_only_the_api_is_served(tmp_path) -> None:
     client = TestClient(create_app(Settings(_env_file=None), frontend_dist=tmp_path / "dist"))
 

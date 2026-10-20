@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+from starlette.types import Scope
 
 from app import __version__
 from app.api import (
@@ -43,8 +45,19 @@ FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
 LOG_FORMAT = "%(levelname)s:     %(message)s"
 SERVER_LOGGERS = ("uvicorn.error", "uvicorn.access")
 SECRETS_IN_ADDRESSES = re.compile(r"(token=|/api/sessions/)[^&/\s\"']+")
+BUILT_FOLDER = "assets"
+BUILT_FILES_CACHE = "public, max-age=31536000, immutable"
+PAGES_CACHE = "no-cache"
 
 logger = logging.getLogger(__name__)
+
+
+class WebsiteFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        built = Path(path).parts[:1] == (BUILT_FOLDER,) and response.status_code in (200, 304)
+        response.headers["Cache-Control"] = BUILT_FILES_CACHE if built else PAGES_CACHE
+        return response
 
 
 def show_app_logs() -> None:
@@ -167,7 +180,7 @@ def create_app(
     app.include_router(assistant.router)
     app.include_router(trainer.router)
     if frontend_dist is not None and frontend_dist.is_dir():
-        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+        app.mount("/", WebsiteFiles(directory=frontend_dist, html=True), name="frontend")
     return app
 
 

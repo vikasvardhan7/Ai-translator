@@ -8,7 +8,7 @@ People sign up and sign in with their email (a 6-digit code is emailed to them) 
 
 Nothing of a conversation is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
 
-It runs on your laptop for testing, or online for everyone: [`docs/DEPLOY.md`](docs/DEPLOY.md) puts it on a free Oracle Cloud server with a free DuckDNS address and https, and people install it from the website as an app on Android, iPhone, Windows or Mac.
+It runs on your laptop for testing, or online for everyone: [`docs/DEPLOY.md`](docs/DEPLOY.md) gives it a fixed https address for free, either from your laptop with a free domain and Cloudflare (no card needed) or on a free Oracle Cloud server, and people install it from the website as an app on Android, iPhone, Windows or Mac.
 
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx) is the original plan from the first day and is out of date; the protocol and decisions are current.
 
@@ -198,7 +198,11 @@ The Developers window shows each key's use today and can revoke a key at once. O
 
 ## Putting it online for everyone
 
-[`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step guide: a free Oracle Cloud server, a free DuckDNS address, then `bash setup.sh` on the server, which opens the firewall, installs Docker and starts three containers: the app (backend and built website together, with every database in a Docker volume), Caddy (free https certificates, renewed by itself) and a small DuckDNS updater. `bash update.sh` brings the server up to date with `main`, and `bash backup.sh` saves a consistent copy of every database.
+[`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step guide, in two ways.
+
+**From your laptop, no card needed.** A free `.dpdns.org` domain from DigitalPlat is handed to a free Cloudflare account, and Cloudflare's connector, installed as a Windows service, carries visitors to `localhost:8000`. `start-server.cmd` (double-click) stops any backend still running and starts it in a window; `start-server.ps1 -AtSignIn` makes it start by itself in the background whenever you sign in to Windows, with its messages in `backend\data\server.log`. The site is up whenever the laptop is on, awake and online.
+
+**On a free Oracle Cloud server, which needs a Visa or Mastercard card for verification.** A free Oracle Cloud server, a free DuckDNS address, then `bash setup.sh` on the server, which opens the firewall, installs Docker and starts three containers: the app (backend and built website together, with every database in a Docker volume), Caddy (free https certificates, renewed by itself) and a small DuckDNS updater. `bash update.sh` brings the server up to date with `main`, and `bash backup.sh` saves a consistent copy of every database.
 
 The website is also an installable app (a web app manifest, icons and a small service worker). On the desktop, **Install app** installs it in Chrome and Edge, and on iPhone and iPad it explains Safari's **Share**, then **Add to Home Screen**; the icon disappears once the app is installed. The installed app always runs the version on the server and shows a short offline page when there is no internet. On Android, long-press the app icon (on Windows, right-click it) for **Gym Trainer** and **Schedule a meeting**.
 
@@ -225,6 +229,7 @@ Ai-translator/
 ├── deploy/                  server setup: compose file, Caddy, DuckDNS updater, setup, update and backup scripts, settings example
 ├── docs/                    protocol, API guide for other apps, decisions, putting it online, developer handbook
 ├── Dockerfile               builds the website and the backend into one image
+├── start-server.cmd         double-click: stop any old backend and start it (start-server.ps1 does the work)
 └── README.md
 ```
 
