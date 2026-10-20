@@ -256,7 +256,6 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
     { label: 'Talk here', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
     { label: 'Developers', icon: 'developers', run: () => openApp('developers') },
-    { label: 'Account', icon: 'account', run: () => openApp('account') },
     { label: 'Personalize', icon: 'personalize', run: () => openApp('personalize') },
     { label: 'Help', icon: 'help', run: () => openApp('help') },
     { label: 'Privacy', icon: 'privacy', run: () => openApp('privacy') },
