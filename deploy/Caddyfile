@@ -1,0 +1,15 @@
+{$DOMAIN} {
+	encode zstd gzip
+	request_header -Cf-Connecting-Ip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	@pages path / /index.html /offline.html /sw.js /manifest.webmanifest
+	header @pages Cache-Control "no-cache"
+	@built path /assets/*
+	header @built Cache-Control "public, max-age=31536000, immutable"
+	reverse_proxy {$APP_ADDRESS:app:8000}
+}

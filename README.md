@@ -8,6 +8,8 @@ People sign up and sign in with their email (a 6-digit code is emailed to them) 
 
 Nothing of a conversation is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
 
+It runs on your laptop for testing, or online for everyone: [`docs/DEPLOY.md`](docs/DEPLOY.md) puts it on a free Oracle Cloud server with a free DuckDNS address and https, and people install it from the website as an app on Android, iPhone, Windows or Mac.
+
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx) is the original plan from the first day and is out of date; the protocol and decisions are current.
 
 ## Tech stack
@@ -194,6 +196,12 @@ Double-click **Developers** to make an API key for each website or app that shou
 
 The Developers window shows each key's use today and can revoke a key at once. Other sites reach the translator through the public link, so the tunnel (or `PUBLIC_URL`) must be working. Signed-in people and keys have limits per minute and per day so nobody can use up the free Gemini quota; you are never limited. The full guide, with examples in curl, Python and JavaScript, is [docs/API.md](docs/API.md); the live reference of every call is at <http://localhost:8000/docs>.
 
+## Putting it online for everyone
+
+[`docs/DEPLOY.md`](docs/DEPLOY.md) is the step-by-step guide: a free Oracle Cloud server, a free DuckDNS address, then `bash setup.sh` on the server, which opens the firewall, installs Docker and starts three containers: the app (backend and built website together, with every database in a Docker volume), Caddy (free https certificates, renewed by itself) and a small DuckDNS updater. `bash update.sh` brings the server up to date with `main`, and `bash backup.sh` saves a consistent copy of every database.
+
+The website is also an installable app (a web app manifest, icons and a small service worker). On the desktop, **Install app** installs it in Chrome and Edge, and on iPhone and iPad it explains Safari's **Share**, then **Add to Home Screen**; the icon disappears once the app is installed. The installed app always runs the version on the server and shows a short offline page when there is no internet. On Android, long-press the app icon (on Windows, right-click it) for **Gym Trainer** and **Schedule a meeting**.
+
 ## Project structure
 
 ```
@@ -210,11 +218,13 @@ Ai-translator/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes), meetings, Gym Trainer, developers, embedded widget view, assistant, setup, call screens
-│   ├── public/widget.js     the one-line website widget
+│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes, installing the app), meetings, Gym Trainer, developers, embedded widget view, assistant, setup, call screens
+│   ├── public/              the one-line website widget, app manifest, icons, service worker and offline page
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                    protocol, API guide for other apps, decisions, developer handbook
+├── deploy/                  server setup: compose file, Caddy, DuckDNS updater, setup, update and backup scripts, settings example
+├── docs/                    protocol, API guide for other apps, decisions, putting it online, developer handbook
+├── Dockerfile               builds the website and the backend into one image
 └── README.md
 ```
 
@@ -230,4 +240,5 @@ Every pull request and every push to `main` runs the backend tests and lint (on 
 - The sign-in cookie is HttpOnly (scripts cannot read it), SameSite=Lax, and Secure when the app is opened over https.
 - API keys for other apps are kept only as SHA-256 fingerprints in `backend/data/keys.db` (Git ignores it). A key written into a web page can be read by anyone who sees that page, so give the widget its own key with a modest daily limit and revoke it if it is misused.
 - Through a public link, starting conversations needs the host key printed by the backend; the backend's request log hides tokens and session ids. If you put your own proxy in front of the backend instead of cloudflared, set `HOST_KEY_EVERYWHERE=true` in `backend/.env` so requests through it are never mistaken for local ones.
+- On the server, every secret lives only in `deploy/.env` (Git ignores it; `setup.sh` makes it readable by its owner only), the build never sees `.env` files or databases, the app runs as an unprivileged user, and `HOST_KEY_EVERYWHERE` is on. Caddy serves https only (port 80 redirects), adds HSTS, `nosniff` and a strict referrer policy, removes any client-sent `Cf-Connecting-Ip`, and sets `X-Forwarded-For` to the real visitor, so per-device sign-in limits cannot be dodged by faking it.
 - `.git/info/exclude` is the place for your own editor and agent folders; `.gitignore` covers build output, caches, Word lock files and coverage reports.

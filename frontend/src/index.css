@@ -2196,6 +2196,10 @@ html[data-page-visible='hidden'] .wallpaper-glow {
   background: linear-gradient(145deg, #7cc4f0, #0f5a8d);
 }
 
+.app-icon[data-icon='install'] {
+  background: linear-gradient(145deg, #34d399, #0f766e);
+}
+
 @keyframes shimmer {
   from {
     background-position: 0% 50%;
@@ -2676,6 +2680,27 @@ html[data-page-visible='hidden'] .wallpaper-glow {
 .help-lead {
   margin: 0 0 16px;
   font-size: 1.02rem;
+}
+
+.help-install {
+  margin: 0 0 18px;
+  padding: 16px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border: 1px solid var(--glass-line);
+  border-radius: 16px;
+  background: var(--surface-strong);
+}
+
+.help-install h3 {
+  margin: 2px 0 4px;
+  font-size: 1.05rem;
+}
+
+.help-install p {
+  margin: 0 0 10px;
+  line-height: 1.5;
 }
 
 .help-list {
