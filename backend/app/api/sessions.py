@@ -7,7 +7,7 @@ from app.api.dependencies import (
     get_session_store,
     get_speech_synthesizer,
     get_speech_translator,
-    key_budget,
+    request_budget,
     require_host,
 )
 from app.api.stream import handle_stream
@@ -24,7 +24,7 @@ Store = Annotated[SessionStore, Depends(get_session_store)]
 AppSettings = Annotated[Settings, Depends(get_app_settings)]
 Translator = Annotated[SpeechTranslator | None, Depends(get_speech_translator)]
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
-Spending = Annotated[Budget | None, Depends(key_budget)]
+Spending = Annotated[Budget | None, Depends(request_budget)]
 
 
 @router.post(

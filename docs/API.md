@@ -30,6 +30,7 @@ daily limit and when it was made and last used), so they survive a restart. Set 
 | --- | --- | --- |
 | An API key | 60 (`KEY_REQUESTS_PER_MINUTE`) | The limit chosen for the key (10 to 100 000) |
 | An invited guest (meeting or call link) | 20 (`GUEST_REQUESTS_PER_MINUTE`) | 400 (`GUEST_REQUESTS_PER_DAY`) |
+| A person signed in to the app | 30 (`USER_REQUESTS_PER_MINUTE`) | 300 (`USER_REQUESTS_PER_DAY`) |
 | The person running the translator | none | none |
 
 Every REST call that needs a key counts as one request, and so does every spoken sentence
@@ -188,4 +189,5 @@ Every error is `{"detail": "one readable sentence"}`:
 ## 6. What is kept
 
 Nothing of a conversation: audio, captions and transcripts exist only while it runs. The only
-things kept on disk are the keys (as above) and scheduled meetings.
+things kept on disk are the keys (as above), scheduled meetings, and the accounts and Gym Trainer
+data of people who use the app itself. A key can never reach accounts, meetings or Gym Trainer.

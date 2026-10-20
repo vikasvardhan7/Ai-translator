@@ -12,9 +12,11 @@ export const MAX_MESSAGE_LENGTH = 4000;
 export const APP_NAMES: Record<AppId, string> = {
   translator: 'Translator',
   meetings: 'Meetings',
+  trainer: 'Gym Trainer',
   assistant: 'Assistant',
   developers: 'Developers',
   personalize: 'Personalize',
+  account: 'Account',
   help: 'Help',
   privacy: 'Privacy',
   terms: 'Terms',

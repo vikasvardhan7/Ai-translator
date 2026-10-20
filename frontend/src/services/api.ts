@@ -29,6 +29,9 @@ export class ApiError extends Error {
   }
 }
 
+export const SIGNED_OUT_EVENT = 'voice-translator-signed-out';
+const SIGN_IN_FIRST = 'Sign in first';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -62,7 +65,7 @@ function accessHeaders(access: RoomAccess | MeetingAccess | undefined): Record<s
   return roomHeaders(access);
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = savedHostKey()): Promise<T> {
+export async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = savedHostKey()): Promise<T> {
   const headers = new Headers(init.headers);
   const apiKey = requestApiKey();
   if (apiKey) {
@@ -70,13 +73,16 @@ async function requestJson<T>(path: string, init: RequestInit = {}, hostKey = sa
   } else if (hostKey && !headers.has('X-Host-Key')) {
     headers.set('X-Host-Key', hostKey);
   }
-  const response = await fetch(`${getBackendUrl()}${path}`, { ...init, headers });
+  const response = await fetch(`${getBackendUrl()}${path}`, { ...init, headers, credentials: 'include' });
   const body = await readJson(response);
 
   if (!response.ok) {
     const detail = isRecord(body) && typeof body.detail === 'string'
       ? body.detail
       : `Request failed with status ${response.status}`;
+    if (response.status === 401 && detail.startsWith(SIGN_IN_FIRST)) {
+      globalThis.dispatchEvent?.(new Event(SIGNED_OUT_EVENT));
+    }
     throw new ApiError(response.status, detail);
   }
 
@@ -532,4 +538,79 @@ export async function createKey(name: string, dailyLimit: number): Promise<{ key
 
 export async function revokeKey(id: string): Promise<void> {
   await requestJson<unknown>(`/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export interface AccountUser {
+  id: string;
+  email: string;
+  name: string;
+  created_at: string;
+  owner: boolean;
+}
+
+export type CodePurpose = 'sign_up' | 'reset';
+
+function readUser(value: unknown): AccountUser {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.email !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.created_at !== 'string' ||
+    typeof value.owner !== 'boolean'
+  ) {
+    throw new Error('The backend returned an invalid account.');
+  }
+  return { id: value.id, email: value.email, name: value.name, created_at: value.created_at, owner: value.owner };
+}
+
+function postJson(body: unknown, method = 'POST'): RequestInit {
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+export async function currentUser(): Promise<AccountUser | null> {
+  try {
+    return readUser(await requestJson<unknown>('/api/account'));
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function sendCode(email: string, purpose: CodePurpose): Promise<{ resendAfter: number; expiresIn: number }> {
+  const body = await requestJson<unknown>('/api/account/code', postJson({ email, purpose }));
+  if (!isRecord(body) || typeof body.resend_after !== 'number' || typeof body.expires_in !== 'number') {
+    throw new Error('The backend returned an invalid answer.');
+  }
+  return { resendAfter: body.resend_after, expiresIn: body.expires_in };
+}
+
+export async function signUp(email: string, code: string, name: string, password: string): Promise<AccountUser> {
+  return readUser(await requestJson<unknown>('/api/account/sign-up', postJson({ email, code, name, password })));
+}
+
+export async function signIn(email: string, password: string): Promise<AccountUser> {
+  return readUser(await requestJson<unknown>('/api/account/sign-in', postJson({ email, password })));
+}
+
+export async function resetPassword(email: string, code: string, password: string): Promise<AccountUser> {
+  return readUser(await requestJson<unknown>('/api/account/reset', postJson({ email, code, password })));
+}
+
+export async function signOut(): Promise<void> {
+  await requestJson<unknown>('/api/account/sign-out', { method: 'POST' });
+}
+
+export async function changePassword(current: string, password: string): Promise<AccountUser> {
+  return readUser(await requestJson<unknown>('/api/account/password', postJson({ current, password }, 'PUT')));
+}
+
+export async function renameAccount(name: string): Promise<AccountUser> {
+  return readUser(await requestJson<unknown>('/api/account/name', postJson({ name }, 'PUT')));
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  await requestJson<unknown>('/api/account/delete', postJson({ password }));
 }

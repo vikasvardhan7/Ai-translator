@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import type { AccountUser } from '../../services/api';
 import { APP_NAMES, type Where } from '../assistant/agent';
 import AppIcon, { type IconName } from './AppIcon';
 import { APPS, type AppId, type WindowState } from './windows';
@@ -7,15 +8,17 @@ import { APPS, type AppId, type WindowState } from './windows';
 export const APP_ICONS: Record<AppId, IconName> = {
   translator: 'translator',
   meetings: 'schedule',
+  trainer: 'trainer',
   assistant: 'assistant',
   developers: 'developers',
   personalize: 'personalize',
+  account: 'account',
   help: 'help',
   privacy: 'privacy',
   terms: 'terms',
 };
 
-const PINNED: AppId[] = ['translator', 'meetings', 'assistant', 'help'];
+const PINNED: AppId[] = ['translator', 'meetings', 'trainer', 'assistant', 'help'];
 const SHORTCUTS: Array<{ where: Where; icon: IconName; label: string }> = [
   { where: 'remote', icon: 'remote', label: 'Meet now' },
   { where: 'meeting', icon: 'meeting', label: 'Live captions' },
@@ -30,6 +33,8 @@ interface TaskbarProps {
   onOpen: (app: AppId) => void;
   onStart: (where: Where) => void;
   onAsk: (text: string) => void;
+  user: AccountUser;
+  onSignOut: () => void;
 }
 
 function useClock(): Date {
@@ -69,7 +74,7 @@ function AskBox({ id, onAsk, autoFocus }: { id: string; onAsk: (text: string) =>
   );
 }
 
-export default function Taskbar({ windows, active, live, onApp, onOpen, onStart, onAsk }: TaskbarProps) {
+export default function Taskbar({ windows, active, live, onApp, onOpen, onStart, onAsk, user, onSignOut }: TaskbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const startRef = useRef<HTMLButtonElement | null>(null);
@@ -128,7 +133,19 @@ export default function Taskbar({ windows, active, live, onApp, onOpen, onStart,
               </button>
             ))}
           </div>
-          <p className="start-footer">Everything stays on this computer while the page is open. Nothing is saved.</p>
+          <div className="start-account">
+            <span className="account-avatar" aria-hidden="true">{(user.name.trim()[0] ?? '?').toUpperCase()}</span>
+            <span className="start-account-who">
+              <strong>{user.name}</strong>
+              <small>{user.email}</small>
+            </span>
+            <button className="button button-small button-secondary" type="button" onClick={() => pick(() => onOpen('account'))}>
+              Account
+            </button>
+            <button className="button button-small button-secondary" type="button" onClick={() => pick(onSignOut)}>
+              Sign out
+            </button>
+          </div>
         </div>
       )}
       <nav className="taskbar" aria-label="Taskbar">

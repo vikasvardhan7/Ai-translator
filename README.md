@@ -4,7 +4,9 @@ A two-way, real-time voice translator. Two people who speak different languages 
 
 **Status:** working end to end. Three ways to use it: two people at one device, two people on their own devices through an invite link, and captions for an online meeting (Google Meet, Teams or Zoom) in your language. Hands-free listening finds each sentence by itself; speech is recognized and translated from any language (Gemini API free tier) and spoken by a Gemini voice or the browser's own; the Meet-style screen has live captions, a transcript with text and subtitle downloads, and settings for language, voice and speed. Connections that drop come back by themselves. There is no fixed language list: any ISO 639 code is accepted.
 
-Nothing is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
+People sign up and sign in with their email (a 6-digit code is emailed to them) and a password; only invite links and the website widget work without an account. The desktop also has a **Gym Trainer**: an AI-made weekly workout and meal plan you can edit, and daily tracking of workouts, meals, water, weight, sleep and steps.
+
+Nothing of a conversation is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
 
 The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisions are in [`docs/DECISIONS.md`](docs/DECISIONS.md). [`docs/DEVELOPER-HANDBOOK.docx`](docs/DEVELOPER-HANDBOOK.docx) is the original plan from the first day and is out of date; the protocol and decisions are current.
 
@@ -17,7 +19,8 @@ The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisio
 | Speech, translation and voice | Gemini API free tier through `google-genai`; models set by `GEMINI_MODEL` and `GEMINI_TTS_MODEL` |
 | Live words | The browser's own speech recognition (Edge and Chrome) |
 | Telling voices apart | NumPy (voice prints computed on the server, kept only in memory) |
-| Storage | No conversations: nothing said is recorded or saved. Scheduled meetings and API keys are kept in `backend/data` |
+| Accounts | Email codes sent through Gmail (Python's own `smtplib`), scrypt passwords, an HttpOnly sign-in cookie |
+| Storage | No conversations: nothing said is recorded or saved. Accounts, Gym Trainer data, scheduled meetings and API keys are kept in SQLite files in `backend/data` |
 
 ## Prerequisites (Windows)
 
@@ -87,7 +90,7 @@ npm run typecheck
 npm run dev
 ```
 
-With the backend running, open <http://localhost:5173> in Edge or Chrome. The app looks like a desktop: icons on the left (Meet now, Schedule, Live captions, Talk here, Assistant, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
+With the backend running, open <http://localhost:5173> in Edge or Chrome. First sign in (see "Accounts" below). The app looks like a desktop: icons on the left (Meet now, Schedule, Gym Trainer, Live captions, Talk here, Assistant, Developers, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. Double-click an icon (tap on a phone) to open it. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
 
 ### Looks
 
@@ -98,6 +101,39 @@ Open **Personalize** to pick one of five looks, each with its own live wallpaper
 Type into the taskbar's ask box, or open **Assistant**. It works like a chat: ask anything and it searches the web when the answer needs current information (sources are shown under the answer). During a call it also knows what has been said ("Summarise so far", "What are the action items?"). It can do things for you: "start meeting captions", "mute me", "show the transcript", "download the subtitles", "change my language to Hindi", "open help", "end the call". Nothing is saved; the chat is gone when the page closes. It uses `GEMINI_MODEL`, or `GEMINI_ASSISTANT_MODEL` in `backend/.env` when set. Web search uses Google Search through Gemini, which has its own daily free limit.
 
 If the connection drops, the screen says "Reconnecting" and comes back by itself with the transcript kept, for up to five minutes.
+
+## Accounts
+
+Everyone signs in before the desktop opens; invited guests (meeting and call links) and the website widget do not need an account.
+
+- **Create account**: name and email, then the 6-digit code that arrives by email (it works for 10 minutes), then a password of at least 8 characters.
+- **Sign in**: email and password. You stay signed in for 30 days in that browser.
+- **Forgot password**: a code by email, then a new password; every other sign-in ends.
+- **Account** (Start menu, next to your name): change your name or password, sign out, or delete the account with everything in it.
+
+Passwords are kept only as scrypt fingerprints, codes only as fingerprints, and sign-ins as a random number in an HttpOnly cookie, all in `backend/data/accounts.db` (Git ignores it). Each person may make 30 AI requests a minute and 300 a day (`USER_REQUESTS_PER_MINUTE`, `USER_REQUESTS_PER_DAY`); requests made on the computer that runs the backend are never limited. Scheduled meetings belong to the account that made them. API keys are still made only on the computer that runs the backend (or with the host key).
+
+### Sending the codes (Gmail, free)
+
+The codes are emailed from a Gmail account through an app password, which is free and allows about 500 emails a day. Until this is set up, nobody can create an account.
+
+1. Sign in to the Google account that should send the codes and turn on **2-Step Verification** (<https://myaccount.google.com/security>).
+2. Open <https://myaccount.google.com/apppasswords>, type a name such as `Voice Translator` and press **Create**. Copy the 16 letters it shows.
+3. In `backend/.env` set `SMTP_USERNAME=` to that Gmail address and `SMTP_PASSWORD=` to the 16 letters (spaces do not matter). Never commit `.env`.
+4. Start the backend again.
+
+Phone numbers with SMS codes are not offered yet, because SMS costs money per message.
+
+## Gym Trainer
+
+Double-click **Gym Trainer**. Fill in **Profile** once (age, height, weight, goal, experience, days a week, where you train, the food you eat and anything to avoid); it works out your daily calories, protein, carbohydrate, fat and water. Then:
+
+- **Workouts** and **Diet**: press **Make my workout plan** or **Make my meal plan** and Gemini makes a seven-day plan that fits your profile and targets. **Edit** changes any day by hand; **Make again…** remakes one day, and **Make a new week…** the whole week, with your wishes ("no running", "more paneer").
+- **Today**: today's planned workout (press **Done** for each exercise, with the weight you lifted), today's meals (**Ate this**), any food typed in your own words (the AI works out its calories), quick water buttons, weight, sleep, steps and a note. The arrows go to other days.
+- **Progress**: a tracking streak, workout days, averages and charts of weight, calories, protein, water, sets, sleep and steps for 7, 30 or 90 days, against your targets.
+- **Coach**: tell it what you did or ask anything ("I ran 3 km and had 2 chapatis"); it answers from your plans and log and logs what you tell it.
+
+Everything is kept for your account only in `backend/data/trainer.db`. **Profile** can download all of it as a file or delete it. It uses `GEMINI_ASSISTANT_MODEL` (or `GEMINI_MODEL`). Plans and calorie numbers are AI estimates, not medical advice.
 
 ## Captions for an online meeting
 
@@ -157,16 +193,16 @@ Ai-translator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          FastAPI app, CORS, /health, host key, log redaction
-│   │   ├── api/             access, sessions, rooms, meetings, API keys, languages, voices, assistant, WebSocket streams
+│   │   ├── api/             access, accounts, sessions, rooms, meetings, API keys, Gym Trainer, languages, voices, assistant, WebSocket streams
 │   │   ├── core/            settings, access (host key), language codes, text matching, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session, room, meeting and key stores, limits, speech detection, voice prints, Gemini speech, translation, voice and assistant, retry
+│   │   └── services/        account, session, room, meeting, key and trainer stores, email, limits, speech detection, voice prints, Gemini speech, translation, voice, assistant and trainer, retry
 │   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app: desktop (windows, taskbar, themes), meetings, developers, embedded widget view, assistant, setup, call screens
+│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes), meetings, Gym Trainer, developers, embedded widget view, assistant, setup, call screens
 │   ├── public/widget.js     the one-line website widget
 │   ├── package.json
 │   └── vite.config.ts
@@ -181,7 +217,9 @@ Every pull request and every push to `main` runs the backend tests and lint (on 
 ## Security
 
 - API keys go only in `backend/.env`, which Git ignores. Never put keys in the frontend: anything starting with `VITE_` is visible in the browser.
-- `.env.example` files contain placeholders only.
+- `.env.example` files contain placeholders only. The Gmail app password goes only in `backend/.env`; if it leaks, delete it at <https://myaccount.google.com/apppasswords> and make a new one.
+- Passwords are stored only as scrypt fingerprints, email codes and sign-in tokens only as SHA-256 fingerprints, in `backend/data/accounts.db`. Codes work once for 10 minutes, allow 5 tries and one new code a minute; sign-in and code requests are limited per email address and per device. Signing in with a wrong email or a wrong password gives the same answer, and asking for a password reset never says whether an account exists.
+- The sign-in cookie is HttpOnly (scripts cannot read it), SameSite=Lax, and Secure when the app is opened over https.
 - API keys for other apps are kept only as SHA-256 fingerprints in `backend/data/keys.db` (Git ignores it). A key written into a web page can be read by anyone who sees that page, so give the widget its own key with a modest daily limit and revoke it if it is misused.
 - Through a public link, starting conversations needs the host key printed by the backend; the backend's request log hides tokens and session ids. If you put your own proxy in front of the backend instead of cloudflared, set `HOST_KEY_EVERYWHERE=true` in `backend/.env` so requests through it are never mistaken for local ones.
 - `.git/info/exclude` is the place for your own editor and agent folders; `.gitignore` covers build output, caches, Word lock files and coverage reports.

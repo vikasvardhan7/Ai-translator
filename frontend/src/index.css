@@ -2150,6 +2150,10 @@ html[data-page-visible='hidden'] .wallpaper-glow {
   box-shadow: none;
 }
 
+.app-icon[data-icon='trainer'] {
+  background: linear-gradient(145deg, #fb923c, #c2410c);
+}
+
 .app-icon[data-icon='meeting'] {
   background: linear-gradient(145deg, #2dd4bf, #0f766e);
 }
@@ -2170,6 +2174,10 @@ html[data-page-visible='hidden'] .wallpaper-glow {
 
 .app-icon[data-icon='developers'] {
   background: linear-gradient(145deg, #a78bfa, #6d28d9);
+}
+
+.app-icon[data-icon='account'] {
+  background: linear-gradient(145deg, #f472b6, #be185d);
 }
 
 .app-icon[data-icon='help'] {
@@ -4125,6 +4133,858 @@ select.text-input {
 
 @media (prefers-reduced-motion: reduce) {
   .caption-live .caption-who::after {
+    animation: none !important;
+  }
+}
+
+.sign-in-page {
+  position: relative;
+  min-height: 100vh;
+  padding: 24px 16px;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: linear-gradient(180deg, var(--desk-top) 0%, var(--desk-bottom) 100%);
+}
+
+body:has(.sign-in-page),
+body:has(.sign-in-legal) {
+  overflow: auto;
+}
+
+.sign-in-glow {
+  position: fixed;
+  inset: -20% -10% auto;
+  height: 70%;
+  background: radial-gradient(closest-side, var(--glow-a), transparent), radial-gradient(closest-side at 70% 60%, var(--glow-b), transparent);
+  filter: blur(20px);
+  pointer-events: none;
+}
+
+.sign-in-card {
+  position: relative;
+  width: min(100%, 440px);
+  padding: 28px clamp(18px, 5vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass-strong);
+  box-shadow: var(--shadow-pop);
+  animation: chat-in 360ms var(--ease-out) both;
+}
+
+.sign-in-card h1 {
+  margin: 0;
+  font-size: 1.7rem;
+}
+
+.sign-in-card h1:focus {
+  outline: none;
+}
+
+.sign-in-brand {
+  margin: 0;
+  color: var(--sky-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sign-in-tabs {
+  padding: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  border-radius: 14px;
+  background: var(--surface-strong);
+}
+
+.sign-in-tabs button {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sign-in-tabs button[aria-selected='true'] {
+  color: var(--text);
+  background: var(--background);
+  box-shadow: var(--shadow-pop);
+}
+
+.sign-in-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sign-in-form .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.password-row {
+  display: flex;
+  gap: 8px;
+}
+
+.password-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sign-in-code {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+
+.sign-in-submit {
+  width: 100%;
+  justify-content: center;
+}
+
+.sign-in-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface-strong);
+  font-size: 0.9rem;
+}
+
+.sign-in-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sign-in-privacy,
+.sign-in-loading {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.sign-in-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+}
+
+.sign-in-legal {
+  min-height: 100vh;
+  padding: 16px;
+  background: var(--background);
+}
+
+.guest {
+  height: 100vh;
+}
+
+.account-app {
+  padding: 18px clamp(14px, 3vw, 26px) 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.account-head div {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.account-head p {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.account-avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: linear-gradient(145deg, #f472b6, #be185d);
+  font-weight: 800;
+}
+
+.account-section {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.account-section h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.account-section .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.account-section .button-primary {
+  align-self: flex-start;
+}
+
+.account-danger {
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.start-account {
+  margin-top: 6px;
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--glass-line);
+}
+
+.start-account .account-avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 0.9rem;
+}
+
+.start-account-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.start-account-who small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sign-in-card {
+    animation: none !important;
+  }
+}
+
+.trainer-app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.trainer-tabs {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  padding: 10px clamp(12px, 3vw, 24px);
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--glass-line);
+  background: var(--glass-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.trainer-tabs button {
+  flex: none;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trainer-tabs button[aria-selected='true'] {
+  color: #ffffff;
+  background: linear-gradient(145deg, #fb923c, #c2410c);
+}
+
+.trainer-tabs button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.trainer-body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px clamp(12px, 3vw, 24px) 24px;
+}
+
+.trainer-body > .chat-app {
+  height: 100%;
+  min-height: 460px;
+}
+
+.trainer-card {
+  margin: 0 0 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  background: var(--background);
+  box-shadow: var(--shadow-pop);
+  animation: chat-in 320ms var(--ease-out) both;
+}
+
+.trainer-card h2,
+.trainer-card h3 {
+  margin: 0;
+}
+
+.trainer-card h3 {
+  font-size: 1.05rem;
+}
+
+.trainer-hello h2 {
+  margin: 0 0 6px;
+}
+
+.trainer-hello p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.trainer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.trainer-form fieldset {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--glass-line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.trainer-form legend {
+  padding: 0 6px;
+  font-weight: 800;
+}
+
+.trainer-form .button-primary {
+  align-self: flex-start;
+}
+
+.trainer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+
+.trainer-grid .field-label,
+.trainer-form .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.trainer-notes {
+  min-height: 70px;
+  font: inherit;
+  resize: vertical;
+}
+
+.trainer-targets dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.trainer-targets dl div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.trainer-targets dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.trainer-targets dd {
+  margin: 2px 0 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.plan-maker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plan-maker .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.plan-maker .button-primary {
+  align-self: flex-start;
+}
+
+.plan-summary p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.plan-summary .button {
+  align-self: flex-start;
+}
+
+.plan-days {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  list-style: none;
+}
+
+.plan-days .trainer-card {
+  margin: 0;
+}
+
+.plan-day[data-rest='true'] {
+  background: var(--surface);
+}
+
+.plan-day-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.plan-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.plan-exercises,
+.plan-meals {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.plan-exercises li,
+.plan-meals > li {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.plan-exercise-name,
+.plan-meal-name {
+  margin: 0;
+  font-weight: 700;
+}
+
+.plan-meal-name span {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.plan-exercise-dose {
+  color: var(--sky-strong);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.plan-exercises small,
+.plan-meals small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.plan-meals ul {
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+}
+
+.plan-meals ul li {
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plan-editor .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.plan-edit-list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.plan-edit-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 2fr) repeat(3, minmax(60px, 0.8fr)) minmax(120px, 2fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.plan-edit-food {
+  grid-template-columns: minmax(120px, 2fr) minmax(70px, 1fr) repeat(4, minmax(56px, 0.7fr)) auto;
+}
+
+.plan-edit-meal {
+  margin: 0;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+}
+
+.plan-edit-meal .plan-edit-row:first-of-type {
+  grid-template-columns: minmax(120px, 2fr) minmax(90px, 1fr) auto;
+}
+
+.today-head {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.today-head h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.today-head h2 small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.today-meters,
+.progress-stats {
+  margin-bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.today-meter {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--glass-line);
+  border-radius: 16px;
+  background: var(--background);
+}
+
+.today-meter .today-meter {
+  padding: 0;
+  border: 0;
+}
+
+.today-meter-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.today-meter-value {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.today-meter-value small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.today-list,
+.today-entries {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.today-list li {
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.today-list li[data-done='true'] {
+  outline: 2px solid color-mix(in srgb, var(--success) 45%, transparent);
+}
+
+.today-item {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-item small {
+  color: var(--muted);
+}
+
+.today-weight {
+  width: 72px;
+}
+
+.today-kcal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.today-kcal .text-input {
+  width: 86px;
+}
+
+.today-extra,
+.today-food {
+  display: grid;
+  grid-template-columns: minmax(150px, 2fr) repeat(4, minmax(56px, 0.6fr)) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.today-food {
+  grid-template-columns: minmax(110px, 0.8fr) minmax(160px, 3fr) auto;
+}
+
+.today-found {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.today-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.today-body-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.today-body-field .field-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.today-note {
+  grid-column: 1 / -1;
+}
+
+.today-entries li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--glass-line);
+}
+
+.today-entries time {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-head {
+  margin-bottom: 14px;
+  max-width: 360px;
+}
+
+.progress-head .sign-in-tabs {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.progress-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.chart {
+  margin: 0;
+}
+
+.chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chart figcaption span {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.chart-frame {
+  width: 100%;
+  overflow: hidden;
+}
+
+.chart svg {
+  display: block;
+}
+
+.chart-key {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.chart-key span {
+  width: 18px;
+  border-top: 2px dashed #ea580c;
+}
+
+.chart-grid line {
+  stroke: var(--glass-line);
+  stroke-width: 1;
+}
+
+.chart text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-bar {
+  fill: var(--sky);
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--sky-strong);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-dot {
+  fill: var(--sky-strong);
+}
+
+.chart-target {
+  stroke: #ea580c;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (max-width: 760px) {
+  .plan-edit-row,
+  .plan-edit-food,
+  .today-extra,
+  .today-food {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .plan-edit-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trainer-card {
     animation: none !important;
   }
 }

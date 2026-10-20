@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setRequestApiKey } from './apiKey';
-import { ApiError, askAssistant, cancelMeeting, createKey, createRoom, listKeys, revokeKey, getMeeting, joinMeeting, listMeetings, scheduleMeeting, startMeeting, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
+import { ApiError, currentUser, deleteAccount, sendCode, SIGNED_OUT_EVENT, signIn, signOut, signUp, askAssistant, cancelMeeting, createKey, createRoom, listKeys, revokeKey, getMeeting, joinMeeting, listMeetings, scheduleMeeting, startMeeting, createSession, detectLanguage, getHealth, getRoom, getVoices, isHost, joinRoom, leaveRoom } from './api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -384,5 +384,42 @@ describe('frontend API calls', () => {
     fetchMock.mockResolvedValueOnce(new Response('{"keys":[{"id":1}]}', { status: 200 }));
 
     await expect(listKeys()).rejects.toThrow('invalid key');
+  });
+
+  it('signs up with an emailed code and sends the session cookie with every request', async () => {
+    const user = { id: 'u1', email: 'a@b.co', name: 'Asha', created_at: '2026-10-20T08:00:00Z', owner: false };
+    fetchMock.mockResolvedValueOnce(new Response('{"sent":true,"resend_after":60,"expires_in":600}', { status: 202 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(user), { status: 201 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(user), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await expect(sendCode('a@b.co', 'sign_up')).resolves.toEqual({ resendAfter: 60, expiresIn: 600 });
+    await expect(signUp('a@b.co', '123456', 'Asha', 'long secret')).resolves.toEqual(user);
+    await expect(signIn('a@b.co', 'long secret')).resolves.toEqual(user);
+    await signOut();
+    await deleteAccount('long secret');
+
+    const calls = fetchMock.mock.calls;
+    expect(calls.map(([url, init]) => [url, init?.method, init?.credentials])).toEqual([
+      ['http://localhost:8000/api/account/code', 'POST', 'include'],
+      ['http://localhost:8000/api/account/sign-up', 'POST', 'include'],
+      ['http://localhost:8000/api/account/sign-in', 'POST', 'include'],
+      ['http://localhost:8000/api/account/sign-out', 'POST', 'include'],
+      ['http://localhost:8000/api/account/delete', 'POST', 'include'],
+    ]);
+    expect(JSON.parse(String(calls[1]![1]!.body))).toEqual({ email: 'a@b.co', code: '123456', name: 'Asha', password: 'long secret' });
+  });
+
+  it('knows nobody is signed in, and tells the app when a session ends', async () => {
+    const dispatched = vi.fn<(event: Event) => boolean>(() => true);
+    vi.stubGlobal('dispatchEvent', dispatched);
+    fetchMock.mockResolvedValueOnce(new Response('{"detail":"Sign in first."}', { status: 401 }));
+    fetchMock.mockResolvedValueOnce(new Response('{"detail":"The email or the password is wrong."}', { status: 401 }));
+
+    await expect(currentUser()).resolves.toBeNull();
+    await expect(signIn('a@b.co', 'wrong')).rejects.toThrow('password is wrong');
+
+    expect(dispatched.mock.calls.map(([event]) => event.type)).toEqual([SIGNED_OUT_EVENT]);
   });
 });

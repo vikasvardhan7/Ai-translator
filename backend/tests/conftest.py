@@ -4,10 +4,12 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.main import create_app
 from app.services import retry
+from app.services.account_store import AccountStore
 from app.services.key_store import KeyStore
 from app.services.meeting_store import MeetingStore
 from app.services.public_address import PublicAddress
-from tests.fakes import FakeTranslator
+from app.services.trainer.store import TrainerStore
+from tests.fakes import FakeMailer, FakeTranslator
 
 FRONTEND = "http://localhost:5173"
 HOST_KEY = "K7QM-4XPA-2JRT"
@@ -28,12 +30,16 @@ def make_client(
     translator=None,
     synthesizer=None,
     client: tuple[str, int] = THIS_COMPUTER,
+    mailer=None,
 ) -> TestClient:
     app = create_app(
         settings or Settings(_env_file=None, frontend_origin=FRONTEND),
         host_key=HOST_KEY,
         meeting_store=MeetingStore(None),
         key_store=KeyStore(None),
+        account_store=AccountStore(None),
+        mailer=mailer or FakeMailer(),
+        trainer_store=TrainerStore(None),
     )
     app.state.speech_translator = translator
     app.state.speech_synthesizer = synthesizer

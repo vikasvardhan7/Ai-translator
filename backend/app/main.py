@@ -9,17 +9,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import access, assistant, keys, languages, meetings, rooms, sessions, voices
+from app.api import (
+    access,
+    account,
+    assistant,
+    keys,
+    languages,
+    meetings,
+    rooms,
+    sessions,
+    trainer,
+    voices,
+)
 from app.core.access import new_host_key
 from app.core.config import BACKEND_DIR, Settings, get_settings
 from app.core.errors import install_error_handlers
+from app.services.account_store import AccountStore
 from app.services.assistant.factory import build_meeting_assistant
 from app.services.key_store import KeyStore
 from app.services.limits import RateLimiter
+from app.services.mailer import Mailer, build_mailer
 from app.services.meeting_store import MeetingStore
 from app.services.public_address import PublicAddress, find_cloudflared
 from app.services.room_store import RoomStore
 from app.services.session_store import SessionStore
+from app.services.trainer.gemini import build_trainer
+from app.services.trainer.store import TrainerStore
 from app.services.translation.factory import build_speech_translator
 from app.services.voice.factory import build_speech_synthesizer
 
@@ -63,6 +78,9 @@ def create_app(
     host_key: str | None = None,
     meeting_store: MeetingStore | None = None,
     key_store: KeyStore | None = None,
+    account_store: AccountStore | None = None,
+    mailer: Mailer | None = None,
+    trainer_store: TrainerStore | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -77,10 +95,13 @@ def create_app(
             services.push_async_callback(app.state.public_address.aclose)
             services.callback(app.state.meetings.close)
             services.callback(app.state.keys.close)
+            services.callback(app.state.accounts.close)
+            services.callback(app.state.trainer_store.close)
             for service in (
                 app.state.speech_translator,
                 app.state.speech_synthesizer,
                 app.state.meeting_assistant,
+                app.state.trainer_ai,
             ):
                 if service is not None:
                     services.push_async_callback(service.aclose)
@@ -93,6 +114,11 @@ def create_app(
     app.state.meetings = meeting_store or MeetingStore(settings.meetings_file)
     app.state.keys = key_store or KeyStore(settings.keys_file)
     app.state.limiter = RateLimiter()
+    app.state.accounts = account_store or AccountStore(settings.accounts_file)
+    app.state.mailer = mailer or build_mailer(settings)
+    app.state.trainer_store = trainer_store or TrainerStore(settings.trainer_file)
+    app.state.trainer_ai = build_trainer(settings)
+    app.state.forget_user = [app.state.trainer_store.forget]
     app.state.speech_translator = build_speech_translator(settings)
     app.state.speech_synthesizer = build_speech_synthesizer(settings)
     app.state.meeting_assistant = build_meeting_assistant(settings)
@@ -105,6 +131,7 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -115,6 +142,7 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     app.include_router(access.router)
+    app.include_router(account.router)
     app.include_router(sessions.router)
     app.include_router(languages.router)
     app.include_router(rooms.router)
@@ -122,6 +150,7 @@ def create_app(
     app.include_router(keys.router)
     app.include_router(voices.router)
     app.include_router(assistant.router)
+    app.include_router(trainer.router)
     if frontend_dist is not None and frontend_dist.is_dir():
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     return app

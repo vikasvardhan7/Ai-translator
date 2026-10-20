@@ -8,9 +8,11 @@ from app.services.assistant.base import AppAction
 APPS = [
     "translator",
     "meetings",
+    "trainer",
     "assistant",
     "developers",
     "personalize",
+    "account",
     "help",
     "privacy",
     "terms",
@@ -58,9 +60,11 @@ CATALOG = {
         ActionSpec(
             "open_app",
             "Open one of the desktop apps: translator (conversations, calls and live captions),"
-            " meetings (schedule meetings and see upcoming ones), assistant (this chat), developers"
+            " meetings (schedule meetings and see upcoming ones), trainer (gym trainer: workout and"
+            " meal plans, daily tracking, progress, coach), assistant (this chat), developers"
             " (API keys and the website widget for other apps),"
-            " personalize (colours and themes), help, privacy or terms.",
+            " personalize (colours and themes), account (name, password, sign out), help, privacy"
+            " or terms.",
             {"app": APPS},
         ),
         ActionSpec("close_app", "Close one of the open desktop apps.", {"app": APPS}),

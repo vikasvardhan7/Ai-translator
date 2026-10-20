@@ -6,6 +6,7 @@ from starlette.requests import HTTPConnection
 
 HOST_KEY_HEADER = "x-host-key"
 API_KEY_HEADER = "x-api-key"
+SESSION_COOKIE = "vt_session"
 ROOM_ID_HEADER = "x-room-id"
 ROOM_TOKEN_HEADER = "x-room-token"
 MEETING_ID_HEADER = "x-meeting-id"

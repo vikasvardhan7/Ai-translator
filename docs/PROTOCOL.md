@@ -11,7 +11,13 @@ Base address in development: `http://localhost:8000`. Bodies are JSON.
 Every error response is `{"detail": "one readable sentence"}` with a 4xx or 5xx status, so the
 frontend can show `detail` directly.
 
-### Who may use the API (host key)
+### Who may use the API (accounts, host key)
+
+A person signed in to an account (section "Accounts" below) may make every request below except
+managing API keys; their requests are counted against their account (30 a minute and 300 a day,
+`USER_REQUESTS_PER_MINUTE` and `USER_REQUESTS_PER_DAY`), as is every sentence translated in a
+conversation or call they started. The person on the backend's own computer, or with the host key,
+is never limited.
 
 The backend prints a host key when it starts (`Host key: ABCD-EF23-GH45`), new on every start and
 kept only in memory. Requests from the same computer (a loopback client address with a `localhost`
@@ -21,7 +27,8 @@ computer without adding `X-Forwarded-For` (a bare nginx `proxy_pass`, an SSH tun
 such requests look local. Through a tunnel or any other address, the requests that spend the
 Gemini quota need the key in an `X-Host-Key` header (case, spaces and dashes do not matter):
 `POST /api/sessions`, `POST /api/rooms`, `POST /api/languages/detect`, `GET /api/voices` and
-`POST /api/assistant`. Without it they answer `401` with a `detail` that says so. An invited guest
+`POST /api/assistant`. Without it, and without a signed-in account, they answer `401` with a `detail` that starts with
+"Sign in first". An invited guest
 sends `X-Room-Id` and `X-Room-Token` (the invite token, or the device token after joining) instead
 on the last three, so
 joining needs no key. `GET /api/access` answers `{"host": true | false}` for the caller, so the
@@ -33,8 +40,9 @@ revoked key answers `401` even from the backend's own computer. Each key may mak
 minute and its own number a day; invited guests 20 a minute and 400 a day; the host has no limit.
 Every sentence translated in a conversation or call started with a key also counts against it.
 Past a limit the answer is `429` with a `Retry-After` header in seconds, and on the live channel a
-`quota_exceeded` error for that sentence. Keys and scheduled meetings are managed only by the host,
-never with a key.
+`quota_exceeded` error for that sentence. Keys are managed only by the host, never with a key or an
+account; scheduled meetings belong to the account that made them (the host without an account sees
+the meetings made that way), never to a key.
 
 | Method and path | Status | Purpose |
 | --- | --- | --- |
@@ -45,7 +53,9 @@ never with a key.
 | `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (host key or invite) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
 | `POST /api/rooms` | live | Start a call that up to 6 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
-| `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list upcoming ones (host only); see "Scheduled meetings" |
+| `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list your upcoming ones (signed in, or the host); see "Scheduled meetings" |
+| `/api/account/...` | live | Sign up, sign in, sign out, reset or change the password, rename, delete; see "Accounts" |
+| `/api/trainer/...` | live | Gym Trainer: profile, targets, plans, daily tracking, progress, coach (signed in); see "Gym Trainer" |
 | `GET /api/keys` | live | The API keys (name, first characters, daily limit, used today, made, last used) and the public address other sites reach: `{"keys": [...], "public_url", "public_url_problem"}` (host only) |
 | `POST /api/keys` | live | Make a key: `{"name": "1 to 60 characters", "daily_limit": 10 to 100000}` (default 1000); answers `201` `{"key": {...}, "secret": "vt_..."}`, the only time the key itself is shown; `409` past 100 keys (host only) |
 | `DELETE /api/keys/{id}` | live | Revoke a key at once; `204`, `404` unknown (host only) |
@@ -234,8 +244,8 @@ opened the link early waits in a lobby and joins as soon as it is live.
 
 | Request | Body | Answers |
 | --- | --- | --- |
-| `POST /api/meetings` (host key) | `{"title", "starts_at" (with a time zone), "duration_minutes", "agenda", "host_name"}` | `201` the meeting with `host_token`, `invite_token`, `public_url`, `public_url_problem`; `422` bad body (no time zone, more than 12 hours in the past or a year ahead, too long); `503` too many |
-| `GET /api/meetings` (host key) | none | `200` `{meetings: [...], public_url, public_url_problem}`: those not yet over, soonest first, with their tokens |
+| `POST /api/meetings` (signed in or host) | `{"title", "starts_at" (with a time zone), "duration_minutes", "agenda", "host_name"}` | `201` the meeting with `host_token`, `invite_token`, `public_url`, `public_url_problem`; `422` bad body (no time zone, more than 12 hours in the past or a year ahead, too long); `503` too many |
+| `GET /api/meetings` (signed in or host) | none | `200` `{meetings: [...], public_url, public_url_problem}`: those not yet over, soonest first, with their tokens |
 | `GET /api/meetings/{id}` with `X-Meeting-Token` (invite or host) | none | `200` `{id, title, starts_at, duration_minutes, agenda, host_name, status, people}` (`status` is `upcoming`, `live` or `ended`; no tokens); `403`; `404` |
 | `DELETE /api/meetings/{id}` with the host token | none | `204`; a live meeting ends for everyone (`peer.left` for `A`); `403`; `404` |
 | `POST /api/meetings/{id}/start` with the host token | `{"consent": true, "host": {"name", "preferred_language"}}` | `200` as `POST /api/rooms` (the host's room token and the room); starting again while it is live gives the same room. `410` more than 2 hours after it ended |
@@ -245,6 +255,76 @@ Before joining, an invited guest finds their language with `POST /api/languages/
 headers `X-Meeting-Id` and `X-Meeting-Token`. With a quick tunnel the public address changes each
 time the backend starts, so a link sent earlier stops working after a restart; the Meetings app
 always shows the current link to send again, and `PUBLIC_URL` gives a fixed address.
+
+### Accounts
+
+People sign up with their email, a 6-digit code sent to it and a password, then sign in with the
+email and password. Everything is kept in `backend/data/accounts.db` (or `ACCOUNTS_FILE`):
+email, name, the password as an scrypt fingerprint (`n=2^14, r=8, p=1`, 16-byte salt), codes and
+sign-in tokens as SHA-256 fingerprints. Codes are emailed through SMTP (`SMTP_USERNAME`,
+`SMTP_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `MAIL_FROM`); without them `POST /api/account/code`
+answers `503`. A code works once, for 10 minutes, with 5 tries; a new one can be asked for after
+60 s. At most 10 000 accounts.
+
+Signing up, signing in and resetting set an HttpOnly cookie `vt_session` (SameSite=Lax, Secure over
+https, path `/`) that lasts 30 days from the last use. The browser sends it with
+`credentials: 'include'`; the backend allows credentials from `FRONTEND_ORIGIN`. A request
+without a valid cookie on a route that needs an account answers `401` "Sign in first."
+
+Limits: per device address 20 a minute and 300 a day across these routes; per email address 10
+code requests a minute and 40 a day, and 5 sign-in attempts a minute and 30 a day. Past a limit:
+`429` with `Retry-After`.
+
+| Request | Body | Answers |
+| --- | --- | --- |
+| `GET /api/account` | none | `200` `{id, email, name, created_at, owner}` (`owner` is true on the backend's own computer or with the host key); `401` |
+| `POST /api/account/code` | `{"email", "purpose": "sign_up" \| "reset"}` | `202` `{sent, resend_after, expires_in}`. For `sign_up` with an email that already has an account, an email says so instead of a code; for `reset` with an unknown email nothing is sent; both answer the same `202`, so nobody learns which emails have accounts. `429` asked again within 60 s; `503` email not set up or not sent |
+| `POST /api/account/sign-up` | `{"email", "name" (1 to 40), "code", "password" (8 to 128, not the email)}` | `201` the account and the cookie; `400` wrong or expired code; `409` the email already has an account; `503` account limit |
+| `POST /api/account/sign-in` | `{"email", "password"}` | `200` the account and the cookie; `401` "The email or the password is wrong." for either mistake |
+| `POST /api/account/reset` | `{"email", "code", "password"}` | `200` the account and a new cookie; every other sign-in ends; `400` wrong code |
+| `POST /api/account/sign-out` | none | `204`; the cookie is removed and its token stops working |
+| `PUT /api/account/password` (signed in) | `{"current", "password"}` | `200` and a new cookie; every other sign-in ends; `401` wrong current password |
+| `PUT /api/account/name` (signed in) | `{"name"}` | `200` the account |
+| `POST /api/account/delete` (signed in) | `{"password"}` | `204`; the account, its sign-ins, its scheduled meetings and its Gym Trainer data are deleted; `401` wrong password |
+
+Invite links (`#join/...`, `#meet/...`) and the website widget work without an account.
+
+### Gym Trainer
+
+Every request needs a signed-in account and sees only that account's data, kept in
+`backend/data/trainer.db` (or `TRAINER_FILE`). Requests that use the AI (making plans, foods,
+coach) count against the account's limit and answer `503` when no Gemini model is set up, `502`
+when Gemini gave no usable answer. They use `GEMINI_ASSISTANT_MODEL`, or `GEMINI_MODEL`, with
+JSON-schema output (plans, foods) and function calling (coach); everything the model returns is
+checked against the same models as a person's own edits.
+
+Daily targets come from the profile, not from the AI: Mifflin-St Jeor resting calories times an
+activity factor (1.2, 1.375, 1.55 or 1.725), then -20 % to lose fat (never below resting calories,
+and never below what a person under 18 burns), +10 % to build muscle, +5 % to get stronger or for
+endurance; protein 1.4 to 2.0 g per kg by goal, fat 25 % of calories, carbohydrate the rest, water
+35 ml per kg rounded to 250 ml.
+
+| Request | Body | Answers |
+| --- | --- | --- |
+| `GET /api/trainer` | none | `{profile, targets, workout, diet, coach_ready}` (each `null` until made) |
+| `PUT /api/trainer/profile` | `{name, age (14 to 90), sex, height_cm, weight_kg, target_weight_kg, goal, level, activity, days_per_week, minutes_per_session, equipment, diet, cuisine, meals_per_day, allergies, health_notes}` | the same as `GET` |
+| `POST /api/trainer/plans/workout` or `/diet` | `{"wishes" (0 to 300), "day": null \| "monday"...}` | the same as `GET`, with the new week, or only that day remade; `409` no profile yet |
+| `PUT /api/trainer/plans/workout` | `{summary, days: [7 x {day, focus, rest, warmup, exercises: [{name, sets, reps, rest_seconds, how}], cooldown}]}` | the same as `GET`; `422` not exactly one entry per weekday |
+| `PUT /api/trainer/plans/diet` | `{summary, days: [7 x {day, meals: [{name, time, items: [{food, amount, calories, protein_g, carbs_g, fat_g}]}]}]}` | as above |
+| `GET /api/trainer/days/{YYYY-MM-DD}` | none | `{day, entries: [{id, day, data, created_at}], summary}`; days from five years ago to tomorrow |
+| `POST /api/trainer/days/{YYYY-MM-DD}/entries` | `{"data": one of the entries below}` | `201` the entry; `409` more than 300 entries that day |
+| `DELETE /api/trainer/entries/{id}` | none | `204`; `404` not yours or gone |
+| `GET /api/trainer/progress?until=YYYY-MM-DD&days=30` | none | `{days: [summary, ...]}`, one per day (1 to 366 days), oldest first |
+| `POST /api/trainer/foods` | `{"text": "2 dosa and coconut chutney"}` | `{items: [{food, amount, calories, protein_g, carbs_g, fat_g}]}` (nothing is logged until the browser adds it) |
+| `POST /api/trainer/coach` | `{messages: [{role: "user" \| "assistant", text}] (1 to 30), day, now}` | `{answer, logged: [entry, ...]}`; what the coach logged is stored for `day`; the chat itself is not kept |
+| `GET /api/trainer/export` | none | `{exported_at, profile, workout, diet, entries}` |
+| `DELETE /api/trainer` | none | `204`; profile, plans and every entry are deleted |
+
+Entries (`data`): `{"kind": "exercise", name, sets, reps, weight_kg, minutes}`,
+`{"kind": "meal", meal, food, calories, protein_g, carbs_g, fat_g}`, `{"kind": "water", ml}`,
+`{"kind": "weight", kg}`, `{"kind": "sleep", hours}`, `{"kind": "steps", count}`,
+`{"kind": "note", text}`. A day's `summary` adds them up: `{day, calories, protein_g, carbs_g,
+fat_g, water_ml, exercises, sets, weight_kg (the last), sleep_hours, steps (the highest)}`.
 
 When the backend serves the built frontend (`frontend/dist`, at `/`), the app and the API share one
 address, so a free tunnel such as `cloudflared tunnel --url http://localhost:8000` gives both

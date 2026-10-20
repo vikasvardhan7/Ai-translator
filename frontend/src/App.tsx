@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import Desktop from './features/desktop/Desktop';
+import AccountGate from './features/account/AccountGate';
 import EmbedApp from './features/embed/EmbedApp';
 import { embedKeyFromHash, setRequestApiKey } from './services/apiKey';
 
@@ -14,5 +14,5 @@ function embedded(): boolean {
 
 export default function App() {
   const [embed] = useState(embedded);
-  return embed ? <EmbedApp /> : <Desktop />;
+  return embed ? <EmbedApp /> : <AccountGate />;
 }
