@@ -6,7 +6,6 @@ import {
   estimateFoods,
   firstNumber,
   loadDay,
-  loadProgress,
   localDay,
   photoUrl,
   removeEntry,
@@ -14,18 +13,15 @@ import {
   uploadPhoto,
   weekdayOf,
   type DayLog,
-  type DaySummary,
   type Entry,
   type EntryData,
   type Exercise,
   type FoodItem,
-  type Meal,
   type TrainerState,
 } from '../../services/trainer';
 import { dayName, rounded } from './labels';
 import { shrinkPhoto } from './photos';
 import { problemText } from './problems';
-import TodayGlance, { WeekStrip } from './TodayGlance';
 
 interface TodayTabProps {
   state: TrainerState;
@@ -43,23 +39,22 @@ interface MealPhoto {
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
-const LIVE_EVERY_MS = 30_000;
-const CLOCK_EVERY_MS = 60_000;
-
-function minutesNow(date: Date = new Date()): number {
-  return date.getHours() * 60 + date.getMinutes();
-}
-
-function mealEntries(meal: Meal): EntryData[] {
-  return meal.items.map((item): EntryData => ({
-    kind: 'meal',
-    meal: meal.name,
-    food: `${item.food}${item.amount ? `, ${item.amount}` : ''}`.slice(0, 200),
-    calories: item.calories,
-    protein_g: item.protein_g,
-    carbs_g: item.carbs_g,
-    fat_g: item.fat_g,
-  }));
+function Meter({ label, value, target, unit }: { label: string; value: number; target: number | null; unit: string }) {
+  const share = target ? Math.min(100, Math.round((value / target) * 100)) : 0;
+  return (
+    <div className="today-meter">
+      <p className="today-meter-label">{label}</p>
+      <p className="today-meter-value">
+        {rounded(value)}
+        <small>{target ? ` / ${rounded(target)} ${unit}` : ` ${unit}`}</small>
+      </p>
+      {target ? (
+        <div className="dev-usage" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={target} aria-valuenow={Math.min(value, target)}>
+          <span style={{ width: `${share}%` }} data-full={value > target * 1.1} />
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function describe(data: EntryData): string {
@@ -96,9 +91,6 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
   const [photo, setPhoto] = useState<MealPhoto | null>(null);
   const picker = useRef<HTMLInputElement | null>(null);
   const preview = useRef<string | null>(null);
-  const [week, setWeek] = useState<DaySummary[]>([]);
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-  const [nowMinutes, setNowMinutes] = useState(minutesNow);
 
   useEffect(() => () => {
     if (preview.current) {
@@ -108,11 +100,7 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
 
   const refresh = useCallback(async () => {
     try {
-      const [loaded, days] = await Promise.all([loadDay(day), loadProgress(localDay(), 7)]);
-      setLog(loaded);
-      setWeek(days);
-      setUpdatedAt(new Date());
-      setNowMinutes(minutesNow());
+      setLog(await loadDay(day));
       setProblem('');
     } catch (error) {
       setProblem(problemText(error));
@@ -122,24 +110,6 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
   useEffect(() => {
     void refresh();
   }, [refresh, changed]);
-
-  useEffect(() => {
-    const again = (): void => {
-      if (document.visibilityState === 'visible') {
-        void refresh();
-      }
-    };
-    const live = window.setInterval(again, LIVE_EVERY_MS);
-    const ticking = window.setInterval(() => setNowMinutes(minutesNow()), CLOCK_EVERY_MS);
-    window.addEventListener('focus', again);
-    document.addEventListener('visibilitychange', again);
-    return () => {
-      window.clearInterval(live);
-      window.clearInterval(ticking);
-      window.removeEventListener('focus', again);
-      document.removeEventListener('visibilitychange', again);
-    };
-  }, [refresh]);
 
   async function add(...entries: EntryData[]): Promise<boolean> {
     setBusy(true);
@@ -297,6 +267,7 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
   const targets = state.targets;
   const doneNames = new Set(entries.flatMap((entry) => (entry.data.kind === 'exercise' ? [entry.data.name.toLowerCase()] : [])));
   const eatenMeals = new Set(entries.flatMap((entry) => (entry.data.kind === 'meal' ? [entry.data.meal.toLowerCase()] : [])));
+  const plannedSets = workout?.exercises.reduce((total, exercise) => total + exercise.sets, 0) ?? 0;
   const label = day === today ? 'Today' : day === shiftDay(today, -1) ? 'Yesterday' : dayName(weekday);
   const shownPhotos = new Set<string>();
   const pretty = new Date(`${day}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
@@ -307,28 +278,24 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
         <button className="button button-secondary button-small" type="button" aria-label="Day before" onClick={() => setDay(shiftDay(day, -1))}>‹</button>
         <h2>{label} <small>{pretty}</small></h2>
         <button className="button button-secondary button-small" type="button" aria-label="Day after" disabled={day >= today} onClick={() => setDay(shiftDay(day, 1))}>›</button>
-        {updatedAt && (
-          <p className="today-live">
-            <span className="today-live-dot" aria-hidden="true" />
-            Updated {updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </p>
-        )}
       </header>
       {problem && <p className="notice notice-danger" role="alert">{problem}</p>}
 
-      <TodayGlance
-        summary={summary ?? null}
-        targets={targets}
-        plan={workout}
-        meals={diet?.meals ?? []}
-        eaten={eatenMeals}
-        now={day === today ? nowMinutes : null}
-        busy={busy}
-        onWater={(ml) => void add({ kind: 'water', ml })}
-        onAte={(meal) => void add(...mealEntries(meal))}
-        onStart={() => onStart(day)}
-      />
-      <WeekStrip days={week} selected={day} onPick={setDay} />
+      <section className="today-meters" aria-label="Day so far">
+        <Meter label="Calories" value={summary?.calories ?? 0} target={targets?.calories ?? null} unit="kcal" />
+        <Meter label="Protein" value={summary?.protein_g ?? 0} target={targets?.protein_g ?? null} unit="g" />
+        <Meter label="Carbohydrate" value={summary?.carbs_g ?? 0} target={targets?.carbs_g ?? null} unit="g" />
+        <Meter label="Fat" value={summary?.fat_g ?? 0} target={targets?.fat_g ?? null} unit="g" />
+        <div className="today-meter">
+          <Meter label="Water" value={summary?.water_ml ?? 0} target={targets?.water_ml ?? null} unit="ml" />
+          <div className="meeting-actions">
+            {[250, 500].map((ml) => (
+              <button className="button button-secondary button-small" type="button" key={ml} disabled={busy} onClick={() => void add({ kind: 'water', ml })}>+{ml} ml</button>
+            ))}
+          </div>
+        </div>
+        <Meter label="Workout sets" value={summary?.sets ?? 0} target={plannedSets || null} unit="sets" />
+      </section>
 
       <section className="trainer-card" aria-labelledby="today-workout">
         <h3 id="today-workout">{dayName(weekday)}'s workout{workout ? `: ${workout.focus}` : ''}</h3>
@@ -414,7 +381,15 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
                     className={`button button-small ${eaten ? 'button-secondary' : 'button-primary'}`}
                     type="button"
                     disabled={busy}
-                    onClick={() => void add(...mealEntries(meal))}
+                    onClick={() => void add(...meal.items.map((item): EntryData => ({
+                      kind: 'meal',
+                      meal: meal.name,
+                      food: `${item.food}${item.amount ? `, ${item.amount}` : ''}`.slice(0, 200),
+                      calories: item.calories,
+                      protein_g: item.protein_g,
+                      carbs_g: item.carbs_g,
+                      fat_g: item.fat_g,
+                    })))}
                   >
                     {eaten ? 'Ate ✓ again' : 'Ate this'}
                   </button>
