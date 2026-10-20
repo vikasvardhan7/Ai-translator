@@ -9,6 +9,17 @@ from tests.conftest import FRONTEND, TEST_HOST, THIS_COMPUTER, VALID_BODY, make_
 from tests.fakes import FakeSynthesizer, FakeTranslator
 
 
+def test_tests_never_connect_to_gemini_with_the_key_in_env() -> None:
+    from app.main import app
+
+    state = app.state
+    assert (state.speech_translator, state.speech_synthesizer, state.meeting_assistant) == (
+        None,
+        None,
+        None,
+    )
+
+
 def test_health_returns_ok(client: TestClient) -> None:
     response = client.get("/health")
 

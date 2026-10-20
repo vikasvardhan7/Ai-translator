@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 
 from app.models.session import Participant, SessionMode
+from app.services.limits import Budget
 
 LIFETIME_WITHOUT_DEVICE = timedelta(minutes=10)
 MAX_WAITING_SESSIONS = 100
@@ -35,18 +36,21 @@ class Session:
     created_at: datetime = field(default_factory=_now)
     idle_since: datetime = field(default_factory=_now)
     device: Device | None = None
+    budget: Budget | None = None
 
 
 class SessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, Session] = {}
 
-    def create(self, participants: list[Participant], mode: SessionMode) -> Session:
+    def create(
+        self, participants: list[Participant], mode: SessionMode, budget: Budget | None = None
+    ) -> Session:
         self._drop_expired()
         if sum(s.device is None for s in self._sessions.values()) >= MAX_WAITING_SESSIONS:
             raise SessionLimitReached
         ordered = sorted(participants, key=lambda p: p.id)
-        session = Session(id=str(uuid.uuid4()), participants=ordered, mode=mode)
+        session = Session(id=str(uuid.uuid4()), participants=ordered, mode=mode, budget=budget)
         self._sessions[session.id] = session
         return session
 

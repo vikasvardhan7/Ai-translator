@@ -8,6 +8,7 @@ from app.api.dependencies import (
     get_room_store,
     get_speech_synthesizer,
     get_speech_translator,
+    key_budget,
     require_host,
 )
 from app.api.links import public_link
@@ -15,6 +16,7 @@ from app.api.stream import announce_people, handle_room_stream, tell_others
 from app.core.config import Settings
 from app.models.room import RoomCreate, RoomCreated, RoomJoin, RoomJoined, RoomOut
 from app.models.session import Person
+from app.services.limits import Budget
 from app.services.public_address import PublicAddress
 from app.services.room_store import (
     HOST_ID,
@@ -34,6 +36,7 @@ AppSettings = Annotated[Settings, Depends(get_app_settings)]
 Translator = Annotated[SpeechTranslator | None, Depends(get_speech_translator)]
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
 Public = Annotated[PublicAddress, Depends(get_public_address)]
+Spending = Annotated[Budget | None, Depends(key_budget)]
 
 
 def _find(rooms: RoomStore, room_id: str) -> Room:
@@ -70,10 +73,15 @@ def _out(room: Room) -> RoomOut:
     dependencies=[Depends(require_host)],
 )
 async def create_room(
-    body: RoomCreate, request: Request, rooms: Rooms, settings: AppSettings, public: Public
+    body: RoomCreate,
+    request: Request,
+    rooms: Rooms,
+    settings: AppSettings,
+    public: Public,
+    budget: Spending,
 ) -> RoomCreated:
     try:
-        room = rooms.create(body.host)
+        room = rooms.create(body.host, budget)
     except RoomLimitReached as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

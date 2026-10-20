@@ -5,7 +5,16 @@ from typing import Any
 from app.core.languages import language_code
 from app.services.assistant.base import AppAction
 
-APPS = ["translator", "meetings", "assistant", "personalize", "help", "privacy", "terms"]
+APPS = [
+    "translator",
+    "meetings",
+    "assistant",
+    "developers",
+    "personalize",
+    "help",
+    "privacy",
+    "terms",
+]
 THEMES = ["ocean", "sunset", "mint", "blossom", "aurora"]
 DURATIONS = ["15", "30", "45", "60", "90", "120"]
 WHERE = ["here", "remote", "meeting"]
@@ -49,7 +58,8 @@ CATALOG = {
         ActionSpec(
             "open_app",
             "Open one of the desktop apps: translator (conversations, calls and live captions),"
-            " meetings (schedule meetings and see upcoming ones), assistant (this chat),"
+            " meetings (schedule meetings and see upcoming ones), assistant (this chat), developers"
+            " (API keys and the website widget for other apps),"
             " personalize (colours and themes), help, privacy or terms.",
             {"app": APPS},
         ),

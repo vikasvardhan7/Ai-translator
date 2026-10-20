@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.languages import language_code
 from app.core.text import letters
 from app.models.protocol import ErrorCode
-from app.services.retry import with_one_retry
+from app.services.retry import with_retries
 from app.services.translation.base import (
     DetectedLanguage,
     NothingRecognised,
@@ -197,7 +197,7 @@ class GeminiSpeechTranslator:
         )
         contents = [types.Part.from_bytes(data=audio, mime_type=mime_type), request]
         try:
-            response = await with_one_retry(
+            response = await with_retries(
                 lambda: self._client.aio.models.generate_content(
                     model=self._model, contents=contents, config=config
                 )

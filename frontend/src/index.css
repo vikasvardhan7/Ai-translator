@@ -2168,6 +2168,10 @@ html[data-page-visible='hidden'] .wallpaper-glow {
   animation: shimmer 6s ease-in-out infinite alternate;
 }
 
+.app-icon[data-icon='developers'] {
+  background: linear-gradient(145deg, #a78bfa, #6d28d9);
+}
+
 .app-icon[data-icon='help'] {
   background: linear-gradient(145deg, #fbbf24, #d97706);
 }
@@ -3841,5 +3845,177 @@ select.text-input {
   .meeting-badge,
   .lobby-pulse {
     animation: none !important;
+  }
+}
+
+.developers-app {
+  padding: 18px clamp(14px, 3vw, 26px) 26px;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.developers-app h3 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+}
+
+.dev-side,
+.dev-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.dev-secret {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--sky-strong);
+  border-radius: 18px;
+  background: var(--background);
+  box-shadow: var(--shadow-pop);
+  animation: chat-in 320ms var(--ease-out) both, fresh-glow 1.6s ease-out 2;
+}
+
+.dev-secret h3 {
+  margin: 0;
+}
+
+.dev-key {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  background: var(--background);
+  box-shadow: var(--shadow-pop);
+  animation: chat-in 320ms var(--ease-out) both;
+}
+
+.dev-key-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dev-key h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.dev-usage {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-strong);
+}
+
+.dev-usage span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--sky), var(--sky-strong));
+  transition: width var(--dur-med) var(--ease-out);
+}
+
+.dev-usage span[data-full='true'] {
+  background: var(--danger);
+}
+
+.dev-use {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dev-snippet {
+  overflow: hidden;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.dev-snippet-top {
+  padding: 8px 10px 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.dev-snippet pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-top: 1px solid var(--glass-line);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.dev-snippet pre:focus-visible {
+  outline: 2px solid var(--sky-strong);
+  outline-offset: -2px;
+}
+
+.developers-app code {
+  font-family: 'Cascadia Code', Consolas, 'SFMono-Regular', monospace;
+}
+
+.embed {
+  height: 100%;
+  overflow: auto;
+  background: var(--glass-strong);
+}
+
+.embed > main {
+  padding-inline: clamp(12px, 4vw, 22px);
+}
+
+.embed .call-page {
+  min-height: 100%;
+  width: 100%;
+  padding: 10px 12px 0;
+}
+
+.embed .hero {
+  padding-block: 14px 4px;
+}
+
+.embed .hero-arc,
+.embed .hero-subtitle {
+  display: none;
+}
+
+.embed .hero h1 {
+  font-size: 1.6rem;
+  letter-spacing: 0.01em;
+}
+
+.embed .hero-note {
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .developers-app {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dev-secret,
+  .dev-key,
+  .dev-usage span {
+    animation: none !important;
+    transition: none !important;
   }
 }

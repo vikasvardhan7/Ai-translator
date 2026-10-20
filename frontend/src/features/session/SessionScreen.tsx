@@ -30,7 +30,7 @@ interface SessionScreenProps {
   initialTurns: Turn[];
   onReturnToStart: () => void;
   onRestart: ((participants: Participant[], turns: Turn[]) => Promise<void>) | null;
-  onAsk: () => void;
+  onAsk?: () => void;
 }
 
 type SessionPhase = 'connecting' | 'live' | 'reconnecting' | 'ending' | 'closed';

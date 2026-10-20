@@ -6,7 +6,7 @@ from google.genai import errors, types
 
 from app.services.assistant.actions import ActionSpec, checked, known
 from app.services.assistant.base import AssistantFailed, ChatMessage, Reply, Said, Source
-from app.services.retry import with_one_retry
+from app.services.retry import with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,7 @@ class GeminiMeetingAssistant:
         self, contents: list[types.Content], config: types.GenerateContentConfig
     ) -> types.GenerateContentResponse:
         try:
-            return await with_one_retry(
+            return await with_retries(
                 lambda: self._client.aio.models.generate_content(
                     model=self._model, contents=contents, config=config
                 )

@@ -26,7 +26,7 @@ interface ControlBarProps {
   onSettings: () => void;
   onPeople: () => void;
   onTranscript: () => void;
-  onAsk: () => void;
+  onAsk?: () => void;
   onEnd: () => void;
 }
 
@@ -98,10 +98,12 @@ export default function ControlBar({
         <Icon name="transcript" />
         <span>Transcript</span>
       </button>
-      <button className="control" type="button" onClick={onAsk}>
-        <Icon name="assistant" />
-        <span>Ask</span>
-      </button>
+      {onAsk && (
+        <button className="control" type="button" onClick={onAsk}>
+          <Icon name="assistant" />
+          <span>Ask</span>
+        </button>
+      )}
       <button className="control control-end" type="button" onClick={onEnd}>
         <Icon name="end" />
         <span>{ended ? 'Leave' : 'End'}</span>

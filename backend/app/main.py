@@ -9,11 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import access, assistant, languages, meetings, rooms, sessions, voices
+from app.api import access, assistant, keys, languages, meetings, rooms, sessions, voices
 from app.core.access import new_host_key
 from app.core.config import BACKEND_DIR, Settings, get_settings
 from app.core.errors import install_error_handlers
 from app.services.assistant.factory import build_meeting_assistant
+from app.services.key_store import KeyStore
+from app.services.limits import RateLimiter
 from app.services.meeting_store import MeetingStore
 from app.services.public_address import PublicAddress, find_cloudflared
 from app.services.room_store import RoomStore
@@ -60,6 +62,7 @@ def create_app(
     frontend_dist: Path | None = None,
     host_key: str | None = None,
     meeting_store: MeetingStore | None = None,
+    key_store: KeyStore | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -73,6 +76,7 @@ def create_app(
         async with AsyncExitStack() as services:
             services.push_async_callback(app.state.public_address.aclose)
             services.callback(app.state.meetings.close)
+            services.callback(app.state.keys.close)
             for service in (
                 app.state.speech_translator,
                 app.state.speech_synthesizer,
@@ -87,6 +91,8 @@ def create_app(
     app.state.sessions = SessionStore()
     app.state.rooms = RoomStore()
     app.state.meetings = meeting_store or MeetingStore(settings.meetings_file)
+    app.state.keys = key_store or KeyStore(settings.keys_file)
+    app.state.limiter = RateLimiter()
     app.state.speech_translator = build_speech_translator(settings)
     app.state.speech_synthesizer = build_speech_synthesizer(settings)
     app.state.meeting_assistant = build_meeting_assistant(settings)
@@ -113,6 +119,7 @@ def create_app(
     app.include_router(languages.router)
     app.include_router(rooms.router)
     app.include_router(meetings.router)
+    app.include_router(keys.router)
     app.include_router(voices.router)
     app.include_router(assistant.router)
     if frontend_dist is not None and frontend_dist.is_dir():

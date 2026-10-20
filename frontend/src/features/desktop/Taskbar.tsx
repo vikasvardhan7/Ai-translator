@@ -8,6 +8,7 @@ export const APP_ICONS: Record<AppId, IconName> = {
   translator: 'translator',
   meetings: 'schedule',
   assistant: 'assistant',
+  developers: 'developers',
   personalize: 'personalize',
   help: 'help',
   privacy: 'privacy',

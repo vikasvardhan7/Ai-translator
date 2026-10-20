@@ -129,6 +129,15 @@ If the app says there is no public link, it also says why: cloudflared is not in
 
 The host key keeps strangers who find the address from using your Gemini quota: only starting a conversation needs it, and invited guests are let in by their invite link. The tunnel address stays the same while the backend runs and changes when it starts again; the conversation stops when your laptop sleeps or the backend is closed. On a phone, keep the page open with the screen on: phones pause the microphone for pages in the background. If someone's connection drops for a moment, the others see them as not connected and the call continues when they are back.
 
+## Using it from other websites and apps
+
+Double-click **Developers** to make an API key for each website or app that should use the translator, with the most requests it may make in a day. Copy the key when it is shown; it is shown only once.
+
+- **A website**: paste the one-line widget from the Developers window before `</body>`. A Translate button appears in the corner and opens the translator in a panel.
+- **A server**: send the key in an `X-Api-Key` header to start a conversation, then stream audio over the WebSocket and receive captions and voices.
+
+The Developers window shows each key's use today and can revoke a key at once. Other sites reach the translator through the public link, so the tunnel (or `PUBLIC_URL`) must be working. Invited guests and keys have limits per minute and per day so nobody can use up the free Gemini quota; you are never limited. The full guide, with examples in curl, Python and JavaScript, is [docs/API.md](docs/API.md); the live reference of every call is at <http://localhost:8000/docs>.
+
 ## Project structure
 
 ```
@@ -136,19 +145,20 @@ Ai-translator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          FastAPI app, CORS, /health, host key, log redaction
-│   │   ├── api/             access, sessions, rooms, meetings, languages, voices, assistant, WebSocket streams
+│   │   ├── api/             access, sessions, rooms, meetings, API keys, languages, voices, assistant, WebSocket streams
 │   │   ├── core/            settings, access (host key), language codes, text matching, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session, room and meeting stores, speech detection, Gemini speech, translation, voice and assistant, retry
+│   │   └── services/        session, room, meeting and key stores, limits, speech detection, Gemini speech, translation, voice and assistant, retry
 │   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app: desktop (windows, taskbar, themes), meetings, assistant, setup, call screens
+│   ├── src/                 React app: desktop (windows, taskbar, themes), meetings, developers, embedded widget view, assistant, setup, call screens
+│   ├── public/widget.js     the one-line website widget
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                    protocol, decisions, developer handbook
+├── docs/                    protocol, API guide for other apps, decisions, developer handbook
 └── README.md
 ```
 
@@ -160,5 +170,6 @@ Every pull request and every push to `main` runs the backend tests and lint (on 
 
 - API keys go only in `backend/.env`, which Git ignores. Never put keys in the frontend: anything starting with `VITE_` is visible in the browser.
 - `.env.example` files contain placeholders only.
+- API keys for other apps are kept only as SHA-256 fingerprints in `backend/data/keys.db` (Git ignores it). A key written into a web page can be read by anyone who sees that page, so give the widget its own key with a modest daily limit and revoke it if it is misused.
 - Through a public link, starting conversations needs the host key printed by the backend; the backend's request log hides tokens and session ids. If you put your own proxy in front of the backend instead of cloudflared, set `HOST_KEY_EVERYWHERE=true` in `backend/.env` so requests through it are never mistaken for local ones.
 - `.git/info/exclude` is the place for your own editor and agent folders; `.gitignore` covers build output, caches, Word lock files and coverage reports.

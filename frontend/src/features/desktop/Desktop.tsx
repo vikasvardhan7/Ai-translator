@@ -21,6 +21,7 @@ import SessionScreen from '../session/SessionScreen';
 import AppIcon, { type IconName } from './AppIcon';
 import AppWindow from './AppWindow';
 import { CallBridge, CallBridgeContext } from './bridge';
+import DevelopersApp from '../developers/DevelopersApp';
 import DesktopWidget from './DesktopWidget';
 import HelpApp from './HelpApp';
 import PersonalizeApp from './PersonalizeApp';
@@ -71,7 +72,7 @@ function firstApp(): AppId {
   if (hash === 'privacy' || hash === 'terms') {
     return hash;
   }
-  return hash === 'meetings' ? 'meetings' : 'translator';
+  return hash === 'meetings' || hash === 'developers' ? hash : 'translator';
 }
 
 function conversationTitle(conversation: Conversation | null): string {
@@ -237,6 +238,7 @@ export default function Desktop() {
     { label: 'Live captions', icon: 'meeting', run: () => start('meeting') },
     { label: 'Talk here', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
+    { label: 'Developers', icon: 'developers', run: () => openApp('developers') },
     { label: 'Personalize', icon: 'personalize', run: () => openApp('personalize') },
     { label: 'Help', icon: 'help', run: () => openApp('help') },
     { label: 'Privacy', icon: 'privacy', run: () => openApp('privacy') },
@@ -285,6 +287,8 @@ export default function Desktop() {
             desktop={handlers}
           />
         );
+      case 'developers':
+        return <DevelopersApp />;
       case 'personalize':
         return <PersonalizeApp theme={theme} calm={calm} onTheme={setTheme} onCalm={setCalm} />;
       case 'help':

@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     public_url: str | None = None
     speech_timeout_seconds: float = Field(default=30.0, gt=0)
     meetings_file: Path = BACKEND_DIR / "data" / "meetings.db"
+    keys_file: Path = BACKEND_DIR / "data" / "keys.db"
+    guest_requests_per_minute: int = Field(default=20, ge=1)
+    guest_requests_per_day: int = Field(default=400, ge=1)
+    key_requests_per_minute: int = Field(default=60, ge=1)
 
 
 def get_settings() -> Settings:

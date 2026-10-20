@@ -7,11 +7,13 @@ from app.api.dependencies import (
     get_session_store,
     get_speech_synthesizer,
     get_speech_translator,
+    key_budget,
     require_host,
 )
 from app.api.stream import handle_stream
 from app.core.config import Settings
 from app.models.session import SessionCreate, SessionOut
+from app.services.limits import Budget
 from app.services.session_store import SessionLimitReached, SessionStore
 from app.services.translation.base import SpeechTranslator
 from app.services.voice.base import SpeechSynthesizer
@@ -22,6 +24,7 @@ Store = Annotated[SessionStore, Depends(get_session_store)]
 AppSettings = Annotated[Settings, Depends(get_app_settings)]
 Translator = Annotated[SpeechTranslator | None, Depends(get_speech_translator)]
 Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer)]
+Spending = Annotated[Budget | None, Depends(key_budget)]
 
 
 @router.post(
@@ -30,9 +33,9 @@ Synthesizer = Annotated[SpeechSynthesizer | None, Depends(get_speech_synthesizer
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_host)],
 )
-async def create_session(body: SessionCreate, store: Store) -> SessionOut:
+async def create_session(body: SessionCreate, store: Store, budget: Spending) -> SessionOut:
     try:
-        session = store.create(body.participants, body.mode)
+        session = store.create(body.participants, body.mode, budget)
     except SessionLimitReached as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
