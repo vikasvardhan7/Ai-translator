@@ -74,6 +74,70 @@ function AskBox({ id, onAsk, autoFocus }: { id: string; onAsk: (text: string) =>
   );
 }
 
+function initial(user: AccountUser): string {
+  return (user.name.trim()[0] ?? '?').toUpperCase();
+}
+
+function AccountButton({ user, onOpen, onSignOut }: { user: AccountUser; onOpen: (app: AppId) => void; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    function closeOutside(event: PointerEvent): void {
+      const target = event.target as Node;
+      if (!panelRef.current?.contains(target) && !buttonRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    }
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="taskbar-account">
+      <button
+        className="taskbar-account-button"
+        type="button"
+        ref={buttonRef}
+        aria-expanded={open}
+        aria-label={`Signed in as ${user.name}. Account and sign out`}
+        title={`${user.name} (${user.email})`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="account-avatar" aria-hidden="true">{initial(user)}</span>
+      </button>
+      {open && (
+        <div className="account-popover" ref={panelRef} role="dialog" aria-label="Your account">
+          <p className="account-popover-who">
+            <strong>{user.name}</strong>
+            <small>{user.email}</small>
+          </p>
+          <button className="button button-secondary button-small" type="button" onClick={() => { setOpen(false); onOpen('account'); }}>
+            Account settings
+          </button>
+          <button className="button button-primary button-small" type="button" onClick={() => { setOpen(false); onSignOut(); }}>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Taskbar({ windows, active, live, onApp, onOpen, onStart, onAsk, user, onSignOut }: TaskbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -134,7 +198,7 @@ export default function Taskbar({ windows, active, live, onApp, onOpen, onStart,
             ))}
           </div>
           <div className="start-account">
-            <span className="account-avatar" aria-hidden="true">{(user.name.trim()[0] ?? '?').toUpperCase()}</span>
+            <span className="account-avatar" aria-hidden="true">{initial(user)}</span>
             <span className="start-account-who">
               <strong>{user.name}</strong>
               <small>{user.email}</small>
@@ -181,6 +245,7 @@ export default function Taskbar({ windows, active, live, onApp, onOpen, onStart,
             );
           })}
         </div>
+        <AccountButton user={user} onOpen={onOpen} onSignOut={onSignOut} />
         <p className="taskbar-clock">
           <time dateTime={now.toISOString()}>
             <span>{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
