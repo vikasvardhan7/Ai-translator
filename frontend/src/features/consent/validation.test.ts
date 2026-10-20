@@ -16,8 +16,8 @@ describe('consent validation', () => {
     expect(canStartSession(false, participants)).toBe(false);
   });
 
-  it('asks for two different languages, as the spoken setup does', () => {
-    expect(canStartSession(true, [participants[0], { ...participants[1], preferred_language: 'EN-gb' }])).toBe(false);
+  it('lets two people share a language, as the spoken setup does', () => {
+    expect(canStartSession(true, [participants[0], { ...participants[1], preferred_language: 'EN-gb' }])).toBe(true);
   });
 
   it('requires non-empty names no longer than 40 characters', () => {

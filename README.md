@@ -15,7 +15,9 @@ The frontend/backend contract is [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Decisio
 | Frontend | React 19, TypeScript, Vite, Vitest |
 | Backend | Python 3.12, FastAPI, Uvicorn, pytest, Ruff |
 | Speech, translation and voice | Gemini API free tier through `google-genai`; models set by `GEMINI_MODEL` and `GEMINI_TTS_MODEL` |
-| Storage | None: nothing is recorded or saved |
+| Live words | The browser's own speech recognition (Edge and Chrome) |
+| Telling voices apart | NumPy (voice prints computed on the server, kept only in memory) |
+| Storage | No conversations: nothing said is recorded or saved. Scheduled meetings and API keys are kept in `backend/data` |
 
 ## Prerequisites (Windows)
 
@@ -101,11 +103,21 @@ If the connection drops, the screen says "Reconnecting" and comes back by itself
 
 Join your meeting as usual (Google Meet, Teams or Zoom, in a tab or in the app). In the translator choose "In an online meeting", say hello in the language you want the captions in, then press **Connect meeting** and pick the meeting's browser tab with **Share tab audio** turned on (for the Teams or Zoom app, pick **Entire screen** with **Share system audio**). From then on every sentence said in the meeting appears as a caption in your language, and your own words appear as you said them; the transcript panel keeps both and can be downloaded. Nothing is sent into the meeting, so tell the others that captions are on. Wear headphones so your microphone does not hear the meeting too (the app drops such doubles, but headphones are cleaner).
 
+Each voice in the meeting is numbered (Speaker 1, Speaker 2, up to 6) by comparing how it sounds with the voices heard before; if a name is wrong, tap it in the transcript and pick the right one, and the app learns from it. It works best with clearly different voices and sentences longer than a second.
+
 Press **Ask** during the call (or use the taskbar's ask box) to ask about what has been said so far ("Summarise so far", "What are the action items?", "What did they say about the budget?"). A meeting has no invite link: the captions are only for you. To talk with someone on another device, choose the two-device option instead (below).
 
 Each sentence is sent to Gemini with the last few sentences as context, so names and topic words are heard more reliably. If words are still wrong in your language, compare models with the benchmark above and set the best one as `GEMINI_MODEL`.
 
 The backend log prints one line per sentence with how long each step took, so you can see where time goes.
+
+## Live words and transcripts
+
+While someone speaks, their words appear in the caption box straight away, using the browser's own speech recognition (Edge and Chrome; in a call they also appear on the other devices). When the sentence ends, Gemini's caption and translation replace them. The browser's recognition sends what the microphone hears to the browser's maker (Microsoft for Edge, Google for Chrome); turn **Show words while they are spoken** off in Settings to stop it.
+
+Two people on one device may choose the same language. Nothing is translated then; the transcript names who said what by their voices, and a wrong name is fixed with one tap.
+
+**Transcript → Download** saves the conversation as a Word document (.docx, made in the browser), a PDF (the print window opens; choose **Save as PDF**, which keeps every script correct), plain text, or subtitles in each person's language as .srt or .vtt. Nothing is saved anywhere else.
 
 ## Meetings with people on other devices (up to 6)
 
@@ -148,7 +160,7 @@ Ai-translator/
 │   │   ├── api/             access, sessions, rooms, meetings, API keys, languages, voices, assistant, WebSocket streams
 │   │   ├── core/            settings, access (host key), language codes, text matching, error format
 │   │   ├── models/          request and response models
-│   │   └── services/        session, room, meeting and key stores, limits, speech detection, Gemini speech, translation, voice and assistant, retry
+│   │   └── services/        session, room, meeting and key stores, limits, speech detection, voice prints, Gemini speech, translation, voice and assistant, retry
 │   ├── scripts/             live model comparison on FLEURS speech
 │   ├── tests/
 │   ├── requirements.txt     runtime dependencies

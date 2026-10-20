@@ -25,6 +25,7 @@ from app.services.room_store import HOST_ID, Room, RoomStore
 from app.services.session_store import Device, Session, SessionStore
 from app.services.translation.base import NothingRecognised, SpeechTranslator, TranslationFailed
 from app.services.voice.base import SpeechSynthesizer, VoiceFailed
+from app.services.voice_prints import VoiceBook, voice_print
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ ECHO_MARGIN_SECONDS = 0.25
 VOICE_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 CALL_SOURCES = ("A", "B")
 YOU = "A"
+MEETING_VOICES = ("1", "2", "3", "4", "5", "6")
+MAX_LIVE_WORDS = 500
 
 CLOSE_NORMAL = 1000
 CLOSE_INTERNAL_ERROR = 1011
@@ -209,6 +212,14 @@ def _detectors_for(session: Session, you: str | None) -> dict[str | None, Speech
     return {you: SpeechDetector(you)}
 
 
+def _voice_book_for(session: Session) -> VoiceBook | None:
+    if session.mode == "call":
+        return VoiceBook(MEETING_VOICES)
+    if session.mode == "together":
+        return VoiceBook([p.id for p in session.participants])
+    return None
+
+
 def _default_server_voice(session: Session) -> set[str]:
     if session.mode == "call":
         return set()
@@ -262,6 +273,8 @@ class StreamHandler:
             RoomSender(seat.room, seat.participant_id, device) if seat else device
         )
         self._detectors = _detectors_for(session, self._you)
+        if seat is None and session.voice_book is None:
+            session.voice_book = _voice_book_for(session)
         self._pending: asyncio.Queue[AudioSegment] = asyncio.Queue(MAX_PENDING_UTTERANCES)
         self._in_flight: AudioSegment | None = None
         self._ended_at: dict[str, float] = {}
@@ -491,6 +504,37 @@ class StreamHandler:
                 "participants.updated", participants=[p.model_dump() for p in participants]
             )
 
+    async def _fix_voice(self, utterance_id: object, voice: object) -> None:
+        book = self._session.voice_book
+        if book is None or not isinstance(utterance_id, str) or voice not in book.labels:
+            choices = " or ".join(f"'{label}'" for label in book.labels) if book else "none here"
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                f"voice.fix needs an utterance_id and a voice ({choices}).",
+            )
+            return
+        book.fix(utterance_id, str(voice))
+
+    async def _share_words(self, text: object) -> None:
+        if not isinstance(text, str) or len(text) > MAX_LIVE_WORDS:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                f"words.live needs text of at most {MAX_LIVE_WORDS} characters.",
+            )
+            return
+        if self._room is None:
+            return
+        for device_id, device in list(self._room.devices.items()):
+            if device_id != self._you:
+                device.post("words.live", speaker_id=self._you, text=text)
+
+    async def _recognise_voice(self, segment: AudioSegment) -> str | None:
+        book = self._session.voice_book
+        if book is None:
+            return None
+        heard = await asyncio.to_thread(voice_print, segment.pcm)
+        return book.match(segment.utterance_id, heard) if heard is not None else None
+
     def _ids(self) -> str:
         return " or ".join(f"'{p.id}'" for p in self._session.participants)
 
@@ -518,6 +562,10 @@ class StreamHandler:
                 await self._set_voice(self._you or parsed.get("listener_id"), parsed)
             case "voice.played":
                 await self._voice_played(parsed)
+            case "voice.fix":
+                await self._fix_voice(parsed.get("utterance_id"), parsed.get("voice"))
+            case "words.live":
+                await self._share_words(parsed.get("text"))
             case "language.set":
                 await self._set_language(
                     self._you or parsed.get("participant_id"), parsed.get("language")
@@ -638,18 +686,25 @@ class StreamHandler:
 
         self._recent_sentences.append(result.text)
         speaker_id = segment.speaker_id
+        voice = None
         if speaker_id is None:
             understood = [
                 p for p in participants if result.for_language(p.preferred_language).same_language
             ]
-            speaker_id = understood[0].id if len(understood) == 1 else None
+            if len(understood) == 1:
+                speaker_id = understood[0].id
+            elif len(understood) > 1:
+                voice = speaker_id = await self._recognise_voice(segment)
             listeners = [p for p in participants if p not in understood]
         else:
             listeners = [p for p in participants if p.id != speaker_id]
+            if self._session.mode == "call" and speaker_id != YOU:
+                voice = await self._recognise_voice(segment)
         await self._sender.send(
             "transcript.final",
             utterance_id=segment.utterance_id,
             speaker_id=speaker_id,
+            voice=voice,
             text=result.text,
             language=result.language,
             language_name=result.language_name,

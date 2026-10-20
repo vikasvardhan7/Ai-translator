@@ -1,13 +1,49 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 
 import type { Participant, SpeakerId } from '../../services/protocol';
-import { bubbleFor, speakerName, type Bubble, type Names, type Turn } from './conversation';
+import { bubbleFor, speakerName, turnSpeaker, voiceChoices, type Bubble, type Names, type Turn, type VoiceChoice } from './conversation';
 
 interface ChatTimelineProps {
   participants: Participant[];
   names: Names;
   turns: Turn[];
   you: SpeakerId | null;
+  onFixVoice?: (utteranceId: string, voice: string) => void;
+}
+
+function VoiceName({ name, current, choices, onChoose }: { name: string; current: string; choices: VoiceChoice[]; onChoose: (voice: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="voice-name">
+      <button
+        className="voice-name-button"
+        type="button"
+        aria-expanded={open}
+        aria-label={`${name}. Wrong person? Choose who said this`}
+        onClick={() => setOpen((shown) => !shown)}
+      >
+        {name}
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <span className="voice-choices" role="group" aria-label="Who said this?">
+          {choices.filter((choice) => choice.voice !== current).map((choice) => (
+            <button
+              className="button button-small button-secondary"
+              type="button"
+              key={choice.voice}
+              onClick={() => {
+                setOpen(false);
+                onChoose(choice.voice);
+              }}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
 }
 
 const SCROLL_STICKY_PX = 48;
@@ -19,7 +55,7 @@ function sideClass(side: SpeakerId | null, right: SpeakerId): string {
   return side === right ? 'bubble-right' : 'bubble-left';
 }
 
-function ChatTimeline({ participants, names, turns, you }: ChatTimelineProps) {
+function ChatTimeline({ participants, names, turns, you, onFixVoice }: ChatTimelineProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const stickyRef = useRef(true);
   const nameOf = (id: SpeakerId | null): string => speakerName(names, id);
@@ -53,10 +89,20 @@ function ChatTimeline({ participants, names, turns, you }: ChatTimelineProps) {
             <p className="bubble-error">{bubble.error}</p>
           </article>
         );
-      default:
+      default: {
+        const speaker = turnSpeaker(names, turn);
+        const choices = onFixVoice ? voiceChoices(turns, turn, participants, names) : [];
         return (
           <article className={className} key={turn.utteranceId}>
-            <p className="bubble-meta">{nameOf(bubble.side)} · {bubble.languageName}</p>
+            <p className="bubble-meta">
+              {turn.voice && choices.length > 1 ? (
+                <VoiceName name={speaker} current={turn.voice} choices={choices} onChoose={(voice) => onFixVoice?.(turn.utteranceId, voice)} />
+              ) : (
+                speaker
+              )}
+              {' · '}
+              {bubble.languageName}
+            </p>
             <p className="bubble-original" dir="auto">{bubble.text}</p>
             {bubble.translations.map((line) => (
               <p className="bubble-translation" dir="auto" key={line.listenerId}>
@@ -74,6 +120,7 @@ function ChatTimeline({ participants, names, turns, you }: ChatTimelineProps) {
             )}
           </article>
         );
+      }
     }
   }
 

@@ -1,11 +1,11 @@
 import AppIcon, { type IconName } from './AppIcon';
 
 const ITEMS: Array<{ icon: IconName; title: string; text: string }> = [
-  { icon: 'translator', title: 'Translator', text: 'Every conversation runs here. Say hello and it finds your language, then each sentence appears as a caption in the other language and can be spoken aloud.' },
+  { icon: 'translator', title: 'Translator', text: 'Every conversation runs here. Say hello and it finds your language, then each sentence appears as a caption in the other language and can be spoken aloud. Words show while they are spoken, and Transcript downloads the conversation as a Word document, a PDF, text or subtitles.' },
   { icon: 'remote', title: 'Meet now', text: 'Starts a meeting at once and gives you one link that up to 5 people can open. Each types their name and says hello; then everyone talks and hears everyone else in their own language, with live captions and a transcript. People shows who is there and the link again.' },
   { icon: 'schedule', title: 'Schedule', text: 'Plan a meeting for later: its name, date, time, how long and what it is about. You get a link to copy, share, email or add to a calendar. People who open it early wait in a lobby and join as soon as you press Start meeting.' },
-  { icon: 'meeting', title: 'Live captions', text: 'For a Zoom, Teams or Meet call you are already in: press Connect meeting and share the call’s tab with its audio. You get captions and a transcript in your language.' },
-  { icon: 'here', title: 'Talk here', text: 'Two people, one device. Each says hello once; after that just talk.' },
+  { icon: 'meeting', title: 'Live captions', text: 'For a Zoom, Teams or Meet call you are already in: press Connect meeting and share the call’s tab with its audio. You get captions and a transcript in your language, with each voice in the meeting numbered (Speaker 1, Speaker 2); tap a name to fix it.' },
+  { icon: 'here', title: 'Talk here', text: 'Two people, one device. Each says hello once; after that just talk. If you both speak the same language, it writes down who said what by voice; tap a name to fix it.' },
   { icon: 'assistant', title: 'Assistant', text: 'Ask anything. It searches the web when it needs to, knows what has been said in the running call, and does things for you.' },
   { icon: 'developers', title: 'Developers', text: 'Use the translator from your own website or app. Make an API key, paste the one-line widget into a web page, or call the API from a server. Each key has its own daily limit and can be switched off at any time.' },
   { icon: 'personalize', title: 'Personalize', text: 'Five looks with their own live wallpapers: Ocean, Sunset, Mint, Blossom and Aurora night. Calm motion keeps everything still.' },

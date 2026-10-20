@@ -213,7 +213,7 @@ export default function ConsentScreen({ invite, start, flow, onConversation, onL
 
               <div className="consent-disclosure">
                 <p>
-                  The microphone listens while the conversation is open. Each sentence is sent to Google's Gemini service to be transcribed, translated and spoken. Nothing is saved: captions disappear when the conversation ends. Google's free tier may use submitted data to improve its products.
+                  The microphone listens while the conversation is open. Each sentence is sent to Google's Gemini service to be transcribed, translated and spoken, and words shown while you speak come from the browser's own speech service (Microsoft for Edge, Google for Chrome). Nothing is saved: captions disappear when the conversation ends. Google's free tier may use submitted data to improve its products.
                 </p>
                 <label className="checkbox-row">
                   <input

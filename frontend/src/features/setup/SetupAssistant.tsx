@@ -69,7 +69,7 @@ function meetingSummary(meeting: MeetingInfo): string {
   const agenda = meeting.agenda.trim() ? ` Agenda: ${meeting.agenda.trim().replace(/\s*\n\s*/g, '; ')}.` : '';
   return `“${meeting.title}”, ${whenText(meeting)} (${lengthText(meeting.duration_minutes)}).${agenda}`;
 }
-const DISCLOSURE = "What you say is sent to Google's Gemini to be understood and translated. Nothing is saved here, but on Google's free tier what is sent may be used to improve Google's products.";
+const DISCLOSURE = "What you say is sent to Google's Gemini to be understood and translated, and the words shown while you speak come from your browser's own speech service. Nothing is saved here, but on Google's free tier what is sent may be used to improve Google's products.";
 
 function problemText(error: unknown): string {
   if (error instanceof ApiError) {
@@ -371,21 +371,19 @@ export default function SetupAssistant({ invite, start, flow, onConversation, on
       onConversation(roomConversation(room, room.host_token, 'A', invitation));
       return;
     }
-    const other = person === 'A' ? foundRef.current.B : foundRef.current.A;
-    if (other && other.language === found.language) {
-      fail(
-        `You both speak ${languageName(found.language)}, so there is nothing to translate. ${personLabel(person)}, say hello in a different language.`,
-        { kind: 'listen', person },
-      );
-      return;
-    }
     foundRef.current = { ...foundRef.current, [person]: found };
     if (person === 'A' && !foundRef.current.B) {
       add('assistant', `Got it. ${personLabel('B')}, now say hello in your language.`);
       void listenRef.current?.('B');
       return;
     }
-    add('assistant', `${languageName(foundRef.current.A!.language)} and ${languageName(foundRef.current.B!.language)}. Starting now.`);
+    const [first, second] = [foundRef.current.A!.language, foundRef.current.B!.language];
+    add(
+      'assistant',
+      first === second
+        ? `You both speak ${languageName(first)}, so there is nothing to translate: I'll write down what each of you says and tell your voices apart. Starting now.`
+        : `${languageName(first)} and ${languageName(second)}. Starting now.`,
+    );
     void startTogether();
   }, [add, fail, guestFlow, hostFlow, invite, onConversation, startMeeting, startTogether]);
 

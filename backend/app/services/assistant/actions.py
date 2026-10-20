@@ -18,7 +18,7 @@ APPS = [
 THEMES = ["ocean", "sunset", "mint", "blossom", "aurora"]
 DURATIONS = ["15", "30", "45", "60", "90", "120"]
 WHERE = ["here", "remote", "meeting"]
-FORMATS = ["text", "subtitles"]
+FORMATS = ["text", "word", "pdf", "subtitles", "vtt"]
 
 
 @dataclass(frozen=True)
@@ -111,7 +111,8 @@ CATALOG = {
         ),
         ActionSpec(
             "download_transcript",
-            "Download the running call's transcript as plain text or as subtitles.",
+            "Download the running call's transcript: text, word (a Word document), pdf (opens the"
+            " print window to save a PDF), subtitles (.srt) or vtt (WebVTT subtitles).",
             {"format": FORMATS},
         ),
         ActionSpec(

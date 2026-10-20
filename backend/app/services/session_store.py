@@ -5,6 +5,7 @@ from typing import Any, Literal, Protocol
 
 from app.models.session import Participant, SessionMode
 from app.services.limits import Budget
+from app.services.voice_prints import VoiceBook
 
 LIFETIME_WITHOUT_DEVICE = timedelta(minutes=10)
 MAX_WAITING_SESSIONS = 100
@@ -37,6 +38,7 @@ class Session:
     idle_since: datetime = field(default_factory=_now)
     device: Device | None = None
     budget: Budget | None = None
+    voice_book: VoiceBook | None = None
 
 
 class SessionStore:

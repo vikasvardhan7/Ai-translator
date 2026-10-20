@@ -15,6 +15,8 @@ export type BrowserMessage =
   | { type: 'voice.settings'; listener_id: SpeakerId; server_voice: boolean; voice: string | null }
   | { type: 'language.set'; participant_id: SpeakerId; language: string }
   | { type: 'voice.played'; utterance_id: string; listener_id: SpeakerId; seconds: number }
+  | { type: 'voice.fix'; utterance_id: string; voice: string }
+  | { type: 'words.live'; text: string }
   | { type: 'session.stop' };
 
 interface SessionReadyMessage {
@@ -80,6 +82,7 @@ interface TranscriptFinalMessage {
   seq: number;
   utterance_id: string;
   speaker_id: SpeakerId | null;
+  voice: string | null;
   text: string;
   language: string;
   language_name: string;
@@ -92,6 +95,13 @@ interface TranslationFinalMessage {
   speaker_id: SpeakerId | null;
   listener_id: SpeakerId;
   target_language: string;
+  text: string;
+}
+
+interface WordsLiveMessage {
+  type: 'words.live';
+  seq: number;
+  speaker_id: SpeakerId;
   text: string;
 }
 
@@ -115,6 +125,7 @@ export type ServerMessage =
   | UtteranceIgnoredMessage
   | TranscriptFinalMessage
   | TranslationFinalMessage
+  | WordsLiveMessage
   | TtsAudioMessage;
 
 export interface CreateSessionRequest {
@@ -264,6 +275,7 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           seq,
           utterance_id: parsed.utterance_id,
           speaker_id: parsed.speaker_id,
+          voice: isString(parsed.voice) ? parsed.voice : null,
           text: parsed.text,
           language: parsed.language,
           language_name: parsed.language_name,
@@ -287,6 +299,11 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           target_language: parsed.target_language,
           text: parsed.text,
         };
+      }
+      return null;
+    case 'words.live':
+      if (isSpeakerId(parsed.speaker_id) && isString(parsed.text)) {
+        return { type: 'words.live', seq, speaker_id: parsed.speaker_id, text: parsed.text };
       }
       return null;
     case 'tts.audio':

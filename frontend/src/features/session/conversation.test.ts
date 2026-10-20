@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Participant, ServerMessage } from '../../services/protocol';
-import { abandonPending, applyServerMessage, bubbleFor, MAX_TURNS, speakerName, speakerNames, type Turn } from './conversation';
+import { abandonPending, applyServerMessage, bubbleFor, fixVoice, MAX_TURNS, speakerName, speakerNames, turnSpeaker, voiceChoices, type Turn } from './conversation';
 
 const A: Participant = { id: 'A', name: 'Person 1', preferred_language: 'en' };
 const B: Participant = { id: 'B', name: 'Person 2', preferred_language: 'te' };
@@ -24,6 +24,7 @@ const transcript = (id: string, speaker: 'A' | 'B' | null, text = 'మీరు 
   seq: 2,
   utterance_id: id,
   speaker_id: speaker,
+  voice: null,
   text,
   language: 'te',
   language_name: 'Telugu',
@@ -160,5 +161,41 @@ describe('conversation store', () => {
       { id: 'D' as const, name: ' ', preferred_language: 'hi' },
     ];
     expect(speakerNames('remote', many, 'C')).toMatchObject({ A: 'Ravi', B: 'Someone', C: 'You', D: 'Person 4' });
+  });
+
+  it('names meeting voices by number and lets a wrong voice be fixed', () => {
+    const names = speakerNames('call', [A], 'A');
+    const voiced = (id: string, voice: string | null): ServerMessage => ({ ...transcript(id, 'B'), voice } as ServerMessage);
+    const turns = play([received('u1'), voiced('u1', '1'), received('u2'), voiced('u2', '2'), received('u3'), voiced('u3', null)]);
+
+    expect(turns.map((turn) => turnSpeaker(names, turn))).toEqual(['Speaker 1', 'Speaker 2', 'Meeting']);
+    expect(voiceChoices(turns, turns[1]!, [A], names)).toEqual([
+      { voice: '1', label: 'Speaker 1' },
+      { voice: '2', label: 'Speaker 2' },
+      { voice: '3', label: 'Someone new (Speaker 3)' },
+    ]);
+    expect(voiceChoices(turns, turns[2]!, [A], names)).toEqual([]);
+    const fixed = fixVoice(turns, 'u2', '1');
+    expect(fixed.map((turn) => [turn.speakerId, turn.voice])).toEqual([['B', '1'], ['B', '1'], ['B', null]]);
+  });
+
+  it('lets a person guessed by voice on one device be swapped for the other', () => {
+    const names = speakerNames('together', people, null);
+    const turns = play([received('u1'), { ...transcript('u1', 'A'), voice: 'A' } as ServerMessage]);
+
+    expect(voiceChoices(turns, turns[0]!, people, names)).toEqual([
+      { voice: 'A', label: 'Person 1' },
+      { voice: 'B', label: 'Person 2' },
+    ]);
+    const fixed = fixVoice(turns, 'u1', 'B');
+    expect([fixed[0]!.speakerId, fixed[0]!.voice, turnSpeaker(names, fixed[0]!)]).toEqual(['B', 'B', 'Person 2']);
+  });
+
+  it('waits for no translation when the listener already speaks the language heard', () => {
+    const both = [{ ...A, preferred_language: 'te' }, B];
+    const turns = play([received('u1'), { ...transcript('u1', 'A'), voice: 'A' } as ServerMessage]);
+
+    expect(bubbleFor(turns[0]!, both)).toMatchObject({ kind: 'spoken', side: 'A', translating: false });
+    expect(bubbleFor(turns[0]!, [both[0]!, { ...B, preferred_language: 'en' }])).toMatchObject({ translating: true });
   });
 });

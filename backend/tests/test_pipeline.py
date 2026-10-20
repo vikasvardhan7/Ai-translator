@@ -59,6 +59,7 @@ def test_telugu_speech_is_translated_for_the_english_listener() -> None:
         "seq": transcript["seq"],
         "utterance_id": utterance_id,
         "speaker_id": "B",
+        "voice": None,
         "text": "మీరు ఎలా ఉన్నారు?",
         "language": "te",
         "language_name": "Telugu",

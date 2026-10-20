@@ -135,7 +135,8 @@ Audio is 16-bit little-endian PCM, mono, 16 kHz, sent as binary messages of abou
 (3,200 bytes; at most 1 s). The server ends a sentence after about 1 second of silence, or at once
 when it receives `{"type": "audio.pause"}`. Send `{"type": "ping"}` every 5 seconds while the
 channel is quiet. For each sentence it sends `utterance.received`, then
-`transcript.final` (what was said, in the speaker's language), then one `translation.final` per
+`transcript.final` (what was said, in the speaker's language, with `voice` naming the voice when two
+people sharing a language were told apart by how they sound), then one `translation.final` per
 listener, and `tts.audio` (a WAV voice, base64) when a voice model is set up.
 
 ### The same in JavaScript (Node 22)
