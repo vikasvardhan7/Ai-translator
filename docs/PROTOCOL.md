@@ -52,7 +52,7 @@ the meetings made that way), never to a key.
 | `POST /api/assistant` | live | Answer a question about the conversation so far (signed in, or host key); see below |
 | `POST /api/languages/detect` | live | Find the language spoken in a short recording, for setting up by voice (signed in, or host key) |
 | `POST /api/sessions` | live | Start a conversation on one device, or a meeting; returns the session id (host key) |
-| `POST /api/rooms` | live | Start a call that up to 6 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
+| `POST /api/rooms` | live | Start a call that up to 4 people join from their own devices; returns the room id, the host's token and the invite token (host key) |
 | `POST /api/meetings`, `GET /api/meetings` | live | Schedule a meeting, list your upcoming ones (signed in, or the host); see "Scheduled meetings" |
 | `/api/account/...` | live | Sign up, sign in, sign out, reset or change the password, rename, delete; see "Accounts" |
 | `/api/trainer/...` | live | Gym Trainer: profile, targets, plans, daily tracking, progress, coach (signed in); see "Gym Trainer" |
@@ -179,11 +179,19 @@ Rules (otherwise `422` with a readable `detail`):
 
 Sessions are held in memory only. A session leaves memory when its live channel ends with `session.stop`, or 10 minutes after it was created or its channel dropped without a device coming back. At most 100 sessions can wait for a device at once; beyond that `POST /api/sessions` returns `503` with a readable `detail`.
 
-### Calls across devices (rooms, up to 6 people)
+### Calls across devices (rooms, up to 4 people)
 
 The host (participant `A`) starts a room and shares one invite link
-(`<public address>/#join/<room_id>/<invite_token>`). Up to five more people open it on their own
-phone or computer; each gets the next free id, `B` to `F`, in the order they join. `public_url` is
+(`<public address>/#join/<room_id>/<invite_token>`). Up to three more people open it on their own
+phone or computer; each gets the next unused id, `B` to `F`, in the order they join. At most 4
+people are in a room at once (the desktop's Meet app connects everyone's video directly, and four
+is what a browser can send comfortably); the extra ids let someone join after another person left.
+A guest whose device has been gone for 2 minutes (or who joined and never connected) has left:
+the next time someone joins or a device connects, their place is freed, and the connected devices
+get `peer.left` and `participants.updated`; their token then gets `4401`. The host keeps their
+place (the host leaving ends the call). The Meet app keeps the room token in the tab's session
+storage, so a reload offers to go straight back into the same place.
+`public_url` is
 the address the link must use: `PUBLIC_URL` from `backend/.env` when set; otherwise, when the
 request came through a tunnel or proxy, the address the page was opened from; otherwise, from a
 page on this computer, the backend starts `cloudflared tunnel --url http://localhost:<port>`
@@ -206,10 +214,10 @@ with the same token for as long as the room lasts. At most 100 rooms can wait at
 
 | Request | Body | Answers |
 | --- | --- | --- |
-| `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, invite_token, host, guests: [], max_people: 6, public_url, public_url_problem}`; `422` bad body; `503` too many waiting rooms |
+| `POST /api/rooms` | `{"consent": true, "host": {"name", "preferred_language"}}` | `201` `{room_id, host_token, invite_token, host, guests: [], max_people: 4, public_url, public_url_problem}`; `422` bad body; `503` too many waiting rooms |
 | `GET /api/rooms/{room_id}` with header `X-Room-Token` | none | `200` `{room_id, host, guests, max_people}` for the host, a guest or the invite token; `403` wrong token; `404` unknown or expired |
 | `DELETE /api/rooms/{room_id}` with header `X-Room-Token` | none | `204`. With the host token the room ends and every connected device gets `peer.left` for `A`. With a guest's token that guest leaves; the others get `peer.left` and `participants.updated`. `403` wrong token; `404` |
-| `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": invite_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token` (this device's own) and `you` (its id, `B` to `F`); every connected device gets `participants.updated`. `403` not the invite token; `404` unknown or ended; `409` full (6 people) or no places left; `422` bad body |
+| `POST /api/rooms/{room_id}/join` | `{"consent": true, "token": invite_token, "guest": {"name", "preferred_language"}}` | `200` as GET plus `token` (this device's own) and `you` (its id, `B` to `F`); every connected device gets `participants.updated`. `403` not the invite token; `404` unknown or ended; `409` full (4 people) or no places left (all of `B` to `F` used); `422` bad body |
 
 `WS /api/rooms/{room_id}/stream?token=` works like the session stream, with these differences:
 
@@ -229,8 +237,39 @@ with the same token for as long as the room lasts. At most 100 rooms can wait at
   `voice_unavailable` go only to the listener's device. Everything else (`session.ready`, `pong`,
   other errors) goes only to the device it concerns.
 - `voice.settings` sets whether, and in which voice, the server makes voices for this device's own person.
+  The Meet app sends `server_voice: false` as soon as it connects: people hear each other's real
+  voices, and only captions are translated.
 - `language.set` changes this device's person's language; every device gets `participants.updated`.
 - When someone leaves with `session.stop`, the others get `{"type": "peer.left", "participant_id": "B"}`; for a guest they also get `participants.updated`, and for the host (`A`) the call has ended. When a device's connection drops or goes quiet, the others get `peer.disconnected`, and `peer.connected` when it is back (or when it connects for the first time), with the same field.
+
+### Video, chat and recording in a room (the Meet app)
+
+Rooms also carry what a video call needs. The server only passes these messages along; it never
+sees the video or voice, which go straight between the browsers (WebRTC). They are refused with
+`invalid_message` outside a room.
+
+`session.ready` in a room also has `chat` (the messages so far, oldest first, at most 200),
+`recording` (the ids of people recording now) and `media` (each person's last
+`{"mic": bool, "camera": bool}`), so someone who joins late or reconnects sees the same call.
+
+| Browser sends | Fields | The server |
+| --- | --- | --- |
+| `rtc.signal` | `to` (another person's id), `data` (an object) | Passes `{"type": "rtc.signal", "from": <this id>, "data": ...}` to that person's device only. Dropped quietly when they are not connected or have left; `to` that is this device, or `data` that is not an object, gets `invalid_message` |
+| `chat.send` | `text` (1 to 1000 characters after trimming) | Sends `chat.message` `{id, from, name, text, sent_at}` (`sent_at` in UTC with its offset) to every device, this one included, and keeps it for `session.ready` until the room ends. More than 10 messages in 10 s from one device gets `invalid_message` |
+| `media.state` | `mic`, `camera` (true or false) | Keeps it and sends `media.state` `{participant_id, mic, camera}` to every device |
+| `recording.set` | `on` (true or false) | Sends `recording.state` `{participant_id, on}` to every device. When a recording device's connection drops or it leaves, the others get `recording.state` with `on: false`; the app sends `recording.set` again when it is back |
+
+`data` in `rtc.signal` is whatever the two browsers agree on; the Meet app uses
+`{"kind": "hello"}` (please call me), `{"kind": "offer" | "answer", "pc", "sdp"}` and
+`{"kind": "ice", "pc", "candidate"}`, where `pc` names one connection attempt so late messages
+from an older attempt are ignored. Of each pair of people, the one whose id comes first always
+makes the offer, so two people never call each other at the same time. The app uses Google's
+public STUN servers and no relay (TURN): two browsers on networks that block direct connections
+cannot see or hear each other, but still get captions and chat through the server.
+
+Recording happens in the recording person's browser: it draws everyone's video, names and the
+latest captions onto a canvas, mixes everyone's voices, and saves a WebM video (MP4 in Safari) to
+that device when recording stops. Nothing is uploaded.
 
 ### Scheduled meetings
 
@@ -239,7 +278,7 @@ optional agenda. The backend keeps only these, the host's name and two tokens in
 file on its own computer (`backend/data/meetings.db`, or `MEETINGS_FILE`), never audio, captions
 or transcripts. A meeting is dropped 7 days after it ended; at most 500 are kept. The join link is
 `<public address>/#meet/<id>/<invite_token>`; send it any way (copy, share, email, calendar).
-When the host starts the meeting it becomes a room (section above) for up to 6 people; anyone who
+When the host starts the meeting it becomes a room (section above) for up to 4 people; anyone who
 opened the link early waits in a lobby and joins as soon as it is live.
 
 | Request | Body | Answers |
@@ -393,6 +432,7 @@ Close codes:
 | `voice.played` | live | `utterance_id`, `listener_id` (ignored in a room, where it is always this device's person), `seconds` (0 to 120) | A voice for that translation (the server's or the browser's own) just finished playing on this device after `seconds` of playback. The server uses it to recognise its own voice coming back through the microphone (section 5). Missing fields or bad `seconds` get `invalid_message`; a translation the server no longer remembers (it keeps the last 40) is ignored quietly |
 | `voice.fix` | live | `utterance_id`, `voice` (one of the conversation's voice names: `A` or `B` on one device, `1` to `6` in a meeting) | The sentence was matched to the wrong voice (section 5). The server moves that sentence's voice print to the right voice, so later sentences from that person are matched better, and sends nothing back; the browser relabels the sentence itself. Only the last 40 sentences can be moved; older ones are ignored quietly. A missing `utterance_id`, or a voice name this conversation does not have (any name in a room, which has no voice matching), gets `invalid_message` |
 | `words.live` | live | `text` (at most 500 characters) | The words the browser's own speech recognition hears while this person is still speaking (section 5). In a room the server passes them straight to the other devices as `words.live`; elsewhere it ignores them. Nothing is kept. Text that is not a string or is too long gets `invalid_message` |
+| `rtc.signal`, `chat.send`, `media.state`, `recording.set` | live | see "Video, chat and recording in a room" | Rooms only: setting up direct video connections, chat, microphone and camera state, and the recording sign |
 | `ping` | live | none | Keep-alive; answered with `pong`. Send one every 5 s |
 | `session.stop` | live | none | End the conversation. A sentence in progress is ended and translated; sentences already received are finished first, for up to the speech timeout plus 5 s in total; any still unfinished then get a `provider_unavailable` error. Then the server closes with 1000 |
 
@@ -423,7 +463,7 @@ All include `type` and `seq`.
 
 | Type | Status | Fields | Meaning |
 | --- | --- | --- | --- |
-| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode`; in a room also `you`, `connected` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
+| `session.ready` | live | `session_id`, `participants`, `server_voice`, `mode`; in a room also `you`, `connected`, `chat`, `recording`, `media` | Live channel is open. `server_voice: true` means the server sends `tts.audio` for translations; `false` means the browser speaks translations itself |
 | `peer.connected`, `peer.disconnected`, `peer.left` | live | `participant_id` | In a room: that person's device connected, dropped, or left (the host leaving ends the call) |
 | `pong` | live | none | Answer to `ping` |
 | `error` | live | `code`, `message`, `retryable`, `utterance_id` (or `null`); `voice_unavailable` also has `listener_id` | Show `message` to the user |
@@ -435,6 +475,7 @@ All include `type` and `seq`.
 | `words.live` | live | `speaker_id`, `text` | In a room: the words another person's browser hears while they are still speaking, before their sentence ends. Show them until that person's `transcript.final` arrives; an empty `text` clears them |
 | `translation.final` | live | `utterance_id`, `speaker_id`, `listener_id`, `target_language`, `text` | The sentence translated into this listener's chosen language |
 | `tts.audio` | live | `utterance_id`, `listener_id`, `format` (`wav`), `audio_base64` | The translation spoken in the listener's language, as base64 WAV audio. Only when `server_voice` is `true` |
+| `rtc.signal`, `chat.message`, `media.state`, `recording.state` | live | see "Video, chat and recording in a room" | Rooms only |
 | `transcript.partial` | 2A | `utterance_id`, `speaker_id`, `text` | Text so far while speaking |
 
 In together mode, who spoke is decided by the language heard (in a meeting the speaker is the audio source, section 7). A person's language matches when its code is the same,

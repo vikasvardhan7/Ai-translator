@@ -4,9 +4,11 @@ import contextlib
 import json
 import logging
 import re
+import uuid
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -43,6 +45,10 @@ CALL_SOURCES = ("A", "B")
 YOU = "A"
 MEETING_VOICES = ("1", "2", "3", "4", "5", "6")
 MAX_LIVE_WORDS = 500
+MAX_CHAT_TEXT = 1000
+CHAT_BURST = 10
+CHAT_BURST_SECONDS = 10.0
+ROOM_ONLY = "works only in a call that others join with a link"
 
 CLOSE_NORMAL = 1000
 CLOSE_INTERNAL_ERROR = 1011
@@ -60,6 +66,9 @@ BROADCAST_TYPES = frozenset(
         "utterance.ignored",
         "speech.activity",
         "participants.updated",
+        "chat.message",
+        "media.state",
+        "recording.state",
     }
 )
 
@@ -293,6 +302,7 @@ class StreamHandler:
         self._recent_sentences: deque[str] = (
             seat.room.recent_sentences if seat else deque(maxlen=CONTEXT_SENTENCES)
         )
+        self._chat_times: deque[float] = deque(maxlen=CHAT_BURST)
         self.ended = False
 
     async def run(self) -> None:
@@ -354,7 +364,13 @@ class StreamHandler:
 
     async def _receive(self) -> bool:
         you = (
-            {"you": self._you, "connected": sorted(self._room.devices)}
+            {
+                "you": self._you,
+                "connected": sorted(self._room.devices),
+                "chat": list(self._room.chat),
+                "recording": sorted(self._room.recording),
+                "media": dict(self._room.media),
+            }
             if self._you and self._room
             else {}
         )
@@ -528,6 +544,85 @@ class StreamHandler:
             if device_id != self._you:
                 device.post("words.live", speaker_id=self._you, text=text)
 
+    async def _in_room(self, message_type: str) -> Room | None:
+        if self._room is None or self._you is None:
+            await self._sender.error(ErrorCode.INVALID_MESSAGE, f"{message_type} {ROOM_ONLY}.")
+            return None
+        return self._room
+
+    async def _relay_signal(self, to: object, data: object) -> None:
+        room = await self._in_room("rtc.signal")
+        if room is None:
+            return
+        if not isinstance(to, str) or to == self._you or not isinstance(data, dict):
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "rtc.signal needs 'to' (another person in the call) and a 'data' object.",
+            )
+            return
+        in_call = any(p.id == to for p in self._session.participants)
+        if in_call and (device := room.devices.get(to)) is not None:
+            device.post("rtc.signal", data=data, **{"from": self._you})
+
+    async def _chat(self, text: object) -> None:
+        room = await self._in_room("chat.send")
+        if room is None:
+            return
+        words = text.strip() if isinstance(text, str) else ""
+        if not words or len(words) > MAX_CHAT_TEXT:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                f"chat.send needs text of 1 to {MAX_CHAT_TEXT} characters.",
+            )
+            return
+        now = _now()
+        if len(self._chat_times) == CHAT_BURST and now - self._chat_times[0] < CHAT_BURST_SECONDS:
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "Too many chat messages at once. Wait a few seconds and send it again.",
+            )
+            return
+        self._chat_times.append(now)
+        person = next((p for p in self._session.participants if p.id == self._you), None)
+        line = {
+            "id": uuid.uuid4().hex,
+            "from": self._you,
+            "name": person.name if person else "",
+            "text": words,
+            "sent_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        room.chat.append(line)
+        await self._sender.send("chat.message", **line)
+
+    async def _media(self, message: dict[str, Any]) -> None:
+        room = await self._in_room("media.state")
+        if room is None:
+            return
+        mic, camera = message.get("mic"), message.get("camera")
+        if not isinstance(mic, bool) or not isinstance(camera, bool):
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE,
+                "media.state needs 'mic' and 'camera', each true or false.",
+            )
+            return
+        room.media[self._you] = {"mic": mic, "camera": camera}
+        await self._sender.send("media.state", participant_id=self._you, mic=mic, camera=camera)
+
+    async def _recording(self, on: object) -> None:
+        room = await self._in_room("recording.set")
+        if room is None:
+            return
+        if not isinstance(on, bool):
+            await self._sender.error(
+                ErrorCode.INVALID_MESSAGE, "recording.set needs 'on': true or false."
+            )
+            return
+        if on:
+            room.recording.add(self._you)
+        else:
+            room.recording.discard(self._you)
+        await self._sender.send("recording.state", participant_id=self._you, on=on)
+
     async def _recognise_voice(self, segment: AudioSegment) -> str | None:
         book = self._session.voice_book
         if book is None:
@@ -566,6 +661,14 @@ class StreamHandler:
                 await self._fix_voice(parsed.get("utterance_id"), parsed.get("voice"))
             case "words.live":
                 await self._share_words(parsed.get("text"))
+            case "rtc.signal":
+                await self._relay_signal(parsed.get("to"), parsed.get("data"))
+            case "chat.send":
+                await self._chat(parsed.get("text"))
+            case "media.state":
+                await self._media(parsed)
+            case "recording.set":
+                await self._recording(parsed.get("on"))
             case "language.set":
                 await self._set_language(
                     self._you or parsed.get("participant_id"), parsed.get("language")
@@ -924,6 +1027,14 @@ def announce_people(room: Room) -> None:
         device.post("participants.updated", participants=participants)
 
 
+def drop_absent(rooms: RoomStore, room: Room) -> None:
+    gone = rooms.drop_absent(room)
+    for participant_id in gone:
+        tell_others(room, participant_id, "peer.left")
+    if gone:
+        announce_people(room)
+
+
 async def handle_room_stream(
     websocket: WebSocket,
     rooms: RoomStore,
@@ -955,6 +1066,7 @@ async def handle_room_stream(
         _close_replaced(replaced)
     else:
         tell_others(room, participant_id, "peer.connected")
+    drop_absent(rooms, room)
     seat = Seat(room, participant_id)
     handler = StreamHandler(
         websocket, room.session(), settings, translator, synthesizer, device, seat
@@ -962,7 +1074,12 @@ async def handle_room_stream(
     try:
         await _run(handler, room.id)
     finally:
+        was_recording = participant_id in room.recording
         if rooms.disconnect(room, participant_id, device, ended=handler.ended):
+            room.recording.discard(participant_id)
+            if was_recording:
+                for other in list(room.devices.values()):
+                    other.post("recording.state", participant_id=participant_id, on=False)
             tell_others(room, participant_id, "peer.left" if handler.ended else "peer.disconnected")
             if handler.ended and participant_id != HOST_ID:
                 announce_people(room)

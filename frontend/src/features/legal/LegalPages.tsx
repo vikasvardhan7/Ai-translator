@@ -8,6 +8,7 @@ export function PrivacyPolicy() {
         <h2>What happens during a conversation</h2>
         <p>The microphone listens while a conversation is open and stops when it ends. Each spoken sentence is sent to Google's Gemini service to be transcribed, translated and, when available, spoken aloud. On Google's free tier, submitted data may be used to improve Google's products.</p>
         <p>To show words while they are spoken, the app uses the browser's own speech recognition, which sends what the microphone hears to the browser's maker (Microsoft for Edge, Google for Chrome). It can be turned off in Settings during a conversation.</p>
+        <p>In a Meet call, your camera and voice go straight to the other people's browsers, not through the server. Your browser may share your network address with them to make that connection. Chat messages are kept in the server's memory only until the call ends. Recording happens only on the device of the person who presses Record, and everyone sees a Recording sign while it runs; the video is saved to that person's device and never uploaded.</p>
         <p>To tell apart people who share a language, the server compares a short set of numbers describing each sentence's voice (not the recording) with the voices heard earlier in the same conversation. They are kept only in memory and dropped when the conversation ends.</p>
       </section>
       <section className="legal-section">

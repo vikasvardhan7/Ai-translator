@@ -12,7 +12,7 @@ from app.api.dependencies import (
     require_host,
 )
 from app.api.links import public_link
-from app.api.stream import announce_people, handle_room_stream, tell_others
+from app.api.stream import announce_people, drop_absent, handle_room_stream, tell_others
 from app.core.config import Settings
 from app.models.room import RoomCreate, RoomCreated, RoomJoin, RoomJoined, RoomOut
 from app.models.session import Person
@@ -128,6 +128,7 @@ async def join_room(room_id: str, body: RoomJoin, rooms: Rooms) -> RoomJoined:
 def join_as_guest(rooms: RoomStore, room: Room, guest: Person) -> RoomJoined:
     if room.ended:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This conversation has ended.")
+    drop_absent(rooms, room)
     try:
         you, token = rooms.join(room, guest)
     except RoomFull as exc:

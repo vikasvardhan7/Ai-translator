@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 const TIPS = [
   'Say “schedule a meeting tomorrow at 5” in the ask box.',
-  'Double-click Meet now and send the link to up to 5 people.',
+  'Double-click Meet now and send the link to up to 3 people.',
   'Schedule a meeting, then email or share its link.',
   'Ask “summarise so far” during any call.',
   'Minimize a call: it keeps running in the taskbar.',

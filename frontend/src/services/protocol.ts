@@ -17,7 +17,26 @@ export type BrowserMessage =
   | { type: 'voice.played'; utterance_id: string; listener_id: SpeakerId; seconds: number }
   | { type: 'voice.fix'; utterance_id: string; voice: string }
   | { type: 'words.live'; text: string }
+  | { type: 'rtc.signal'; to: SpeakerId; data: SignalData }
+  | { type: 'chat.send'; text: string }
+  | { type: 'media.state'; mic: boolean; camera: boolean }
+  | { type: 'recording.set'; on: boolean }
   | { type: 'session.stop' };
+
+export type SignalData = Record<string, unknown>;
+
+export interface ChatLine {
+  id: string;
+  from: SpeakerId;
+  name: string;
+  text: string;
+  sent_at: string;
+}
+
+export interface MediaState {
+  mic: boolean;
+  camera: boolean;
+}
 
 interface SessionReadyMessage {
   type: 'session.ready';
@@ -27,6 +46,9 @@ interface SessionReadyMessage {
   server_voice: boolean;
   mode: ConversationMode;
   connected: SpeakerId[] | null;
+  chat: ChatLine[];
+  recording: SpeakerId[];
+  media: Partial<Record<SpeakerId, MediaState>>;
 }
 
 interface ParticipantsUpdatedMessage {
@@ -105,6 +127,31 @@ interface WordsLiveMessage {
   text: string;
 }
 
+interface RtcSignalMessage {
+  type: 'rtc.signal';
+  seq: number;
+  from: SpeakerId;
+  data: SignalData;
+}
+
+interface ChatMessage extends ChatLine {
+  type: 'chat.message';
+  seq: number;
+}
+
+interface MediaStateMessage extends MediaState {
+  type: 'media.state';
+  seq: number;
+  participant_id: SpeakerId;
+}
+
+interface RecordingStateMessage {
+  type: 'recording.state';
+  seq: number;
+  participant_id: SpeakerId;
+  on: boolean;
+}
+
 interface TtsAudioMessage {
   type: 'tts.audio';
   seq: number;
@@ -126,7 +173,11 @@ export type ServerMessage =
   | TranscriptFinalMessage
   | TranslationFinalMessage
   | WordsLiveMessage
-  | TtsAudioMessage;
+  | TtsAudioMessage
+  | RtcSignalMessage
+  | ChatMessage
+  | MediaStateMessage
+  | RecordingStateMessage;
 
 export interface CreateSessionRequest {
   consent: boolean;
@@ -178,6 +229,32 @@ export function isParticipant(value: unknown): value is Participant {
   );
 }
 
+export function isChatLine(value: unknown): value is ChatLine {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isSpeakerId(value.from) &&
+    isString(value.name) &&
+    isString(value.text) &&
+    isString(value.sent_at)
+  );
+}
+
+function isMediaState(value: unknown): value is MediaState {
+  return isRecord(value) && typeof value.mic === 'boolean' && typeof value.camera === 'boolean';
+}
+
+function mediaOf(value: unknown): Partial<Record<SpeakerId, MediaState>> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([id, state]) => isSpeakerId(id) && isMediaState(state))
+      .map(([id, state]) => [id, { mic: (state as MediaState).mic, camera: (state as MediaState).camera }]),
+  );
+}
+
 function hasSequence(value: Record<string, unknown>): value is Record<string, unknown> & { seq: number } {
   return typeof value.seq === 'number' && Number.isInteger(value.seq) && value.seq > 0;
 }
@@ -201,6 +278,9 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           server_voice: parsed.server_voice,
           mode: parsed.mode,
           connected: Array.isArray(parsed.connected) && parsed.connected.every(isSpeakerId) ? parsed.connected : null,
+          chat: Array.isArray(parsed.chat) ? parsed.chat.filter(isChatLine) : [],
+          recording: Array.isArray(parsed.recording) ? parsed.recording.filter(isSpeakerId) : [],
+          media: mediaOf(parsed.media),
         };
       }
       return null;
@@ -321,6 +401,27 @@ function parseKnown(parsed: Record<string, unknown> & { seq: number }): ServerMe
           format: 'wav',
           audio_base64: parsed.audio_base64,
         };
+      }
+      return null;
+    case 'rtc.signal':
+      if (isSpeakerId(parsed.from) && isRecord(parsed.data)) {
+        return { type: 'rtc.signal', seq, from: parsed.from, data: parsed.data };
+      }
+      return null;
+    case 'chat.message':
+      if (isChatLine(parsed)) {
+        const { id, from, name, text, sent_at } = parsed;
+        return { type: 'chat.message', seq, id, from, name, text, sent_at };
+      }
+      return null;
+    case 'media.state':
+      if (isSpeakerId(parsed.participant_id) && isMediaState(parsed)) {
+        return { type: 'media.state', seq, participant_id: parsed.participant_id, mic: parsed.mic, camera: parsed.camera };
+      }
+      return null;
+    case 'recording.state':
+      if (isSpeakerId(parsed.participant_id) && typeof parsed.on === 'boolean') {
+        return { type: 'recording.state', seq, participant_id: parsed.participant_id, on: parsed.on };
       }
       return null;
     default:

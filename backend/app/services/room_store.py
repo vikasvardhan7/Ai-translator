@@ -11,10 +11,12 @@ from app.services.session_store import Device, Session
 
 IDLE_ROOM_LIFETIME = timedelta(minutes=30)
 UNJOINED_ROOM_LIFETIME = timedelta(minutes=10)
+ABSENT_LIMIT = timedelta(minutes=2)
 MAX_WAITING_ROOMS = 100
 HOST_ID: ParticipantId = "A"
 GUEST_IDS: tuple[ParticipantId, ...] = ("B", "C", "D", "E", "F")
-MAX_PEOPLE = 1 + len(GUEST_IDS)
+MAX_PEOPLE = 4
+MAX_CHAT_LINES = 200
 
 
 class RoomLimitReached(Exception):
@@ -51,6 +53,10 @@ class Room:
     recent_voices: deque[PlayedVoice] = field(default_factory=lambda: deque(maxlen=MAX_REMEMBERED))
     translations: dict[tuple[str, str], str] = field(default_factory=dict)
     recent_sentences: deque[str] = field(default_factory=lambda: deque(maxlen=CONTEXT_SENTENCES))
+    chat: deque[dict[str, str]] = field(default_factory=lambda: deque(maxlen=MAX_CHAT_LINES))
+    recording: set[str] = field(default_factory=set)
+    media: dict[str, dict[str, bool]] = field(default_factory=dict)
+    absent_since: dict[str, datetime] = field(default_factory=dict)
 
     @property
     def host(self) -> Participant:
@@ -98,10 +104,12 @@ class RoomStore:
         return self._rooms.get(room_id)
 
     def join(self, room: Room, guest: Person) -> tuple[ParticipantId, str]:
+        if len(room.conversation.participants) >= MAX_PEOPLE:
+            raise RoomFull(people_left=False)
         used = room.guest_tokens.keys() | room.left
         free = next((guest_id for guest_id in GUEST_IDS if guest_id not in used), None)
         if free is None:
-            raise RoomFull(people_left=len(room.conversation.participants) < MAX_PEOPLE)
+            raise RoomFull(people_left=True)
         participants = room.conversation.participants
         participants.append(Participant(id=free, **guest.model_dump()))
         participants.sort(key=lambda p: p.id)
@@ -109,7 +117,20 @@ class RoomStore:
         room.guest_tokens[free] = token
         room.server_voice_for.add(free)
         room.idle_since = _now()
+        room.absent_since[free] = _now()
         return free, token
+
+    def drop_absent(self, room: Room) -> list[str]:
+        """Guests whose device has been gone for a while have left: their tile and place free up."""
+        cutoff = _now() - ABSENT_LIMIT
+        gone = [
+            participant_id
+            for participant_id, since in room.absent_since.items()
+            if participant_id != HOST_ID and participant_id not in room.devices and since < cutoff
+        ]
+        for participant_id in gone:
+            self.leave(room, participant_id)
+        return gone
 
     def leave(self, room: Room, participant_id: str) -> None:
         if participant_id == HOST_ID:
@@ -122,10 +143,14 @@ class RoomStore:
         room.left.add(participant_id)
         room.server_voice_for.discard(participant_id)
         room.voice_for.pop(participant_id, None)
+        room.recording.discard(participant_id)
+        room.media.pop(participant_id, None)
+        room.absent_since.pop(participant_id, None)
 
     def connect(self, room: Room, participant_id: str, device: Device) -> Device | None:
         replaced = room.devices.get(participant_id)
         room.devices[participant_id] = device
+        room.absent_since.pop(participant_id, None)
         return replaced
 
     def disconnect(self, room: Room, participant_id: str, device: Device, *, ended: bool) -> bool:
@@ -135,6 +160,8 @@ class RoomStore:
         room.idle_since = _now()
         if ended:
             self.leave(room, participant_id)
+        else:
+            room.absent_since[participant_id] = _now()
         if room.ended and not room.devices:
             self._rooms.pop(room.id, None)
         return True

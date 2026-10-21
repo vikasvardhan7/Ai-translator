@@ -1,24 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
-import { createSession, type AccountUser, type HostedMeeting } from '../../services/api';
-import {
-  inviteFromHash,
-  meetingFromHash,
-  sessionConversation,
-  type Conversation,
-  type Invite,
-  type InviteDetails,
-  type MeetingFlow,
-} from '../../services/conversations';
-import type { Participant } from '../../services/protocol';
+import type { AccountUser, HostedMeeting } from '../../services/api';
+import { inviteFromHash, meetingFromHash, type Conversation, type InviteDetails } from '../../services/conversations';
 import AccountApp from '../account/AccountApp';
 import AssistantApp, { type ChatEntry, type Prompt } from '../assistant/AssistantApp';
-import { APP_NAMES, type DesktopHandlers, type MeetingRequest, type Where } from '../assistant/agent';
-import ConsentScreen from '../consent/ConsentScreen';
+import { APP_NAMES, type DesktopHandlers, type MeetingRequest } from '../assistant/agent';
 import { PrivacyPolicy, TermsAndConditions } from '../legal/LegalPages';
+import MeetApp, { type MeetStart } from '../meet/MeetApp';
+import { rememberCall, rememberedCall } from '../meet/resume';
 import MeetingsApp, { type PlanRequest } from '../meetings/MeetingsApp';
-import type { Turn } from '../session/conversation';
-import SessionScreen from '../session/SessionScreen';
 import AppIcon, { type IconName } from './AppIcon';
 import AppWindow from './AppWindow';
 import { CallBridge, CallBridgeContext } from './bridge';
@@ -47,17 +37,21 @@ import {
 } from './windows';
 
 const TASKBAR_HEIGHT = 64;
+const CLOSE_AFTER_LEAVE_MS = 15_000;
 const PARTICLES = particles();
 
 interface Launch {
-  where: Where | null;
+  start: MeetStart;
   key: number;
-  flow: MeetingFlow | null;
 }
 
-function flowFromHash(): MeetingFlow | null {
-  const invite = meetingFromHash(window.location.hash);
-  return invite ? { kind: 'guest', invite } : null;
+export function startFromHash(hash: string): MeetStart | null {
+  const room = inviteFromHash(hash);
+  if (room) {
+    return { kind: 'room', invite: room };
+  }
+  const meeting = meetingFromHash(hash);
+  return meeting ? { kind: 'guest', invite: meeting } : null;
 }
 
 interface Shortcut {
@@ -72,30 +66,30 @@ function currentArea(): Area {
 
 const LINKED_APPS: readonly AppId[] = ['meetings', 'developers', 'trainer', 'privacy', 'terms'];
 
-export function firstApp(hash: string): AppId | null {
-  if (inviteFromHash(hash) || meetingFromHash(hash)) {
+export function firstApp(hash: string, inCall = false): AppId | null {
+  if (inviteFromHash(hash) || meetingFromHash(hash) || inCall) {
     return 'translator';
   }
   const named = LINKED_APPS.find((app) => `#${app}` === hash);
   return named ?? null;
 }
 
+function firstStart(): MeetStart {
+  const linked = startFromHash(window.location.hash);
+  if (linked) {
+    return linked;
+  }
+  const saved = rememberedCall();
+  return saved ? { kind: 'resume', conversation: saved } : { kind: 'new' };
+}
+
 function firstDesk(): Desk {
-  const app = firstApp(window.location.hash);
+  const app = firstApp(window.location.hash, rememberedCall() !== null);
   return app ? open(EMPTY_DESK, app, currentArea()) : EMPTY_DESK;
 }
 
 function conversationTitle(conversation: Conversation | null): string {
-  if (!conversation) {
-    return APP_NAMES.translator;
-  }
-  if (conversation.title) {
-    return conversation.title;
-  }
-  if (conversation.mode === 'call') {
-    return 'Live captions';
-  }
-  return conversation.mode === 'remote' ? 'Meeting' : 'Conversation';
+  return conversation?.title ? `${APP_NAMES.translator}: ${conversation.title}` : APP_NAMES.translator;
 }
 
 function clearLinkHash(): void {
@@ -111,13 +105,15 @@ interface DesktopProps {
   onDeleted: () => void;
 }
 
-export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopProps) {
+export default function Desktop({ user, onUser, onSignOut: signOutNow, onDeleted }: DesktopProps) {
+  const onSignOut = useCallback(() => {
+    rememberCall(null);
+    signOutNow();
+  }, [signOutNow]);
   const [area, setArea] = useState<Area>(currentArea);
   const [desk, setDesk] = useState<Desk>(firstDesk);
   const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [carriedTurns, setCarriedTurns] = useState<Turn[]>([]);
-  const [invite, setInvite] = useState<Invite | null>(() => inviteFromHash(window.location.hash));
-  const [launch, setLaunch] = useState<Launch>(() => ({ where: null, key: 0, flow: flowFromHash() }));
+  const [launch, setLaunch] = useState<Launch>(() => ({ start: firstStart(), key: 0 }));
   const [planRequest, setPlanRequest] = useState<PlanRequest | null>(null);
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
@@ -147,14 +143,9 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
   useEffect(() => {
     function syncFromHash(): void {
       const hash = window.location.hash.slice(1);
-      const found = inviteFromHash(window.location.hash);
-      const meeting = meetingFromHash(window.location.hash);
-      if (found) {
-        setInvite(found);
-        setDesk((current) => open(current, 'translator', currentArea()));
-      } else if (meeting && !sessionIdRef.current) {
-        setInvite(null);
-        setLaunch((current) => ({ where: null, key: current.key + 1, flow: { kind: 'guest', invite: meeting } }));
+      const found = startFromHash(window.location.hash);
+      if (found && !sessionIdRef.current) {
+        setLaunch((current) => ({ start: found, key: current.key + 1 }));
         setDesk((current) => open(current, 'translator', currentArea()));
       } else if (hash === 'privacy' || hash === 'terms') {
         setDesk((current) => open(current, hash, currentArea()));
@@ -175,53 +166,33 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
 
   const openApp = useCallback((app: AppId) => setDesk((current) => open(current, app, currentArea())), []);
 
-  const returnToStart = useCallback(() => {
-    sessionIdRef.current = null;
-    setConversation(null);
-    setCarriedTurns([]);
-    setInvite(null);
-    setLaunch((current) => ({ where: null, key: current.key + 1, flow: null }));
-    clearLinkHash();
-  }, []);
+  const closingRef = useRef(0);
 
-  const startConversation = useCallback((next: Conversation, turns: Turn[] = []) => {
-    clearLinkHash();
-    sessionIdRef.current = next.id;
-    setCarriedTurns(turns);
+  const followCall = useCallback((next: Conversation | null) => {
+    sessionIdRef.current = next?.id ?? null;
     setConversation(next);
-    setDesk((current) => focus(current, 'translator'));
+    if (next) {
+      clearLinkHash();
+    } else if (Date.now() - closingRef.current < CLOSE_AFTER_LEAVE_MS) {
+      closingRef.current = 0;
+      setLaunch((current) => ({ start: { kind: 'new' }, key: current.key + 1 }));
+      setDesk((current) => close(current, 'translator'));
+    }
   }, []);
 
-  async function restartSession(participants: Participant[], turns: Turn[]): Promise<void> {
-    if (!conversation || conversation.mode === 'remote') {
-      return;
-    }
-    const startedFrom = conversation.id;
-    const next = await createSession(participants, true, conversation.mode);
-    if (sessionIdRef.current === startedFrom) {
-      startConversation(sessionConversation(next), turns);
-    }
-  }
-
-  const start = useCallback((where: Where) => {
-    if (!sessionIdRef.current) {
-      setInvite(null);
-      setLaunch((current) => ({ where, key: current.key + 1, flow: null }));
+  const launchMeet = useCallback((start: MeetStart, force = false) => {
+    if (!sessionIdRef.current || force) {
+      clearLinkHash();
+      setLaunch((current) => ({ start, key: current.key + 1 }));
     }
     setDesk((current) => open(current, 'translator', currentArea()));
   }, []);
+
+  const start = useCallback(() => launchMeet({ kind: 'new' }), [launchMeet]);
 
   const hostMeeting = useCallback((meeting: HostedMeeting, details: InviteDetails) => {
-    if (!sessionIdRef.current) {
-      setInvite(null);
-      setLaunch((current) => ({
-        where: 'remote',
-        key: current.key + 1,
-        flow: { kind: 'host', meeting, invite: details },
-      }));
-    }
-    setDesk((current) => open(current, 'translator', currentArea()));
-  }, []);
+    launchMeet({ kind: 'host', meeting, invite: details });
+  }, [launchMeet]);
 
   const schedule = useCallback((meeting: MeetingRequest) => {
     setPlanRequest((current) => ({ id: (current?.id ?? 0) + 1, plan: meeting }));
@@ -229,15 +200,20 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
   }, []);
 
   const closeApp = useCallback((app: AppId) => {
-    if (app === 'translator' && sessionIdRef.current) {
+    if (app === 'translator') {
       const controls = bridge.get();
-      if (controls?.actions.includes('end_conversation')) {
-        controls.run('end_conversation', {});
+      if (sessionIdRef.current && controls?.actions.includes('end_conversation')) {
+        closingRef.current = Date.now();
+        controls.run('end_conversation', { from: 'window' });
+        return;
       }
-      returnToStart();
+      sessionIdRef.current = null;
+      setConversation(null);
+      clearLinkHash();
+      setLaunch((current) => ({ start: { kind: 'new' }, key: current.key + 1 }));
     }
     setDesk((current) => close(current, app));
-  }, [bridge, returnToStart]);
+  }, [bridge]);
 
   const ask = useCallback((text: string) => {
     setPrompt({ id: promptIdRef.current++, text });
@@ -252,11 +228,9 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
   const installWay = useInstallWay();
 
   const shortcuts: Shortcut[] = [
-    { label: 'Meet now', icon: 'remote', run: () => start('remote') },
+    { label: 'Meet now', icon: 'remote', run: start },
     { label: 'Schedule', icon: 'schedule', run: () => openApp('meetings') },
     { label: 'Gym Trainer', icon: 'trainer', run: () => openApp('trainer') },
-    { label: 'Live captions', icon: 'meeting', run: () => start('meeting') },
-    { label: 'Talk here', icon: 'here', run: () => start('here') },
     { label: 'Assistant', icon: 'assistant', run: () => openApp('assistant') },
     { label: 'Developers', icon: 'developers', run: () => openApp('developers') },
     { label: 'Account', icon: 'account', run: () => openApp('account') },
@@ -279,27 +253,18 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
   function content(app: AppId): ReactNode {
     switch (app) {
       case 'translator':
-        return conversation ? (
-          <SessionScreen
-            key={conversation.id}
-            conversation={conversation}
-            initialTurns={carriedTurns}
-            onReturnToStart={returnToStart}
-            onRestart={conversation.mode === 'remote' ? null : restartSession}
-            onAsk={() => openApp('assistant')}
-          />
-        ) : (
-          <ConsentScreen
-            key={invite ? `invite/${invite.roomId}` : `start/${launch.key}`}
-            invite={invite}
-            flow={invite ? null : launch.flow}
-            start={launch.where}
-            onConversation={startConversation}
-            onLeaveInvite={returnToStart}
+        return (
+          <MeetApp
+            key={launch.key}
+            start={launch.start}
+            defaultName={user.name}
+            onConversation={followCall}
+            onStartOwn={() => launchMeet({ kind: 'new' }, true)}
+            onClose={() => closeApp('translator')}
           />
         );
       case 'meetings':
-        return <MeetingsApp request={planRequest} onRequestTaken={() => setPlanRequest(null)} onStart={hostMeeting} />;
+        return <MeetingsApp request={planRequest} onRequestTaken={() => setPlanRequest(null)} onStart={hostMeeting} defaultName={user.name} />;
       case 'assistant':
         return (
           <AssistantApp
@@ -398,7 +363,7 @@ export default function Desktop({ user, onUser, onSignOut, onDeleted }: DesktopP
               key={state.app}
               window={state}
               title={state.app === 'translator' ? conversationTitle(conversation) : APP_NAMES[state.app]}
-              icon={state.app === 'translator' && conversation?.mode === 'call' ? 'meeting' : APP_ICONS[state.app]}
+              icon={APP_ICONS[state.app]}
               active={state.app === active}
               area={area}
               onFocus={() => {

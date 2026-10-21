@@ -19,7 +19,7 @@ APPS = [
 ]
 THEMES = ["ocean", "sunset", "mint", "blossom", "aurora"]
 DURATIONS = ["15", "30", "45", "60", "90", "120"]
-WHERE = ["here", "remote", "meeting"]
+WHERE = ["remote"]
 FORMATS = ["text", "word", "pdf", "subtitles", "vtt"]
 
 
@@ -59,8 +59,9 @@ CATALOG = {
     for spec in [
         ActionSpec(
             "open_app",
-            "Open one of the desktop apps: translator (conversations, calls and live captions),"
-            " meetings (schedule meetings and see upcoming ones), trainer (gym trainer: workout and"
+            "Open one of the desktop apps: translator (Meet: video calls for up to 4 people"
+            " with live translated captions, chat and recording), meetings (Schedule: plan"
+            " meetings and see upcoming ones), trainer (gym trainer: workout and"
             " meal plans, daily tracking, progress, coach), assistant (this chat), developers"
             " (API keys and the website widget for other apps),"
             " personalize (colours and themes), account (name, password, sign out), help, privacy"
@@ -70,10 +71,10 @@ CATALOG = {
         ActionSpec("close_app", "Close one of the open desktop apps.", {"app": APPS}),
         ActionSpec(
             "start_conversation",
-            "Open the translator ready to start: here (two people next to each other), remote"
-            " (a call with up to 5 people on other devices, through one invite link) or meeting"
-            " (captions for an online meeting). The person still says hello so their language"
-            " is found.",
+            "Open Meet ready to start a new video call (remote) that up to 3 others join"
+            " through one invite link. Everyone hears each other's own voice and reads live"
+            " captions in their own language. The person picks their language and presses"
+            " Start meeting.",
             {"where": WHERE},
         ),
         ActionSpec(

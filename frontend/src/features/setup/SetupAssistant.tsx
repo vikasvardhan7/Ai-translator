@@ -27,7 +27,6 @@ import { lengthText, whenText } from '../meetings/invite';
 import { languageLabel, languageName } from '../../services/languageNames';
 import { openMicrophoneCapture, type AudioCapture } from '../../services/microphoneCapture';
 import type { SpeakerId } from '../../services/protocol';
-import type { Where as Start } from '../assistant/agent';
 import { savedName, saveName } from './name';
 import { PhraseDetector } from './phrase';
 
@@ -40,6 +39,7 @@ interface SetupAssistantProps {
   onLeaveInvite: () => void;
 }
 
+export type Start = 'here' | 'remote' | 'meeting';
 type Phase = 'loading' | 'intro' | 'where' | 'opening' | 'listening' | 'checking' | 'retry' | 'starting' | 'lobby' | 'dead';
 type Where = 'here' | 'remote' | 'meeting' | 'guest';
 type Retry = { kind: 'listen'; person: SpeakerId } | { kind: 'start' };
@@ -59,7 +59,7 @@ function personLabel(id: SpeakerId): string {
 const WHERE_QUESTION = 'What would you like: talk with someone next to you, start a meeting that others join with a link, or live captions for a Zoom, Teams or Meet call?';
 const STARTS: Record<Start, string> = {
   here: 'Ready to talk with someone next to you.',
-  remote: 'Ready to start a meeting. You get one link that up to 5 people can use to join.',
+  remote: 'Ready to start a meeting. You get one link that up to 3 people can use to join.',
   meeting: 'Ready for live captions.',
 };
 const LOBBY_CHECK_MS = 4_000;
@@ -361,7 +361,7 @@ export default function SetupAssistant({ invite, start, flow, onConversation, on
         link: inviteLink(room, window.location.origin),
         problem: inviteProblem(room, window.location.hostname),
       };
-      add('assistant', 'Your call is ready. Share the invite link from the call; up to 5 people can join.');
+      add('assistant', 'Your call is ready. Share the invite link from the call; up to 3 people can join.');
       onConversation(roomConversation(room, room.host_token, 'A', invitation));
       return;
     }

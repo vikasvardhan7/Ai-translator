@@ -83,7 +83,7 @@ def test_a_room_is_created_with_two_tokens_and_no_guests(client: TestClient) -> 
         "public_url_problem",
     }
     assert data["host"] == {"id": "A", "name": "Host", "preferred_language": "en"}
-    assert (data["guests"], data["max_people"]) == ([], 6)
+    assert (data["guests"], data["max_people"]) == ([], 4)
     assert data["host_token"] != data["invite_token"]
     assert min(len(data["host_token"]), len(data["invite_token"])) >= 32
 
@@ -128,7 +128,7 @@ def test_either_token_can_look_at_the_room(client: TestClient, who: str) -> None
         "room_id": room["room_id"],
         "host": {"id": "A", "name": "Host", "preferred_language": "en"},
         "guests": [],
-        "max_people": 6,
+        "max_people": 4,
     }
 
 
@@ -191,17 +191,17 @@ def test_joining_an_unknown_room_is_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_up_to_six_people_fit_in_a_room(client: TestClient) -> None:
+def test_up_to_four_people_fit_in_a_room(client: TestClient) -> None:
     room = create(client)
 
     joins = [
         join(client, room, guest={"name": f"Guest {n}", "preferred_language": "hi"})
-        for n in range(6)
+        for n in range(4)
     ]
 
-    assert [r.status_code for r in joins] == [200] * 5 + [409]
-    assert [r.json()["you"] for r in joins[:5]] == ["B", "C", "D", "E", "F"]
-    assert "full: 6 people" in joins[5].json()["detail"]
+    assert [r.status_code for r in joins] == [200] * 3 + [409]
+    assert [r.json()["you"] for r in joins[:3]] == ["B", "C", "D"]
+    assert "full: 4 people" in joins[3].json()["detail"]
 
 
 def test_the_guest_may_choose_the_hosts_language(client: TestClient) -> None:
@@ -708,13 +708,17 @@ def test_a_left_place_is_never_given_again_and_an_empty_token_opens_nothing() ->
     client = voiced()
     with client:
         room = create(client)
-        tokens = people(client, room, "hi", "te", "ta", "kn", "ml")
-        client.delete(f"/api/rooms/{room['room_id']}", headers={"X-Room-Token": tokens[0]})
-        refused = join(client, room, guest={"name": "Late", "preferred_language": "mr"})
+        tokens = people(client, room, "hi", "te", "ta")
+        given = []
+        for token in tokens:
+            client.delete(f"/api/rooms/{room['room_id']}", headers={"X-Room-Token": token})
+            given.append(join(client, room, guest={"name": "Next", "preferred_language": "kn"}))
+        refused = given[-1]
         with client.websocket_connect(f"/api/rooms/{room['room_id']}/stream?token=") as ws:
             code = closed_code(ws)
         empty = look(client, room, "")
 
+    assert [r.json()["you"] for r in given[:2]] == ["E", "F"]
     assert refused.status_code == 409
     assert "No more people can join" in refused.json()["detail"]
     assert (code, empty.status_code) == (4401, 403)

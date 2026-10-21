@@ -84,6 +84,23 @@ export async function openMicrophoneCapture(): Promise<AudioCapture> {
   }
 }
 
+export async function openTrackCapture(track: MediaStreamTrack): Promise<AudioCapture> {
+  if (typeof AudioContext === 'undefined') {
+    throw new Error('Captions need Chrome or Edge on a secure page or localhost.');
+  }
+  const context = newContext();
+  const copy = track.clone();
+  copy.enabled = true;
+  try {
+    await resumeOrGiveUp(context);
+    return await captureFrom(new MediaStream([copy]), context);
+  } catch (error) {
+    copy.stop();
+    await context.close().catch(() => undefined);
+    throw error instanceof MicrophoneNeedsTap ? error : microphoneError(error);
+  }
+}
+
 export async function openMeetingCapture(): Promise<AudioCapture> {
   if (!navigator.mediaDevices?.getDisplayMedia || typeof AudioContext === 'undefined') {
     throw new Error("This browser cannot share a meeting's sound. Use Chrome or Edge on a computer.");

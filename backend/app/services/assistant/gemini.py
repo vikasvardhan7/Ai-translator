@@ -52,8 +52,9 @@ def _instructions(
     )
     return "\n".join(
         [
-            "You are the assistant inside Voice Translator, a desktop-style app that translates"
-            " conversations between people and captions online meetings.",
+            "You are the assistant inside Voice Translator, a desktop-style app with Meet (video"
+            " calls where everyone reads live captions in their own language), Schedule and a"
+            " gym trainer.",
             "Answer any question helpfully, like a general assistant. Call search_web when the"
             " answer needs current or outside information.",
             "For questions about the conversation or meeting, answer from the live transcript"

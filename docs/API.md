@@ -165,7 +165,7 @@ channel.onmessage = (event) => console.log(JSON.parse(event.data));
 
 | Call | What it does |
 | --- | --- |
-| `POST /api/rooms` | Starts a call that up to 6 people join from their own devices through one link |
+| `POST /api/rooms` | Starts a call that up to 4 people join from their own devices through one link |
 | `POST /api/languages/detect` | Finds the language spoken in a short WAV recording |
 | `GET /api/voices` | Lists the natural voices people can choose |
 | `POST /api/assistant` | Asks the assistant a question, optionally about a conversation |

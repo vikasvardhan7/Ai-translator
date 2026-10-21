@@ -23,6 +23,7 @@ interface MeetingsAppProps {
   request: PlanRequest | null;
   onRequestTaken: () => void;
   onStart: (meeting: HostedMeeting, invite: InviteDetails) => void;
+  defaultName?: string;
 }
 
 const LENGTHS = [15, 30, 45, 60, 90, 120, 180, 240];
@@ -138,14 +139,14 @@ function MeetingCard({ meeting, invite, fresh, now, onStart, onCancel }: CardPro
   );
 }
 
-export default function MeetingsApp({ request, onRequestTaken, onStart }: MeetingsAppProps) {
+export default function MeetingsApp({ request, onRequestTaken, onStart, defaultName = '' }: MeetingsAppProps) {
   const first = defaultStart();
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(first.date);
   const [time, setTime] = useState(first.time);
   const [length, setLength] = useState(30);
   const [agenda, setAgenda] = useState('');
-  const [host, setHost] = useState(savedName);
+  const [host, setHost] = useState(() => savedName() || defaultName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [meetings, setMeetings] = useState<HostedMeeting[] | null>(null);

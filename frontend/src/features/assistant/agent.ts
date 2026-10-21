@@ -5,13 +5,13 @@ import { isTheme, themeOf, type ThemeId } from '../desktop/themes';
 import { isApp, type AppId } from '../desktop/windows';
 
 export const DESKTOP_ACTIONS = ['open_app', 'close_app', 'start_conversation', 'set_theme', 'schedule_meeting'] as const;
-export type Where = 'here' | 'remote' | 'meeting';
+export type Where = 'remote';
 export const MAX_HISTORY = 30;
 export const MAX_MESSAGE_LENGTH = 4000;
 
 export const APP_NAMES: Record<AppId, string> = {
-  translator: 'Translator',
-  meetings: 'Meetings',
+  translator: 'Meet',
+  meetings: 'Schedule',
   trainer: 'Gym Trainer',
   assistant: 'Assistant',
   developers: 'Developers',
@@ -23,9 +23,7 @@ export const APP_NAMES: Record<AppId, string> = {
 };
 
 const WHERE_NAMES: Record<Where, string> = {
-  here: 'a conversation next to you',
   remote: 'a meeting others join with a link',
-  meeting: 'live captions',
 };
 
 export interface MeetingRequest {
@@ -65,7 +63,7 @@ export interface CallRunner {
 }
 
 function isWhere(value: unknown): value is Where {
-  return value === 'here' || value === 'remote' || value === 'meeting';
+  return value === 'remote';
 }
 
 export function note(action: AgentAction): string {
@@ -77,11 +75,11 @@ export function note(action: AgentAction): string {
     return `Closed ${APP_NAMES[args.app]}`;
   }
   if (name === 'start_conversation' && isWhere(args.where)) {
-    return `Ready to start ${WHERE_NAMES[args.where]}: press I agree, let's start`;
+    return `Ready to start ${WHERE_NAMES[args.where]}: pick your language and press Start meeting`;
   }
   if (name === 'schedule_meeting' && args.title && args.starts_at) {
     const when = new Date(args.starts_at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
-    return `Scheduled “${args.title}” for ${when}. The link is in Meetings`;
+    return `Scheduled “${args.title}” for ${when}. The link is in Schedule`;
   }
   if (name === 'set_theme' && isTheme(args.theme)) {
     return `Changed the look to ${themeOf(args.theme).name}`;

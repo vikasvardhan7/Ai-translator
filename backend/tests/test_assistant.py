@@ -221,9 +221,10 @@ async def test_failures_become_clear_errors(response, message: str, retryable: b
         ("open_app", None, None),
         (
             "start_conversation",
-            {"where": "meeting"},
-            AppAction("start_conversation", {"where": "meeting"}),
+            {"where": "remote"},
+            AppAction("start_conversation", {"where": "remote"}),
         ),
+        ("start_conversation", {"where": "here"}, None),
         (
             "download_transcript",
             {"format": "subtitles"},

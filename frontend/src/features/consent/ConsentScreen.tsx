@@ -2,9 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, createSession, getHealth, isHost } from '../../services/api';
 import { sessionConversation, type Conversation, type Invite, type MeetingFlow } from '../../services/conversations';
-import type { Where } from '../assistant/agent';
 import type { Participant } from '../../services/protocol';
-import SetupAssistant from '../setup/SetupAssistant';
+import SetupAssistant, { type Start } from '../setup/SetupAssistant';
 import HostKeyPrompt from './HostKeyPrompt';
 import ParticipantCard from './ParticipantCard';
 import { loadLanguageOptions, type LanguageOption } from './languageOptions';
@@ -12,7 +11,7 @@ import { canStartSession } from './validation';
 
 interface ConsentScreenProps {
   invite: Invite | null;
-  start: Where | null;
+  start: Start | null;
   flow: MeetingFlow | null;
   onConversation: (conversation: Conversation) => void;
   onLeaveInvite: () => void;

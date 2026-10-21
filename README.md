@@ -2,11 +2,11 @@
 
 A two-way, real-time voice translator. Two people who speak different languages talk through one app: it recognizes speech, translates it into the other person's language, shows captions in each person's language and speaks the translation aloud.
 
-**Status:** working end to end. Three ways to use it: two people at one device, two people on their own devices through an invite link, and captions for an online meeting (Google Meet, Teams or Zoom) in your language. Hands-free listening finds each sentence by itself; speech is recognized and translated from any language (Gemini API free tier) and spoken by a Gemini voice or the browser's own; the Meet-style screen has live captions, a transcript with text and subtitle downloads, and settings for language, voice and speed. Connections that drop come back by themselves. There is no fixed language list: any ISO 639 code is accepted.
+**Status:** working end to end. On the desktop, **Meet** is a video call for up to 4 people, like Google Meet or Teams: everyone hears each other's real voice and sees each other's camera, and live captions show what each person says in your own language (Gemini API free tier recognizes and translates speech from any language). It has chat, recording to your own device, and a choice of microphone, camera and speaker. Connections that drop come back by themselves. There is no fixed language list: any ISO 639 code is accepted. The website widget for other sites (below) still offers the earlier screens: two people at one device with translations spoken aloud, and captions for an online meeting.
 
 People sign up and sign in with their email (a 6-digit code is emailed to them) and a password; that includes people who open a meeting or call invite link. Only the website widget on other sites works without an account (it uses an API key). The desktop also has a **Gym Trainer**: an AI-made weekly workout and meal plan you can edit, animated demos of 870+ exercises with the muscles they work, a guided workout that talks you through every set, calories worked out from a photo of your food, progress photos, a voice coach, and daily tracking of workouts, meals, water, weight, sleep and steps.
 
-Nothing of a conversation is recorded. Audio is held in memory only until its sentence is translated, captions live only in the browser, and sessions and rooms leave memory when they end or after 10 to 30 minutes without a device.
+The server keeps nothing of a call. Audio for captions is held in memory only until its sentence is translated, chat lives in memory until the call ends, video and voice go straight between the browsers, and a recording is made and saved on the device of the person who records. Calls leave memory when they end or after 10 to 30 minutes without a device.
 
 It runs on your laptop for testing, or online for everyone: [`docs/DEPLOY.md`](docs/DEPLOY.md) gives it a fixed https address for free, either from your laptop with a free domain and Cloudflare (no card needed) or on a free Oracle Cloud server, and people install it from the website as an app on Android, iPhone, Windows or Mac.
 
@@ -93,7 +93,7 @@ npm run typecheck
 npm run dev
 ```
 
-With the backend running, open <http://localhost:5173> in Edge or Chrome. First sign in (see "Accounts" below). The app looks like a desktop: icons on the left (Meet now, Schedule, Gym Trainer, Live captions, Talk here, Assistant, Developers, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. After you sign in, the desktop opens with no window open; double-click an icon (tap on a phone) to open one. In the Translator window press "I agree, let's start", choose who you are talking to and say hello; the app finds your language. Allow the microphone when asked, then just talk: each sentence appears as a caption in your language and is spoken aloud. The buttons at the bottom of the call mute your microphone, switch between voice and captions only, open Settings (your language, a natural or fast voice, and its speed), show the transcript (download as text or subtitles) and open the assistant. A minimized call keeps running. Use headphones or keep the volume low so the app does not hear its own voice.
+With the backend running, open <http://localhost:5173> in Edge or Chrome. First sign in (see "Accounts" below). The app looks like a desktop: icons on the left (Meet now, Schedule, Gym Trainer, Assistant, Developers, Account, Personalize, Help, Privacy, Terms), windows you can drag, maximize or minimize, and a taskbar with Start, an ask box and the clock. After you sign in, the desktop opens with no window open; double-click an icon (tap on a phone) to open one. **Meet now** opens the meeting app (see "Meet" below): allow the camera and microphone when asked, pick your language and press **Start meeting**. A minimized call keeps running.
 
 ### Looks
 
@@ -101,7 +101,7 @@ Open **Personalize** to pick one of five looks, each with its own live wallpaper
 
 ### The assistant
 
-Type into the taskbar's ask box, or open **Assistant**. It works like a chat: ask anything and it searches the web when the answer needs current information (sources are shown under the answer). During a call it also knows what has been said ("Summarise so far", "What are the action items?"). It can do things for you: "start meeting captions", "mute me", "show the transcript", "download the subtitles", "change my language to Hindi", "open help", "end the call". Nothing is saved; the chat is gone when the page closes. It uses `GEMINI_MODEL`, or `GEMINI_ASSISTANT_MODEL` in `backend/.env` when set. Web search uses Google Search through Gemini, which has its own daily free limit.
+Type into the taskbar's ask box, or open **Assistant**. It works like a chat: ask anything and it searches the web when the answer needs current information (sources are shown under the answer). During a call it also knows what has been said ("Summarise so far", "What are the action items?"). It can do things for you: "start a meeting", "mute me", "who is in the call?", "change my language to Hindi", "open help", "end the call". Nothing is saved; the chat is gone when the page closes. It uses `GEMINI_MODEL`, or `GEMINI_ASSISTANT_MODEL` in `backend/.env` when set. Web search uses Google Search through Gemini, which has its own daily free limit.
 
 If the connection drops, the screen says "Reconnecting" and comes back by itself with the transcript kept, for up to five minutes.
 
@@ -145,41 +145,34 @@ Everything is kept for your account only in `backend/data/trainer.db`, photos in
 
 The exercise library is the [Free Exercise DB](https://github.com/yuhonas/free-exercise-db), which its makers have placed in the public domain. The backend reads its list from GitHub once a day (`EXERCISE_LIBRARY_URL`) and the browser loads the pictures from GitHub (`EXERCISE_IMAGES_URL`), so the library needs the internet; plans and tracking work without it. Each exercise has two photos, the start and the end position, which the app loops as a short animation; they are not full videos.
 
-## Captions for an online meeting
+## Meet: video calls with live captions
 
-Join your meeting as usual (Google Meet, Teams or Zoom, in a tab or in the app). In the translator choose "In an online meeting", say hello in the language you want the captions in, then press **Connect meeting** and pick the meeting's browser tab with **Share tab audio** turned on (for the Teams or Zoom app, pick **Entire screen** with **Share system audio**). From then on every sentence said in the meeting appears as a caption in your language, and your own words appear as you said them; the transcript panel keeps both and can be downloaded. Nothing is sent into the meeting, so tell the others that captions are on. Wear headphones so your microphone does not hear the meeting too (the app drops such doubles, but headphones are cleaner).
-
-Each voice in the meeting is numbered (Speaker 1, Speaker 2, up to 6) by comparing how it sounds with the voices heard before; if a name is wrong, tap it in the transcript and pick the right one, and the app learns from it. It works best with clearly different voices and sentences longer than a second.
-
-Press **Ask** during the call (or use the taskbar's ask box) to ask about what has been said so far ("Summarise so far", "What are the action items?", "What did they say about the budget?"). A meeting has no invite link: the captions are only for you. To talk with someone on another device, choose the two-device option instead (below).
-
-Each sentence is sent to Gemini with the last few sentences as context, so names and topic words are heard more reliably. If words are still wrong in your language, compare models with the benchmark above and set the best one as `GEMINI_MODEL`.
-
-The backend log prints one line per sentence with how long each step took, so you can see where time goes.
-
-## Live words and transcripts
-
-While someone speaks, their words appear in the caption box straight away, using the browser's own speech recognition (Edge and Chrome; in a call they also appear on the other devices). When the sentence ends, Gemini's caption and translation replace them. The browser's recognition sends what the microphone hears to the browser's maker (Microsoft for Edge, Google for Chrome); turn **Show words while they are spoken** off in Settings to stop it.
-
-Two people on one device may choose the same language. Nothing is translated then; the transcript names who said what by their voices, and a wrong name is fixed with one tap.
-
-**Transcript → Download** saves the conversation as a Word document (.docx, made in the browser), a PDF (the print window opens; choose **Save as PDF**, which keeps every script correct), plain text, or subtitles in each person's language as .srt or .vtt. Nothing is saved anywhere else.
-
-## Meetings with people on other devices (up to 6)
-
-The others can be on any phone or computer with Edge or Chrome, each speaking their own language. Your laptop runs everything, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed). The backend starts the tunnel for you.
+The others can be on any phone or computer with Edge or Chrome (Safari works too, without a speaker choice), each speaking their own language. Your laptop runs the server, and a free Cloudflare tunnel gives it a public https link while it runs (no account needed). The backend starts the tunnel for you.
 
 1. Install the tunnel program once: `winget install --id Cloudflare.cloudflared`
 2. Build the frontend so the backend can serve it: in `frontend`, run `npm run build`.
 3. Start the backend as above (`uvicorn ... --port 8000`).
-4. Open <http://localhost:8000>, double-click **Meet now**, type your name, press "I agree, let's start" and say hello. The backend opens the tunnel (a few seconds the first time) and your call opens straight away, showing the invite link (the public `https://...trycloudflare.com` link).
-5. Send that one link to up to 5 people. Each opens it, signs in (or creates an account the first time), types their name and says hello, and joins the running call. Everyone talks into their own device, sees the whole conversation and hears everyone else in their own language. **People** in the call shows who is there, who is connected, and the link again; you can also ask the assistant "who is in the call?".
+4. Open <http://localhost:8000> and double-click **Meet now**. You see your camera, a microphone level, your name and **Your language** (the language you speak and want captions in). **Microphone, camera and speaker** picks the devices. Press **Start meeting**.
+5. The call opens with the invite link (the public `https://...trycloudflare.com` link). Send it to up to 3 people. Each opens it, signs in (or creates an account the first time), checks their camera, picks their language and presses **Join now**.
 
-A guest who presses End leaves alone and the call goes on; when the host presses End, the call ends for everyone.
+In the call:
+
+- **Voices and video** go straight between the browsers (WebRTC), so everyone hears the others' real voices with no delay. With four people each browser sends its camera three times, so a slow connection may lower the picture quality.
+- **Captions** show each sentence in your language about a second after it is said, with the speaker's name; a small "from Telugu" says it was translated. Your own words show as you said them. While someone talks in your language, their words appear as they speak (the browser's own speech recognition, which sends the microphone to Microsoft for Edge or Google for Chrome; switch it off in **Settings**). The **CC** button hides or shows the captions.
+- **Chat** sends a message to everyone; it is gone when the call ends.
+- **Record** records the call on your device: everyone's video, voices and the captions, in one video file that is saved to your Downloads folder when you stop (or leave). Everyone sees a red **Recording** sign while it runs.
+- **People** shows who is there, their languages, microphones and cameras, and the invite link. **Settings** changes your caption language and your microphone, camera and speaker during the call.
+- **Ctrl+D** turns the microphone on or off, **Ctrl+E** the camera.
+
+A guest who presses **Leave** (or closes the window) leaves alone and the call goes on; the host's button is **End call** and ends it for everyone, after asking. If the page reloads during a call, Meet offers **Rejoin** and puts you back in your place; a guest who is gone for more than 2 minutes gives up their place and opens the invite link again. Keep the Meet tab in front while recording: browsers slow down hidden tabs, and the recorded picture would stutter. The assistant can mute you, show who is in the call, change your language or end the call, and answer questions about what has been said ("Summarise so far").
+
+Video needs the two browsers to reach each other. The app uses Google's free STUN servers and no relay, so a few networks (some mobile data and strict office networks) block video and voice between some people; their tile then says so, with **Try again**, and captions and chat still work. A paid TURN relay would fix that.
+
+Each sentence is sent to Gemini with the last few sentences as context, so names and topic words are heard more reliably. If words are still wrong in your language, compare models with the benchmark above and set the best one as `GEMINI_MODEL`. The backend log prints one line per sentence with how long each step took.
 
 ### Scheduling a meeting
 
-Double-click **Schedule** (or tell the assistant "schedule a meeting tomorrow at 5 pm for 30 minutes about the budget"). Give it a name, a date and time, how long it lasts and what it is about, then press **Schedule and get the link**. Each meeting card has **Copy link**, **Copy invitation** (the text with time, length, agenda and link), **Email** (opens your mail app with it ready), **Share** and **Add to calendar** (a calendar file Outlook or Google Calendar opens). People who open the link sign in first; if they are early they see the meeting details and wait in a lobby; when you press **Start meeting** and say hello, they are brought in automatically. Only the title, time, length, agenda and your name are kept, in `backend/data/meetings.db` on your laptop (Git ignores it).
+Double-click **Schedule** (or tell the assistant "schedule a meeting tomorrow at 5 pm for 30 minutes about the budget"). Give it a name, a date and time, how long it lasts and what it is about, then press **Schedule and get the link**. Each meeting card has **Copy link**, **Copy invitation** (the text with time, length, agenda and link), **Email** (opens your mail app with it ready), **Share** and **Add to calendar** (a calendar file Outlook or Google Calendar opens). People who open the link sign in first; if they are early they see the meeting details and wait in a lobby; when you press **Start meeting**, they join the call automatically. Only the title, time, length, agenda and your name are kept, in `backend/data/meetings.db` on your laptop (Git ignores it).
 
 The link works while your laptop runs the app. A quick tunnel gets a new address every time the backend starts, so after a restart send the link again from the meeting card (it always shows the current one), or set `PUBLIC_URL` to a fixed address.
 
@@ -222,7 +215,7 @@ Ai-translator/
 │   ├── requirements.txt     runtime dependencies
 │   └── requirements-dev.txt test and lint tools
 ├── frontend/
-│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes, installing the app), meetings, Gym Trainer, developers, embedded widget view, assistant, setup, call screens
+│   ├── src/                 React app: sign-in, desktop (windows, taskbar, themes, installing the app), Meet (video calls, captions, chat, recording), Schedule, Gym Trainer, developers, embedded widget view, assistant, the widget's setup and call screens
 │   ├── public/              the one-line website widget, app manifest, icons, service worker and offline page
 │   ├── package.json
 │   └── vite.config.ts

@@ -18,6 +18,7 @@ describe('assistant actions', () => {
       { name: 'end_conversation', arguments: {} },
       { name: 'open_app', arguments: { app: 'files' } },
       { name: 'start_conversation', arguments: { where: 'meeting' } },
+      { name: 'start_conversation', arguments: { where: 'remote' } },
       { name: 'set_theme', arguments: { theme: 'sunset' } },
       { name: 'set_theme', arguments: { theme: 'neon' } },
     ], desktop, call);
@@ -25,12 +26,12 @@ describe('assistant actions', () => {
     expect(desktop.open).toHaveBeenCalledWith('help');
     expect(call.run).toHaveBeenCalledWith('mute', {});
     expect(call.run).toHaveBeenCalledTimes(1);
-    expect(desktop.start).toHaveBeenCalledWith('meeting');
+    expect(desktop.start).toHaveBeenCalledExactlyOnceWith('remote');
     expect(desktop.theme).toHaveBeenCalledExactlyOnceWith('sunset');
     expect(done).toEqual([
       'Opened Help',
       'Muted your microphone',
-      "Ready to start live captions: press I agree, let's start",
+      'Ready to start a meeting others join with a link: pick your language and press Start meeting',
       'Changed the look to Sunset',
     ]);
   });
@@ -62,7 +63,7 @@ describe('assistant actions', () => {
       agenda: 'Q4',
     });
     expect(done).toHaveLength(1);
-    expect(done[0]).toMatch(/^Scheduled “Budget” for .+\. The link is in Meetings$/);
+    expect(done[0]).toMatch(/^Scheduled “Budget” for .+\. The link is in Schedule$/);
   });
 
   it('sends only the latest trimmed chat turns', () => {

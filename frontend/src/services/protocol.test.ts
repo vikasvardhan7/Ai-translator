@@ -120,6 +120,40 @@ describe('parseServerMessage', () => {
     })).toMatchObject({ code: 'voice_unavailable', listener_id: 'B' });
   });
 
+  it('reads what a meeting shares: chat, who is recording, microphones and cameras', () => {
+    const line = { id: 'c1', from: 'B', name: 'Priya', text: 'नमस्ते', sent_at: '2026-10-21T10:00:00+00:00' };
+    expect(parse({
+      type: 'session.ready',
+      session_id: 'room-1',
+      participants: [{ id: 'A', name: 'Ravi', preferred_language: 'te' }],
+      server_voice: false,
+      mode: 'remote',
+      you: 'A',
+      connected: ['A'],
+      chat: [line, { id: 'broken' }],
+      recording: ['B', 'Z'],
+      media: { A: { mic: false, camera: true }, B: { mic: 'yes', camera: true }, Q: { mic: true, camera: true } },
+    })).toMatchObject({ chat: [line], recording: ['B'], media: { A: { mic: false, camera: true } } });
+    expect(parse({ type: 'session.ready', session_id: 's', participants: [], server_voice: false, mode: 'together' }))
+      .toMatchObject({ chat: [], recording: [], media: {} });
+    expect(parse({ type: 'chat.message', ...line })).toEqual({ type: 'chat.message', seq: 1, ...line });
+    expect(parse({ type: 'media.state', participant_id: 'C', mic: true, camera: false }))
+      .toEqual({ type: 'media.state', seq: 1, participant_id: 'C', mic: true, camera: false });
+    expect(parse({ type: 'recording.state', participant_id: 'D', on: true }))
+      .toEqual({ type: 'recording.state', seq: 1, participant_id: 'D', on: true });
+    expect(parse({ type: 'rtc.signal', from: 'A', data: { kind: 'offer', pc: 'k', sdp: 'v=0' } }))
+      .toEqual({ type: 'rtc.signal', seq: 1, from: 'A', data: { kind: 'offer', pc: 'k', sdp: 'v=0' } });
+  });
+
+  it.each([
+    ['chat without a sender', { type: 'chat.message', id: 'x', name: 'n', text: 't', sent_at: '' }],
+    ['camera state that is not true or false', { type: 'media.state', participant_id: 'A', mic: true, camera: 'off' }],
+    ['recording without on', { type: 'recording.state', participant_id: 'A' }],
+    ['set-up without data', { type: 'rtc.signal', from: 'A', data: 'offer' }],
+  ])('refuses %s', (_, message) => {
+    expect(parse(message)).toBeNull();
+  });
+
   it('gives errors without a listener a null listener', () => {
     expect(parse({ type: 'error', code: 'invalid_message', message: 'x', retryable: false, utterance_id: null }))
       .toMatchObject({ utterance_id: null, listener_id: null });

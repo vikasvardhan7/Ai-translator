@@ -2,11 +2,8 @@ import AppIcon, { type IconName } from './AppIcon';
 import { askToInstall, INSTALL_STEPS, useInstallWay } from './install';
 
 const ITEMS: Array<{ icon: IconName; title: string; text: string }> = [
-  { icon: 'translator', title: 'Translator', text: 'Every conversation runs here. Say hello and it finds your language, then each sentence appears as a caption in the other language and can be spoken aloud. Words show while they are spoken, and Transcript downloads the conversation as a Word document, a PDF, text or subtitles.' },
-  { icon: 'remote', title: 'Meet now', text: 'Starts a meeting at once and gives you one link that up to 5 people can open. Each types their name and says hello; then everyone talks and hears everyone else in their own language, with live captions and a transcript. People shows who is there and the link again.' },
-  { icon: 'schedule', title: 'Schedule', text: 'Plan a meeting for later: its name, date, time, how long and what it is about. You get a link to copy, share, email or add to a calendar. People who open it early wait in a lobby and join as soon as you press Start meeting.' },
-  { icon: 'meeting', title: 'Live captions', text: 'For a Zoom, Teams or Meet call you are already in: press Connect meeting and share the call’s tab with its audio. You get captions and a transcript in your language, with each voice in the meeting numbered (Speaker 1, Speaker 2); tap a name to fix it.' },
-  { icon: 'here', title: 'Talk here', text: 'Two people, one device. Each says hello once; after that just talk. If you both speak the same language, it writes down who said what by voice; tap a name to fix it.' },
+  { icon: 'remote', title: 'Meet', text: 'Video calls for up to 4 people, like Google Meet or Teams. Everyone hears each other’s own voice and sees each other’s camera, and live captions show what each person says in your own language. Chat with everyone, record the call to your device (everyone sees a Recording sign), and pick your microphone, camera and speaker. Meet now starts one and gives you a link to send.' },
+  { icon: 'schedule', title: 'Schedule', text: 'Plan a meeting for later: its name, date, time, how long and what it is about. You get a link to copy, share, email or add to a calendar. People who open it early wait until you press Start meeting, then join the call.' },
   { icon: 'trainer', title: 'Gym Trainer', text: 'Your own trainer: tell it about yourself and the AI makes a weekly workout and meal plan you can edit. Watch how any exercise is done and which muscles it works, start a guided workout that talks you through every set, photograph your food to count its calories, keep progress photos, and talk to the coach; it answers out loud and logs what you tell it.' },
   { icon: 'assistant', title: 'Assistant', text: 'Ask anything. It searches the web when it needs to, knows what has been said in the running call, and does things for you.' },
   { icon: 'developers', title: 'Developers', text: 'Use the translator from your own website or app. Make an API key, paste the one-line widget into a web page, or call the API from a server. Each key has its own daily limit and can be switched off at any time.' },
@@ -16,14 +13,12 @@ const ITEMS: Array<{ icon: IconName; title: string; text: string }> = [
 
 const COMMANDS = [
   'Schedule a meeting tomorrow at 5 pm for 30 minutes about the budget',
-  'Start live captions',
+  'Start a meeting',
   'Summarise the meeting so far',
   'What are the action items?',
   'Mute me',
-  'Show the transcript',
   'Who is in the call?',
   'Change the theme to sunset',
-  'Download the subtitles',
   'Change my language to Hindi',
   'What is the weather in Hyderabad today?',
   'End the call',

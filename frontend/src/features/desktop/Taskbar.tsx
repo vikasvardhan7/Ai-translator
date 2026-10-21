@@ -6,7 +6,7 @@ import AppIcon, { type IconName } from './AppIcon';
 import { APPS, type AppId, type WindowState } from './windows';
 
 export const APP_ICONS: Record<AppId, IconName> = {
-  translator: 'translator',
+  translator: 'remote',
   meetings: 'schedule',
   trainer: 'trainer',
   assistant: 'assistant',
@@ -21,8 +21,6 @@ export const APP_ICONS: Record<AppId, IconName> = {
 const PINNED: AppId[] = ['translator', 'meetings', 'trainer', 'assistant', 'help'];
 const SHORTCUTS: Array<{ where: Where; icon: IconName; label: string }> = [
   { where: 'remote', icon: 'remote', label: 'Meet now' },
-  { where: 'meeting', icon: 'meeting', label: 'Live captions' },
-  { where: 'here', icon: 'here', label: 'Talk here' },
 ];
 
 interface TaskbarProps {
@@ -179,7 +177,7 @@ export default function Taskbar({ windows, active, live, onApp, onOpen, onStart,
       {menuOpen && (
         <div className="start-menu" ref={menuRef} role="dialog" aria-label="Start">
           <AskBox id="start-ask" autoFocus onAsk={(text) => pick(() => onAsk(text))} />
-          <h2 className="start-heading">Start a conversation</h2>
+          <h2 className="start-heading">Start a meeting</h2>
           <div className="start-grid">
             {SHORTCUTS.map((shortcut) => (
               <button className="start-tile" type="button" key={shortcut.where} onClick={() => pick(() => onStart(shortcut.where))}>
