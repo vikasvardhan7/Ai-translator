@@ -1,9 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import { savePlan, type Exercise, type TrainerState, type WorkoutDay, type WorkoutPlan } from '../../services/trainer';
+import {
+  loadExercises,
+  loadHistory,
+  savePlan,
+  type Equipment,
+  type Exercise,
+  type ExerciseCard,
+  type ExerciseLast,
+  type Level,
+  type TrainerState,
+  type WorkoutDay,
+  type WorkoutPlan,
+} from '../../services/trainer';
+import ExerciseDetails from './ExerciseDetails';
 import { dayName } from './labels';
 import PlanMaker from './PlanMaker';
 import { problemText } from './problems';
+import { lastTime, lastWords, nextWords, swapped } from './progression';
 
 interface WorkoutTabProps {
   state: TrainerState;
@@ -15,6 +29,46 @@ interface WorkoutTabProps {
 interface Looking {
   onShow: (id: string) => void;
   onLookUp: (name: string) => void;
+}
+
+interface Knowing {
+  cards: ExerciseCard[] | null;
+  history: ExerciseLast[];
+  equipment: Equipment;
+  level: Level;
+}
+
+export function PlanExercise({ exercise, index, busy, known, onSwap, onShow, onLookUp }: { exercise: Exercise; index: number; busy: boolean; known: Knowing; onSwap?: (index: number, card: ExerciseCard) => void } & Looking) {
+  const [open, setOpen] = useState(false);
+  const last = lastTime(known.history, exercise.name);
+  const panel = `exercise-${index}-${exercise.name.replace(/\W+/g, '-')}`;
+  return (
+    <li>
+      <span className="plan-exercise-name">
+        {exercise.name}
+        <button className="button button-link plan-how" type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}>
+          {open ? 'Hide how to' : 'How to'}
+        </button>
+      </span>
+      <span className="plan-exercise-dose">{exercise.sets} × {exercise.reps}{exercise.rest_seconds ? `, rest ${exercise.rest_seconds} s` : ''}</span>
+      {exercise.how && <small>{exercise.how}</small>}
+      {last && <small className="plan-exercise-last">{lastWords(last)}. {nextWords(last)}</small>}
+      {open && (
+        <div id={panel}>
+          <ExerciseDetails
+            exercise={exercise}
+            cards={known.cards}
+            equipment={known.equipment}
+            level={known.level}
+            busy={busy}
+            onSwap={onSwap ? (card) => onSwap(index, card) : undefined}
+            onOpen={onShow}
+            onLookUp={onLookUp}
+          />
+        </div>
+      )}
+    </li>
+  );
 }
 
 const BLANK: Exercise = { name: '', sets: 3, reps: '10', rest_seconds: 60, how: '' };
@@ -97,8 +151,22 @@ function DayEditor({ day, onSave, onCancel }: { day: WorkoutDay; onSave: (day: W
   );
 }
 
-function DayCard({ day, plan, ready, onState, onShow, onLookUp }: { day: WorkoutDay; plan: WorkoutPlan; ready: boolean; onState: (state: TrainerState) => void } & Looking) {
+function DayCard({ day, plan, ready, known, onState, onShow, onLookUp }: { day: WorkoutDay; plan: WorkoutPlan; ready: boolean; known: Knowing; onState: (state: TrainerState) => void } & Looking) {
   const [mode, setMode] = useState<'view' | 'edit' | 'redo'>('view');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState('');
+
+  async function swap(index: number, card: ExerciseCard): Promise<void> {
+    setBusy(true);
+    setProblem('');
+    try {
+      onState(await savePlan('workout', swapped(plan, day.day, index, card)));
+    } catch (error) {
+      setProblem(problemText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveDay(next: WorkoutDay): Promise<void> {
     onState(await savePlan('workout', { ...plan, days: plan.days.map((old) => (old.day === next.day ? next : old)) }));
@@ -127,24 +195,20 @@ function DayCard({ day, plan, ready, onState, onShow, onLookUp }: { day: Workout
           {day.exercises.length > 0 && (
             <ol className="plan-exercises">
               {day.exercises.map((exercise, index) => (
-                <li key={`${exercise.name}-${index}`}>
-                  <span className="plan-exercise-name">
-                    {exercise.name}
-                    <button
-                      className="button button-link plan-how"
-                      type="button"
-                      aria-label={`How to do ${exercise.name}`}
-                      onClick={() => (exercise.library_id ? onShow(exercise.library_id) : onLookUp(exercise.name))}
-                    >
-                      How to
-                    </button>
-                  </span>
-                  <span className="plan-exercise-dose">{exercise.sets} × {exercise.reps}{exercise.rest_seconds ? ` · rest ${exercise.rest_seconds} s` : ''}</span>
-                  {exercise.how && <small>{exercise.how}</small>}
-                </li>
+                <PlanExercise
+                  key={`${exercise.name}-${index}`}
+                  exercise={exercise}
+                  index={index}
+                  busy={busy}
+                  known={known}
+                  onSwap={(place, card) => void swap(place, card)}
+                  onShow={onShow}
+                  onLookUp={onLookUp}
+                />
               ))}
             </ol>
           )}
+          {problem && <p className="notice notice-danger" role="alert">{problem}</p>}
           {!day.rest && day.cooldown && <p className="plan-note"><strong>Cool-down:</strong> {day.cooldown}</p>}
           {mode === 'redo' && (
             <>
@@ -160,7 +224,20 @@ function DayCard({ day, plan, ready, onState, onShow, onLookUp }: { day: Workout
 
 export default function WorkoutTab({ state, onState, onShow, onLookUp }: WorkoutTabProps) {
   const [remaking, setRemaking] = useState(false);
+  const [cards, setCards] = useState<ExerciseCard[] | null>(null);
+  const [history, setHistory] = useState<ExerciseLast[]>([]);
   const plan = state.workout;
+
+  useEffect(() => {
+    let current = true;
+    loadExercises().then((found) => current && setCards(found), () => undefined);
+    loadHistory().then((found) => current && setHistory(found), () => undefined);
+    return () => {
+      current = false;
+    };
+  }, []);
+
+  const known: Knowing = { cards, history, equipment: state.profile?.equipment ?? 'gym', level: state.profile?.level ?? 'beginner' };
 
   if (!plan) {
     return (
@@ -184,7 +261,7 @@ export default function WorkoutTab({ state, onState, onShow, onLookUp }: Workout
       </section>
       <ul className="plan-days">
         {plan.days.map((day) => (
-          <DayCard key={day.day} day={day} plan={plan} ready={state.coach_ready} onState={onState} onShow={onShow} onLookUp={onLookUp} />
+          <DayCard key={day.day} day={day} plan={plan} ready={state.coach_ready} known={known} onState={onState} onShow={onShow} onLookUp={onLookUp} />
         ))}
       </ul>
     </div>

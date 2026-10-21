@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 
 import { deletePhoto, listPhotos, localDay, photoUrl, uploadPhoto, type Photo } from '../../services/trainer';
+import CameraCapture from './CameraCapture';
 import { shrinkPhoto } from './photos';
 import { problemText } from './problems';
 
@@ -27,6 +28,7 @@ export default function ProgressPhotos() {
   const [problem, setProblem] = useState('');
   const [open, setOpen] = useState<Photo | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [camera, setCamera] = useState(false);
   const picker = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -44,9 +46,13 @@ export default function ProgressPhotos() {
   async function add(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
-    if (!file) {
-      return;
+    if (file) {
+      await save(file);
     }
+  }
+
+  async function save(file: Blob): Promise<void> {
+    setCamera(false);
     setBusy(true);
     setProblem('');
     try {
@@ -81,10 +87,16 @@ export default function ProgressPhotos() {
           <p className="form-help">Take one every week or two in the same spot and light. They stay in your account only and are never sent to the AI.</p>
         </div>
         <input ref={picker} className="visually-hidden" type="file" accept="image/*" tabIndex={-1} aria-hidden="true" onChange={(event) => void add(event)} />
-        <button className="button button-primary button-small" type="button" disabled={busy} onClick={() => picker.current?.click()}>
-          {busy ? 'Saving the photo' : 'Add a photo'}
-        </button>
+        <div className="meeting-actions">
+          <button className="button button-primary button-small" type="button" disabled={busy} aria-pressed={camera} onClick={() => setCamera(!camera)}>
+            Take a photo
+          </button>
+          <button className="button button-secondary button-small" type="button" disabled={busy} onClick={() => picker.current?.click()}>
+            {busy ? 'Saving the photo' : 'Choose a photo'}
+          </button>
+        </div>
       </header>
+      {camera && <CameraCapture title="Progress photo camera" facing="user" onPhoto={(file) => void save(file)} onClose={() => setCamera(false)} />}
       {problem && <p className="notice notice-danger" role="alert">{problem}</p>}
       {photos && photos.length === 0 && <p className="meeting-empty">No photos yet. Your first one is the start line.</p>}
       {newest && oldest && (

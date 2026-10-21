@@ -64,6 +64,12 @@ def bounded_float(lowest: float, highest: float) -> Any:
     return Annotated[float, BeforeValidator(_clamped(lowest, highest, whole=False))]
 
 
+class PricedFood(Strict):
+    food: str = Field(min_length=1, max_length=60)
+    price: float = Field(ge=0, le=100_000)
+    per: str = Field(min_length=1, max_length=30)
+
+
 class Profile(Strict):
     name: str = Field(min_length=1, max_length=40)
     age: int = Field(ge=14, le=90)
@@ -82,6 +88,9 @@ class Profile(Strict):
     meals_per_day: int = Field(default=4, ge=2, le=6)
     allergies: str = Field(default="", max_length=200)
     health_notes: str = Field(default="", max_length=300)
+    currency: str = Field(default="₹", min_length=1, max_length=4)
+    food_budget_per_day: float | None = Field(default=None, gt=0, le=100_000)
+    prices: list[PricedFood] = Field(default_factory=list, max_length=80)
 
 
 class Targets(BaseModel):
@@ -120,6 +129,23 @@ class FoodItem(Strict):
     protein_g: bounded_float(0, 300)
     carbs_g: bounded_float(0, 500)
     fat_g: bounded_float(0, 300)
+    cost: bounded_float(0, 100_000) | None = None
+
+
+class Portion(Strict):
+    label: limited_text(40) = Field(min_length=1)
+    grams: bounded_float(1, 2000)
+
+
+class FoodGuess(Strict):
+    food: limited_text(80) = Field(min_length=1)
+    grams: bounded_float(1, 2000)
+    calories_100g: bounded_float(0, 900)
+    protein_100g: bounded_float(0, 100)
+    carbs_100g: bounded_float(0, 100)
+    fat_100g: bounded_float(0, 100)
+    portions: list[Portion] = Field(default_factory=list, max_length=4)
+    sure: bool = True
 
 
 class Meal(Strict):
@@ -265,7 +291,19 @@ class FoodRequest(Strict):
 
 
 class FoodOut(BaseModel):
-    items: list[FoodItem]
+    items: list[FoodGuess]
+
+
+class ExerciseLast(BaseModel):
+    name: str
+    day: date
+    sets: int
+    reps: int
+    weight_kg: float | None
+
+
+class HistoryOut(BaseModel):
+    exercises: list[ExerciseLast]
 
 
 class PlanRequest(Strict):

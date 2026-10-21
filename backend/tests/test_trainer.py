@@ -3,7 +3,17 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models.trainer import WEEKDAYS, DietDay, DietPlan, FoodItem, Meal, WorkoutDay, WorkoutPlan
+from app.models.trainer import (
+    WEEKDAYS,
+    DietDay,
+    DietPlan,
+    FoodGuess,
+    FoodItem,
+    Meal,
+    Portion,
+    WorkoutDay,
+    WorkoutPlan,
+)
 from app.services.trainer.gemini import TrainerFailed
 from tests.conftest import ELSEWHERE, TEST_HOST, make_client
 from tests.fakes import FakeMailer, FakeTrainer
@@ -301,12 +311,22 @@ def test_progress_has_one_summary_for_every_day() -> None:
 def test_foods_are_estimated_by_the_ai() -> None:
     client, coach = signed_in()
     coach.food_items = [
-        FoodItem(food="Dosa", amount="1", calories=170, protein_g=4, carbs_g=28, fat_g=4)
+        FoodGuess(
+            food="Masala dosa",
+            grams=170,
+            calories_100g=165,
+            protein_100g=3.5,
+            carbs_100g=26,
+            fat_100g=5.5,
+            portions=[Portion(label="1 dosa", grams=170)],
+        )
     ]
 
     found = client.post("/api/trainer/foods", json={"text": "one masala dosa"}).json()
 
-    assert found["items"][0]["calories"] == 170
+    assert found["items"][0]["grams"] == 170
+    assert found["items"][0]["calories_100g"] == 165
+    assert found["items"][0]["portions"] == [{"label": "1 dosa", "grams": 170}]
     assert coach.asked[-1] == ("foods", "one masala dosa", None)
 
 
@@ -409,3 +429,65 @@ def test_the_day_is_kept_as_given() -> None:
 
     assert client.get(f"/api/trainer/days/{yesterday}").json()["summary"]["sleep_hours"] == 8
     assert client.get(f"/api/trainer/days/{TODAY}").json()["summary"]["sleep_hours"] is None
+
+
+def test_a_food_budget_and_own_prices_are_kept_with_the_profile() -> None:
+    client, _ = signed_in()
+    prices = [
+        {"food": "Rice", "price": 60, "per": "1 kg"},
+        {"food": "Eggs", "price": 7, "per": "1"},
+    ]
+
+    saved = client.put(
+        "/api/trainer/profile",
+        json={**PROFILE, "currency": "₹", "food_budget_per_day": 150, "prices": prices},
+    )
+    plain = client.put("/api/trainer/profile", json=PROFILE).json()["profile"]
+
+    assert saved.status_code == 200
+    assert saved.json()["profile"]["prices"] == prices
+    assert saved.json()["profile"]["food_budget_per_day"] == 150
+    assert (plain["currency"], plain["food_budget_per_day"], plain["prices"]) == ("₹", None, [])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"food_budget_per_day": 0},
+        {"prices": [{"food": "", "price": 10, "per": "1 kg"}]},
+        {"prices": [{"food": "Rice", "price": -1, "per": "1 kg"}]},
+    ],
+)
+def test_a_budget_or_price_must_make_sense(change: dict) -> None:
+    client, _ = signed_in()
+
+    assert client.put("/api/trainer/profile", json={**PROFILE, **change}).status_code == 422
+
+
+def test_the_history_gives_the_last_sets_of_each_exercise() -> None:
+    client, _ = signed_in()
+    earlier = TODAY - timedelta(days=3)
+    for day, weight in ((earlier, 20), (TODAY, 22.5)):
+        client.post(
+            f"/api/trainer/days/{day}/entries",
+            json={
+                "data": {
+                    "kind": "exercise",
+                    "name": "Goblet squat",
+                    "sets": 3,
+                    "reps": 10,
+                    "weight_kg": weight,
+                }
+            },
+        )
+    client.post(
+        f"/api/trainer/days/{earlier}/entries",
+        json={"data": {"kind": "exercise", "name": "Plank", "sets": 2, "reps": 0}},
+    )
+
+    history = client.get("/api/trainer/history").json()["exercises"]
+
+    assert [(item["name"], item["day"], item["weight_kg"]) for item in history] == [
+        ("Goblet squat", TODAY.isoformat(), 22.5),
+        ("Plank", earlier.isoformat(), None),
+    ]

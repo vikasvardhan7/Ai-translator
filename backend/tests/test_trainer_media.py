@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models.trainer import FoodItem, WorkoutPlan
+from app.models.trainer import FoodGuess, WorkoutPlan
 from app.services.trainer import store as store_module
 from tests.conftest import TEST_HOST, THIS_COMPUTER, make_client
 from tests.fakes import LibraryServer, fake_library
@@ -169,7 +169,14 @@ def test_progress_photos_are_listed_newest_first_and_can_be_deleted() -> None:
 def test_a_food_photo_is_estimated_and_stays_with_the_meal() -> None:
     client, coach = signed_in()
     coach.food_items = [
-        FoodItem(food="Rice", amount="1 cup", calories=200, protein_g=4, carbs_g=45, fat_g=0.5)
+        FoodGuess(
+            food="Rice",
+            grams=150,
+            calories_100g=130,
+            protein_100g=2.7,
+            carbs_100g=28,
+            fat_100g=0.3,
+        )
     ]
     photo_id = upload(client).json()["id"]
 
@@ -180,7 +187,7 @@ def test_a_food_photo_is_estimated_and_stays_with_the_meal() -> None:
     busy = client.delete(f"/api/trainer/photos/{photo_id}")
     client.delete(f"/api/trainer/entries/{entry.json()['id']}")
 
-    assert found.json()["items"][0]["calories"] == 200
+    assert found.json()["items"][0]["grams"] == 150
     assert coach.asked[-1] == ("foods", "lunch", ("image/jpeg", JPEG))
     assert entry.status_code == 201 and entry.json()["data"]["photo_id"] == photo_id
     assert busy.status_code == 409

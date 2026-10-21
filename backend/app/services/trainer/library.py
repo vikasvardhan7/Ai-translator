@@ -8,7 +8,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from app.models.trainer import Equipment, LibraryExercise
+from app.models.trainer import Equipment, Level, LibraryExercise
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,12 @@ UNUSED_WORDS = frozenset({"a", "an", "and", "the", "with", "on", "of", "to", "fo
 LEVELS = {"beginner": 0, "intermediate": 1, "expert": 2}
 COMMON_EQUIPMENT = ("barbell", "dumbbell", NO_EQUIPMENT, "machine", "cable", "kettlebells")
 NOT_FOR_PLANS = frozenset({"strongman"})
+NOT_FOR_NEW_LIFTERS = frozenset({"olympic weightlifting"})
+LEVELS_FOR: dict[Level, frozenset[str]] = {
+    "beginner": frozenset({"beginner", "intermediate"}),
+    "intermediate": frozenset({"beginner", "intermediate"}),
+    "advanced": frozenset({"beginner", "intermediate", "expert"}),
+}
 EQUIPMENT_FOR: dict[Equipment, frozenset[str] | None] = {
     "gym": None,
     "home_dumbbells": frozenset({NO_EQUIPMENT, "dumbbell"}),
@@ -121,8 +127,18 @@ class ExerciseLibrary:
         await self.exercises()
         return self._items.get(exercise_id)
 
-    async def choices(self, equipment: Equipment) -> list[LibraryExercise]:
-        return [item for item in await self.exercises() if allowed(item, equipment)]
+    async def choices(
+        self, equipment: Equipment, level: Level | None = None
+    ) -> list[LibraryExercise]:
+        items = [item for item in await self.exercises() if allowed(item, equipment)]
+        if level is None:
+            return items
+        return [
+            item
+            for item in items
+            if item.level in LEVELS_FOR[level]
+            and (level == "advanced" or item.category not in NOT_FOR_NEW_LIFTERS)
+        ]
 
     async def match(self, name: str, equipment: Equipment | None = None) -> LibraryExercise | None:
         items = await self.exercises()

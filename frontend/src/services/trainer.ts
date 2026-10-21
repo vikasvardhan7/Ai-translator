@@ -12,6 +12,12 @@ export type PlanKind = 'workout' | 'diet';
 export type PhotoKind = 'meal' | 'body';
 export type Page = 'today' | 'workouts' | 'diet' | 'progress' | 'exercises' | 'profile';
 
+export interface PricedFood {
+  food: string;
+  price: number;
+  per: string;
+}
+
 export interface Profile {
   name: string;
   age: number;
@@ -30,6 +36,9 @@ export interface Profile {
   meals_per_day: number;
   allergies: string;
   health_notes: string;
+  currency?: string;
+  food_budget_per_day?: number | null;
+  prices?: PricedFood[];
 }
 
 export interface Targets {
@@ -68,6 +77,31 @@ export interface FoodItem {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
+  cost?: number | null;
+}
+
+export interface Portion {
+  label: string;
+  grams: number;
+}
+
+export interface FoodGuess {
+  food: string;
+  grams: number;
+  calories_100g: number;
+  protein_100g: number;
+  carbs_100g: number;
+  fat_100g: number;
+  portions: Portion[];
+  sure: boolean;
+}
+
+export interface ExerciseLast {
+  name: string;
+  day: string;
+  sets: number;
+  reps: number;
+  weight_kg: number | null;
 }
 
 export interface Meal {
@@ -236,9 +270,13 @@ export async function loadProgress(until: string, days: number): Promise<DaySumm
   return body.days;
 }
 
-export async function estimateFoods(text: string, photoId: string | null = null): Promise<FoodItem[]> {
+export async function estimateFoods(text: string, photoId: string | null = null): Promise<FoodGuess[]> {
   const body = photoId ? { text, photo_id: photoId } : { text };
-  return checked<{ items: FoodItem[] }>(await requestJson<unknown>('/api/trainer/foods', sendJson(body)), ['items'], 'food list').items;
+  return checked<{ items: FoodGuess[] }>(await requestJson<unknown>('/api/trainer/foods', sendJson(body)), ['items'], 'food list').items;
+}
+
+export async function loadHistory(): Promise<ExerciseLast[]> {
+  return checked<{ exercises: ExerciseLast[] }>(await requestJson<unknown>('/api/trainer/history'), ['exercises'], 'exercise history').exercises;
 }
 
 export async function askCoach(messages: CoachLine[], day: string, now: string): Promise<CoachReply> {

@@ -10,6 +10,7 @@ import {
   type Equipment,
   type Goal,
   type Level,
+  type PricedFood,
   type Profile,
   type TrainerState,
 } from '../../services/trainer';
@@ -41,7 +42,19 @@ interface Draft {
   meals_per_day: string;
   allergies: string;
   health_notes: string;
+  currency: string;
+  budget: string;
+  prices: PriceRow[];
 }
+
+interface PriceRow {
+  food: string;
+  price: string;
+  per: string;
+}
+
+const MAX_PRICES = 80;
+const EMPTY_ROW: PriceRow = { food: '', price: '', per: '' };
 
 function draftOf(profile: Profile | null): Draft {
   return {
@@ -62,7 +75,23 @@ function draftOf(profile: Profile | null): Draft {
     meals_per_day: profile ? String(profile.meals_per_day) : '4',
     allergies: profile?.allergies ?? '',
     health_notes: profile?.health_notes ?? '',
+    currency: profile?.currency ?? '₹',
+    budget: profile?.food_budget_per_day ? String(profile.food_budget_per_day) : '',
+    prices: (profile?.prices ?? []).map((item) => ({ food: item.food, price: String(item.price), per: item.per })),
   };
+}
+
+function pricesFrom(rows: readonly PriceRow[]): PricedFood[] | string {
+  const filled = rows.filter((row) => row.food.trim() || row.price.trim() || row.per.trim());
+  const prices: PricedFood[] = [];
+  for (const row of filled) {
+    const price = Number(row.price.replace(',', '.'));
+    if (!row.food.trim() || !row.per.trim() || !row.price.trim() || !(price >= 0 && price <= 100_000)) {
+      return `Fill in the food, its price and what the price is for, like Rice, 60, 1 kg${row.food.trim() ? ` (check ${row.food.trim()})` : ''}.`;
+    }
+    prices.push({ food: row.food.trim().slice(0, 60), price, per: row.per.trim().slice(0, 30) });
+  }
+  return prices.slice(0, MAX_PRICES);
 }
 
 export function profileFrom(draft: Draft): Profile | string {
@@ -86,6 +115,14 @@ export function profileFrom(draft: Draft): Profile | string {
   if (!(weight >= 30 && weight <= 300) || (target !== null && !(target >= 30 && target <= 300))) {
     return 'Weights must be from 30 to 300 kg.';
   }
+  const budget = draft.budget.trim() ? number(draft.budget) : null;
+  if (budget !== null && !(budget > 0 && budget <= 100_000)) {
+    return 'The food budget must be a number above 0, or left empty.';
+  }
+  const prices = pricesFrom(draft.prices);
+  if (typeof prices === 'string') {
+    return prices;
+  }
   return {
     name: draft.name.trim(),
     age,
@@ -104,6 +141,9 @@ export function profileFrom(draft: Draft): Profile | string {
     meals_per_day: Number(draft.meals_per_day),
     allergies: draft.allergies.trim(),
     health_notes: draft.health_notes.trim(),
+    currency: draft.currency.trim().slice(0, 4) || '₹',
+    food_budget_per_day: budget,
+    prices,
   };
 }
 
@@ -172,7 +212,7 @@ export default function ProfileTab({ state, onState, onForgotten }: ProfileTabPr
   }
 
   const targets = state.targets;
-  const text = (key: keyof Draft, label: string, extra: Record<string, string | number> = {}) => (
+  const text = (key: Exclude<keyof Draft, 'prices'>, label: string, extra: Record<string, string | number> = {}) => (
     <label className="field-label">
       {label}
       <input className="text-input" value={draft[key]} onChange={(event) => set(key, event.currentTarget.value as never)} {...extra} />
@@ -244,6 +284,52 @@ export default function ProfileTab({ state, onState, onForgotten }: ProfileTabPr
             Injuries or health notes the plan should respect (optional)
             <textarea className="text-input trainer-notes" value={draft.health_notes} maxLength={300} onChange={(event) => set('health_notes', event.currentTarget.value)} />
           </label>
+        </fieldset>
+        <fieldset className="trainer-money">
+          <legend>Food budget and your prices</legend>
+          <p className="form-help">
+            List the foods you buy and what you really pay. The meal plan then uses only these foods, with your prices, and shows what every meal and day costs. Leave the list empty and the plan picks everyday foods without costs.
+          </p>
+          <div className="trainer-grid">
+            <label className="field-label">
+              Money sign
+              <input className="text-input" value={draft.currency} maxLength={4} onChange={(event) => set('currency', event.currentTarget.value)} />
+            </label>
+            {text('budget', 'Food budget a day (optional)', { inputMode: 'decimal', maxLength: 8, placeholder: 'For example: 200' })}
+          </div>
+          <table className="price-table">
+            <caption className="visually-hidden">Your food prices</caption>
+            <thead>
+              <tr>
+                <th scope="col">Food</th>
+                <th scope="col">Price ({draft.currency || '₹'})</th>
+                <th scope="col">For</th>
+                <th scope="col"><span className="visually-hidden">Remove</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {draft.prices.map((row, index) => (
+                <tr key={index}>
+                  <td>
+                    <input className="text-input" aria-label={`Food ${index + 1}`} placeholder="Rice" value={row.food} maxLength={60} onChange={(event) => set('prices', draft.prices.map((old, place) => (place === index ? { ...old, food: event.currentTarget.value } : old)))} />
+                  </td>
+                  <td>
+                    <input className="text-input" aria-label={`Price of food ${index + 1}`} placeholder="60" inputMode="decimal" value={row.price} maxLength={9} onChange={(event) => set('prices', draft.prices.map((old, place) => (place === index ? { ...old, price: event.currentTarget.value } : old)))} />
+                  </td>
+                  <td>
+                    <input className="text-input" aria-label={`Amount the price of food ${index + 1} is for`} placeholder="1 kg" value={row.per} maxLength={30} onChange={(event) => set('prices', draft.prices.map((old, place) => (place === index ? { ...old, per: event.currentTarget.value } : old)))} />
+                  </td>
+                  <td>
+                    <button className="button button-link" type="button" aria-label={`Remove food ${index + 1}`} onClick={() => set('prices', draft.prices.filter((_, place) => place !== index))}>Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="button button-secondary button-small" type="button" disabled={draft.prices.length >= MAX_PRICES} onClick={() => set('prices', [...draft.prices, EMPTY_ROW])}>
+            Add a food
+          </button>
+          <p className="form-help">Examples: Rice, 60, 1 kg. Eggs, 7, 1 egg. Milk, 30, 500 ml. Make a new meal plan after changing prices.</p>
         </fieldset>
         {problem && <p className="notice notice-danger" role="alert">{problem}</p>}
         {message && <p className="notice" role="status">{message}</p>}

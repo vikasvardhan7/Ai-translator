@@ -22,8 +22,11 @@ from app.models.trainer import (
     EntryIn,
     EntryOut,
     Equipment,
+    ExerciseDone,
+    ExerciseLast,
     FoodOut,
     FoodRequest,
+    HistoryOut,
     LibraryCard,
     LibraryExercise,
     LibraryOut,
@@ -56,6 +59,7 @@ router = APIRouter(prefix="/api/trainer", tags=["trainer"])
 EARLIEST = timedelta(days=5 * 366)
 LATEST = timedelta(days=1)
 RECENT_DAYS = 7
+HISTORY_DAYS = 120
 NOT_SET_UP = (
     "The AI coach is not set up. Add GEMINI_API_KEY and GEMINI_MODEL to backend/.env and start"
     " the backend again."
@@ -194,7 +198,7 @@ async def make_plan(
     try:
         if kind == "workout":
             try:
-                choices = await library.choices(profile.equipment)
+                choices = await library.choices(profile.equipment, profile.level)
             except LibraryUnavailable:
                 choices = []
             plan = await _linked(
@@ -281,6 +285,27 @@ async def progress(
             for offset in range(days)
         ]
     )
+
+
+@router.get("/history", response_model=HistoryOut)
+async def history(user: Signed, store: Store) -> HistoryOut:
+    today = datetime.now(UTC).date()
+    entries = sorted(
+        store.between(user.id, today - timedelta(days=HISTORY_DAYS), today + LATEST),
+        key=lambda entry: (entry.day, entry.created_at),
+    )
+    latest: dict[str, ExerciseLast] = {}
+    for entry in entries:
+        if isinstance(entry.data, ExerciseDone):
+            done = entry.data
+            latest[done.name.strip().lower()] = ExerciseLast(
+                name=done.name,
+                day=entry.day,
+                sets=done.sets,
+                reps=done.reps,
+                weight_kg=done.weight_kg,
+            )
+    return HistoryOut(exercises=sorted(latest.values(), key=lambda item: item.name.lower()))
 
 
 @router.post("/foods", response_model=FoodOut)

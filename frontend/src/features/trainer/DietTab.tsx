@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { mealTotals, savePlan, type DietDay, type DietPlan, type FoodItem, type Meal, type TrainerState } from '../../services/trainer';
+import { budgetWords, dayCost, itemsCost, money, targetWords } from './food';
 import { dayName, rounded } from './labels';
 import PlanMaker from './PlanMaker';
 import { problemText } from './problems';
@@ -89,6 +90,9 @@ function DayCard({ day, plan, state, onState }: { day: DietDay; plan: DietPlan; 
   const [mode, setMode] = useState<'view' | 'edit' | 'redo'>('view');
   const totals = mealTotals(day.meals);
   const target = state.targets?.calories ?? 0;
+  const currency = state.profile?.currency ?? '₹';
+  const cost = dayCost(day);
+  const spend = cost === null ? null : budgetWords(cost, state.profile?.food_budget_per_day, currency);
 
   async function saveDay(next: DietDay): Promise<void> {
     onState(await savePlan('diet', { ...plan, days: plan.days.map((old) => (old.day === next.day ? next : old)) }));
@@ -101,8 +105,9 @@ function DayCard({ day, plan, state, onState }: { day: DietDay; plan: DietPlan; 
         <div>
           <h3>{dayName(day.day)}</h3>
           <p className="meeting-when">
-            {totals.calories} kcal{target ? ` of ${target}` : ''} · protein {rounded(totals.protein_g)} g · carbs {rounded(totals.carbs_g)} g · fat {rounded(totals.fat_g)} g
+            {targetWords(totals.calories, target, 'kcal')}. Protein {targetWords(totals.protein_g, state.targets?.protein_g, 'g')}. Carbohydrate {rounded(totals.carbs_g)} g, fat {rounded(totals.fat_g)} g.
           </p>
+          {spend && <p className="plan-day-cost" data-over={spend.over}>Costs {spend.text}</p>}
         </div>
         {mode === 'view' && (
           <div className="meeting-actions">
@@ -118,12 +123,18 @@ function DayCard({ day, plan, state, onState }: { day: DietDay; plan: DietPlan; 
           <ul className="plan-meals">
             {day.meals.map((meal, index) => (
               <li key={`${meal.name}-${index}`}>
-                <p className="plan-meal-name">{meal.name}{meal.time ? <span> · {meal.time}</span> : null}</p>
+                <p className="plan-meal-name">
+                  {meal.name}{meal.time ? <span>, {meal.time}</span> : null}
+                  {itemsCost(meal.items) !== null && <span className="plan-meal-cost">{money(itemsCost(meal.items)!, currency)}</span>}
+                </p>
                 <ul>
                   {meal.items.map((item, spot) => (
                     <li key={`${item.food}-${spot}`}>
                       <span>{item.food}{item.amount ? `, ${item.amount}` : ''}</span>
-                      <small>{item.calories} kcal · P {rounded(item.protein_g)} · C {rounded(item.carbs_g)} · F {rounded(item.fat_g)}</small>
+                      <small>
+                        {item.calories} kcal, protein {rounded(item.protein_g)} g, carbohydrate {rounded(item.carbs_g)} g, fat {rounded(item.fat_g)} g
+                        {typeof item.cost === 'number' ? `, ${money(item.cost, currency)}` : ''}
+                      </small>
                     </li>
                   ))}
                 </ul>
@@ -142,6 +153,34 @@ function DayCard({ day, plan, state, onState }: { day: DietDay; plan: DietPlan; 
   );
 }
 
+function MoneyHint({ state }: { state: TrainerState }) {
+  const prices = state.profile?.prices ?? [];
+  if (prices.length > 0) {
+    return (
+      <p className="form-help">
+        Uses only your {prices.length === 1 ? 'food' : `${prices.length} foods`} and prices from Profile{state.profile?.food_budget_per_day ? `, within ${money(state.profile.food_budget_per_day, state.profile.currency ?? '₹')} a day` : ''}. Changed a price? Make a new week.
+      </p>
+    );
+  }
+  return <p className="form-help">Want the meals to fit your money? In Profile, add the foods you buy with what you pay, and a daily budget, then make a new week.</p>;
+}
+
+function WeekCost({ plan, state }: { plan: DietPlan; state: TrainerState }) {
+  const costs = plan.days.map(dayCost).filter((cost): cost is number => cost !== null);
+  if (costs.length === 0) {
+    return null;
+  }
+  const currency = state.profile?.currency ?? '₹';
+  const average = costs.reduce((total, cost) => total + cost, 0) / costs.length;
+  const budget = state.profile?.food_budget_per_day;
+  const over = budget ? costs.filter((cost) => cost > budget).length : 0;
+  return (
+    <p className="plan-week-cost" data-over={over > 0}>
+      About {money(average, currency)} a day, {money(average * 7, currency)} for the week{budget ? (over ? `. ${over === 1 ? '1 day goes' : `${over} days go`} over your ${money(budget, currency)} budget.` : `, all within your ${money(budget, currency)} budget.`) : '.'}
+    </p>
+  );
+}
+
 export default function DietTab({ state, onState }: DietTabProps) {
   const [remaking, setRemaking] = useState(false);
   const plan = state.diet;
@@ -151,6 +190,7 @@ export default function DietTab({ state, onState }: DietTabProps) {
       <section className="trainer-card">
         <h2>Your meal plan</h2>
         <p className="form-help">The AI makes a week of meals that add up to your daily targets, with the food you eat. You can change any meal afterwards.</p>
+        <MoneyHint state={state} />
         <PlanMaker kind="diet" label="Make my meal plan" placeholder="For example: cheap foods, no mushrooms" ready={state.coach_ready} onState={onState} />
       </section>
     );
@@ -160,6 +200,8 @@ export default function DietTab({ state, onState }: DietTabProps) {
     <div className="plan-view">
       <section className="trainer-card plan-summary">
         <p>{plan.summary}</p>
+        <WeekCost plan={plan} state={state} />
+        <MoneyHint state={state} />
         {remaking ? (
           <PlanMaker kind="diet" label="Make a new week" placeholder="What should be different?" ready={state.coach_ready} onState={onState} onDone={() => setRemaking(false)} />
         ) : (

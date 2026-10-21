@@ -23,6 +23,9 @@ const DRAFT = {
   meals_per_day: '4',
   allergies: '',
   health_notes: '',
+  currency: '₹',
+  budget: '',
+  prices: [] as Array<{ food: string; price: string; per: string }>,
 };
 
 function day(part: Partial<DaySummary>): DaySummary {
@@ -44,7 +47,22 @@ function day(part: Partial<DaySummary>): DaySummary {
 
 describe('trainer profile', () => {
   it('turns the form into a profile', () => {
-    expect(profileFrom(DRAFT)).toMatchObject({ name: 'Ravi', age: 30, weight_kg: 80.5, target_weight_kg: null, cuisine: 'South Indian', days_per_week: 3 });
+    expect(profileFrom(DRAFT)).toMatchObject({ name: 'Ravi', age: 30, weight_kg: 80.5, target_weight_kg: null, cuisine: 'South Indian', days_per_week: 3, food_budget_per_day: null, prices: [] });
+  });
+
+  it('keeps the budget and the filled price rows, and skips empty ones', () => {
+    const rows = [
+      { food: ' Rice ', price: '60', per: ' 1 kg ' },
+      { food: '', price: '', per: '' },
+      { food: 'Eggs', price: '6,5', per: '1 egg' },
+    ];
+    expect(profileFrom({ ...DRAFT, budget: '150', prices: rows })).toMatchObject({
+      food_budget_per_day: 150,
+      prices: [
+        { food: 'Rice', price: 60, per: '1 kg' },
+        { food: 'Eggs', price: 6.5, per: '1 egg' },
+      ],
+    });
   });
 
   it.each([
@@ -55,6 +73,9 @@ describe('trainer profile', () => {
     [{ height_cm: '300' }, 'Height'],
     [{ weight_kg: 'heavy' }, 'Weights'],
     [{ target_weight_kg: '10' }, 'Weights'],
+    [{ budget: '0' }, 'budget'],
+    [{ prices: [{ food: 'Rice', price: '', per: '1 kg' }] }, 'check Rice'],
+    [{ prices: [{ food: 'Rice', price: '60', per: '' }] }, 'what the price is for'],
   ])('explains what is wrong with %o', (change, word) => {
     expect(profileFrom({ ...DRAFT, ...change })).toEqual(expect.stringContaining(word));
   });

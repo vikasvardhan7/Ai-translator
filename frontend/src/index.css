@@ -4717,6 +4717,10 @@ body:has(.sign-in-legal) {
   margin: 0;
 }
 
+.plan-days > .plan-day:has(.exercise-inline) {
+  grid-column: 1 / -1;
+}
+
 .plan-day[data-rest='true'] {
   background: var(--surface);
 }
@@ -4746,7 +4750,7 @@ body:has(.sign-in-legal) {
   list-style: none;
 }
 
-.plan-exercises li,
+.plan-exercises > li,
 .plan-meals > li {
   padding: 10px 12px;
   display: flex;
@@ -5368,7 +5372,7 @@ body:has(.sign-in-legal) {
   list-style: none;
 }
 
-.today-list li {
+.today-list > li {
   padding: 10px 12px;
   display: flex;
   flex-wrap: wrap;
@@ -5378,7 +5382,410 @@ body:has(.sign-in-legal) {
   background: var(--surface);
 }
 
-.today-list li[data-done='true'] {
+.today-how {
+  flex-basis: 100%;
+}
+
+.today-photo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.camera {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.camera-view {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 560px;
+  aspect-ratio: 4 / 3;
+  border-radius: 16px;
+  background: #000;
+}
+
+.camera-view video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-wait {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+.camera-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.camera-shutter {
+  min-width: 150px;
+}
+
+.found {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.found-lead {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.found-list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+}
+
+.found-food {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.found-food[data-kept='false'] {
+  opacity: 0.6;
+}
+
+.found-food[data-sure='false'] {
+  border-color: var(--danger);
+}
+
+.found-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.found-name {
+  flex: 1;
+  font-weight: 700;
+}
+
+.found-unsure {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.found-portions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.portion-chip {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--background);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.portion-chip small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.portion-chip[data-estimate='true'] span::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--sky-strong);
+  vertical-align: middle;
+}
+
+.portion-chip[aria-checked='true'] {
+  border-color: var(--sky-strong);
+  background: var(--sky-strong);
+  color: var(--button-text);
+}
+
+.portion-chip[aria-checked='true'] small {
+  color: inherit;
+}
+
+.portion-chip[aria-checked='true'][data-estimate='true'] span::before {
+  background: var(--button-text);
+}
+
+.portion-chip:focus-visible {
+  outline: 3px solid var(--sky-strong);
+  outline-offset: 2px;
+}
+
+.portion-grams {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+}
+
+.portion-grams .text-input {
+  width: 88px;
+}
+
+.found-numbers {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.found-numbers strong {
+  font-size: 1.15rem;
+}
+
+.found-numbers span,
+.found-numbers small {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.found-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.found-total {
+  margin: 0;
+}
+
+.found-total strong {
+  font-size: 1.2rem;
+}
+
+.plan-exercises .plan-exercise-last,
+.today-item .plan-exercise-last {
+  color: var(--success);
+}
+
+.exercise-inline {
+  margin-top: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--background);
+}
+
+.exercise-inline-how {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.exercise-frames {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.exercise-frames figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exercise-frames img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.exercise-frames figcaption {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.exercise-inline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exercise-inline-muscles {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.exercise-inline .exercise-steps {
+  font-size: 0.92rem;
+}
+
+.exercise-inline-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.exercise-swaps-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.exercise-swaps ul {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.exercise-swaps li {
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.exercise-swaps img,
+.exercise-swaps-blank {
+  width: 56px;
+  height: 42px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.exercise-swaps-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.trainer-money .form-help {
+  margin: 0 0 10px;
+}
+
+.price-table {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+}
+
+.price-table th {
+  padding: 0 6px 6px 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.price-table td {
+  padding: 0 6px 6px 0;
+}
+
+.price-table td:last-child,
+.price-table th:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.price-table th:nth-child(2) {
+  width: 120px;
+}
+
+.plan-day-cost,
+.plan-week-cost {
+  margin: 2px 0 0;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.plan-day-cost[data-over='true'],
+.plan-week-cost[data-over='true'] {
+  color: var(--danger);
+}
+
+.plan-meal-name .plan-meal-cost {
+  margin-left: 8px;
+  color: var(--success);
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .exercise-inline-how {
+    grid-template-columns: 1fr;
+  }
+
+  .price-table,
+  .price-table tbody,
+  .price-table tr {
+    display: block;
+  }
+
+  .price-table thead {
+    display: none;
+  }
+
+  .price-table tr {
+    margin-bottom: 8px;
+    display: grid;
+    grid-template-columns: 1fr 90px 90px auto;
+    gap: 6px;
+  }
+
+  .price-table td {
+    padding: 0;
+  }
+}
+
+.today-list > li[data-done='true'] {
   outline: 2px solid color-mix(in srgb, var(--success) 45%, transparent);
 }
 

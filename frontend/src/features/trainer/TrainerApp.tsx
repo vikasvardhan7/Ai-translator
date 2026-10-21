@@ -132,6 +132,7 @@ export default function TrainerApp() {
           <TodayTab
             state={state}
             changed={changed}
+            onState={setState}
             onPlans={() => setTab('workouts')}
             onStart={(day) => void startWorkout(day)}
             onShow={setShowing}

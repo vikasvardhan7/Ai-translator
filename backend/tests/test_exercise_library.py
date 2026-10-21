@@ -8,7 +8,7 @@ from app.services.trainer.library import (
     likeness,
     words,
 )
-from tests.fakes import IMAGES_URL, LibraryServer, fake_library
+from tests.fakes import IMAGES_URL, LIBRARY, LibraryServer, fake_library, library_entry
 
 pytestmark = pytest.mark.anyio
 
@@ -140,3 +140,25 @@ async def test_plans_are_offered_only_what_the_person_can_use() -> None:
 
     assert bodyweight == {"Pushups", "Plank"}
     assert "Atlas_Stones" not in gym and "Leg_Press" in gym
+
+
+async def test_plans_are_offered_exercises_that_suit_the_persons_level() -> None:
+    server = LibraryServer(
+        entries=[
+            *LIBRARY,
+            library_entry(
+                "Barbell_Squat", "Barbell Squat", "barbell", "quadriceps", "intermediate"
+            ),
+            library_entry("Muscle_Up", "Muscle Up", "body only", "lats", "expert"),
+            library_entry("Power_Snatch", "Power Snatch", "barbell", "hamstrings", "intermediate")
+            | {"category": "olympic weightlifting"},
+        ]
+    )
+    library = fake_library(server)
+
+    beginner = {item.id for item in await library.choices("gym", "beginner")}
+    advanced = {item.id for item in await library.choices("gym", "advanced")}
+
+    assert {"Goblet_Squat", "Barbell_Squat"} <= beginner
+    assert not {"Muscle_Up", "Power_Snatch", "Atlas_Stones"} & beginner
+    assert {"Muscle_Up", "Power_Snatch"} <= advanced and "Atlas_Stones" not in advanced

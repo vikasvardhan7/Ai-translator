@@ -6,10 +6,13 @@ import {
   estimateFoods,
   firstNumber,
   loadDay,
+  loadExercises,
+  loadHistory,
   loadProgress,
   localDay,
   photoUrl,
   removeEntry,
+  savePlan,
   shiftDay,
   uploadPhoto,
   weekdayOf,
@@ -17,19 +20,26 @@ import {
   type DaySummary,
   type Entry,
   type EntryData,
-  type Exercise,
-  type FoodItem,
+  type ExerciseCard,
+  type ExerciseLast,
+  type FoodGuess,
   type Meal,
   type TrainerState,
 } from '../../services/trainer';
 import { dayName, rounded } from './labels';
+import CameraCapture from './CameraCapture';
+import ExerciseDetails from './ExerciseDetails';
+import { guessEntry } from './food';
+import FoodFound, { type FoodChoice } from './FoodFound';
 import { shrinkPhoto } from './photos';
+import { lastTime, lastWords, nextWords, swapped } from './progression';
 import { problemText } from './problems';
 import TodayGlance, { WeekStrip } from './TodayGlance';
 
 interface TodayTabProps {
   state: TrainerState;
   changed: number;
+  onState: (state: TrainerState) => void;
   onPlans: () => void;
   onStart: (day: string) => void;
   onShow: (id: string) => void;
@@ -81,7 +91,7 @@ function describe(data: EntryData): string {
   }
 }
 
-export default function TodayTab({ state, changed, onPlans, onStart, onShow, onLookUp }: TodayTabProps) {
+export default function TodayTab({ state, changed, onState, onPlans, onStart, onShow, onLookUp }: TodayTabProps) {
   const today = localDay();
   const [day, setDay] = useState(today);
   const [log, setLog] = useState<DayLog | null>(null);
@@ -90,7 +100,8 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [foodText, setFoodText] = useState('');
   const [foodMeal, setFoodMeal] = useState('Breakfast');
-  const [found, setFound] = useState<FoodItem[] | null>(null);
+  const [found, setFound] = useState<FoodGuess[] | null>(null);
+  const [camera, setCamera] = useState(false);
   const [body, setBody] = useState({ weight: '', sleep: '', steps: '', note: '' });
   const [extra, setExtra] = useState({ name: '', sets: '3', reps: '10', weight: '', minutes: '' });
   const [photo, setPhoto] = useState<MealPhoto | null>(null);
@@ -99,6 +110,25 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
   const [week, setWeek] = useState<DaySummary[]>([]);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [nowMinutes, setNowMinutes] = useState(minutesNow);
+  const [openHow, setOpenHow] = useState<number | null>(null);
+  const [cards, setCards] = useState<ExerciseCard[] | null>(null);
+  const [history, setHistory] = useState<ExerciseLast[]>([]);
+
+  useEffect(() => {
+    let current = true;
+    loadExercises().then((found) => current && setCards(found), () => undefined);
+    return () => {
+      current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let current = true;
+    loadHistory().then((found) => current && setHistory(found), () => undefined);
+    return () => {
+      current = false;
+    };
+  }, [log]);
 
   useEffect(() => () => {
     if (preview.current) {
@@ -197,9 +227,13 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
   async function pickPhoto(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
-    if (!file) {
-      return;
+    if (file) {
+      await sendPhoto(file);
     }
+  }
+
+  async function sendPhoto(file: Blob): Promise<void> {
+    setCamera(false);
     setBusy(true);
     setProblem('');
     setFound(null);
@@ -218,20 +252,8 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
     }
   }
 
-  async function addFound(): Promise<void> {
-    if (!found) {
-      return;
-    }
-    const meals = found.map((item): EntryData => ({
-      kind: 'meal',
-      meal: foodMeal,
-      food: `${item.food}${item.amount ? `, ${item.amount}` : ''}`.slice(0, 200),
-      calories: Math.max(0, Math.round(item.calories)),
-      protein_g: item.protein_g,
-      carbs_g: item.carbs_g,
-      fat_g: item.fat_g,
-      photo_id: photo?.id ?? null,
-    }));
+  async function addFound(choices: FoodChoice[]): Promise<void> {
+    const meals = choices.map((choice) => guessEntry(choice.guess, choice.grams, foodMeal, photo?.id ?? null));
     if (await add(...meals)) {
       setFound(null);
       setFoodText('');
@@ -239,11 +261,18 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
     }
   }
 
-  function howTo(exercise: Exercise): void {
-    if (exercise.library_id) {
-      onShow(exercise.library_id);
-    } else {
-      onLookUp(exercise.name);
+  async function swapExercise(index: number, card: ExerciseCard): Promise<void> {
+    if (!state.workout) {
+      return;
+    }
+    setBusy(true);
+    setProblem('');
+    try {
+      onState(await savePlan('workout', swapped(state.workout, weekday, index, card)));
+    } catch (error) {
+      setProblem(problemText(error));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -352,9 +381,12 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
                   <li key={`${exercise.name}-${index}`} data-done={done}>
                     <span className="today-item">
                       <strong>{exercise.name}</strong>
-                      <small>{exercise.sets} × {exercise.reps}{exercise.rest_seconds ? ` · rest ${exercise.rest_seconds} s` : ''}{exercise.how ? ` · ${exercise.how}` : ''}</small>
+                      <small>{exercise.sets} × {exercise.reps}{exercise.rest_seconds ? `, rest ${exercise.rest_seconds} s` : ''}{exercise.how ? `. ${exercise.how}` : ''}</small>
+                      {lastTime(history, exercise.name) && <small className="plan-exercise-last">{lastWords(lastTime(history, exercise.name)!)}. {nextWords(lastTime(history, exercise.name)!)}</small>}
                     </span>
-                    <button className="button button-link" type="button" aria-label={`How to do ${exercise.name}`} onClick={() => howTo(exercise)}>How to</button>
+                    <button className="button button-link" type="button" aria-expanded={openHow === index} onClick={() => setOpenHow(openHow === index ? null : index)}>
+                      {openHow === index ? 'Hide how to' : 'How to'}
+                    </button>
                     <input
                       className="text-input today-weight"
                       aria-label={`Weight used for ${exercise.name}, kg`}
@@ -378,6 +410,20 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
                     >
                       {done ? 'Done ✓ again' : 'Done'}
                     </button>
+                    {openHow === index && (
+                      <div className="today-how">
+                        <ExerciseDetails
+                          exercise={exercise}
+                          cards={cards}
+                          equipment={state.profile?.equipment ?? 'gym'}
+                          level={state.profile?.level ?? 'beginner'}
+                          busy={busy}
+                          onSwap={state.workout ? (card) => void swapExercise(index, card) : undefined}
+                          onOpen={onShow}
+                          onLookUp={onLookUp}
+                        />
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -428,53 +474,37 @@ export default function TodayTab({ state, changed, onPlans, onStart, onShow, onL
             {MEALS.map((meal) => <option key={meal}>{meal}</option>)}
           </select>
           <input className="text-input plan-edit-wide" aria-label="What did you eat?" placeholder="What you ate, like 2 dosa and coconut chutney" value={foodText} maxLength={300} onChange={(event) => setFoodText(event.currentTarget.value)} />
-          <input ref={picker} className="visually-hidden" type="file" accept="image/*" tabIndex={-1} aria-hidden="true" onChange={(event) => void pickPhoto(event)} />
-          <button className="button button-secondary button-small" type="button" disabled={busy || !state.coach_ready} onClick={() => picker.current?.click()}>Photo</button>
           <button className="button button-secondary button-small" type="submit" disabled={busy || (!foodText.trim() && !photo) || !state.coach_ready}>
             {busy && photo && !found ? 'Looking at the photo' : 'Work out calories'}
           </button>
+          <div className="today-photo-buttons">
+            <button className="button button-primary button-small" type="button" disabled={busy || !state.coach_ready} aria-pressed={camera} onClick={() => setCamera(!camera)}>Take a photo</button>
+            <input ref={picker} className="visually-hidden" type="file" accept="image/*" tabIndex={-1} aria-hidden="true" onChange={(event) => void pickPhoto(event)} />
+            <button className="button button-secondary button-small" type="button" disabled={busy || !state.coach_ready} onClick={() => picker.current?.click()}>Choose a photo</button>
+          </div>
         </form>
+        {camera && (
+          <CameraCapture title="Food camera" onPhoto={(file) => void sendPhoto(file)} onClose={() => setCamera(false)} />
+        )}
         {photo && (
           <div className="today-photo">
             <img src={photo.preview} alt="Your food photo" />
             <p className="form-help">
-              {found ? 'Calories worked out from your photo. They are estimates: correct any number you know better.' : busy ? 'Looking at your photo' : 'Photo ready. Press Work out calories.'}
+              {found ? 'Your photo. Check each food below.' : busy ? 'Looking at your photo' : 'Photo ready. Press Work out calories.'}
             </p>
             {!found && <button className="button button-link" type="button" disabled={busy} onClick={() => clearPhoto(false)}>Remove photo</button>}
           </div>
         )}
         {found && (
-          <div className="today-found">
-            {found.length === 0 ? (
-              <p className="form-help">No food was recognised. {photo ? 'Try another photo, or describe it in words.' : 'Try describing it differently.'}</p>
-            ) : (
-              <ul className="today-list">
-                {found.map((item, index) => (
-                  <li key={`${item.food}-${index}`}>
-                    <span className="today-item">
-                      <strong>{item.food}{item.amount ? `, ${item.amount}` : ''}</strong>
-                      <small>P {rounded(item.protein_g)} g · C {rounded(item.carbs_g)} g · F {rounded(item.fat_g)} g</small>
-                    </span>
-                    <label className="today-kcal">
-                      <input
-                        className="text-input"
-                        type="number"
-                        min={0}
-                        aria-label={`Calories in ${item.food}`}
-                        value={item.calories}
-                        onChange={(event) => setFound(found.map((old, place) => (place === index ? { ...old, calories: Number(event.currentTarget.value) || 0 } : old)))}
-                      />
-                      kcal
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="meeting-actions">
-              <button className="button button-primary button-small" type="button" disabled={busy || found.length === 0} onClick={() => void addFound()}>Add to {foodMeal}</button>
-              <button className="button button-link" type="button" onClick={() => { setFound(null); clearPhoto(false); }}>Cancel</button>
-            </div>
-          </div>
+          <FoodFound
+            key={found.map((guess) => guess.food).join('|')}
+            guesses={found}
+            fromPhoto={Boolean(photo)}
+            meal={foodMeal}
+            busy={busy}
+            onAdd={(choices) => void addFound(choices)}
+            onCancel={() => { setFound(null); clearPhoto(false); }}
+          />
         )}
       </section>
 
